@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BLOOMBERG / NER EXCHANGE</title>
+<link rel="stylesheet" href="/static/bb.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/static/bb.js"></script>
+<style>
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+#topbar{display:flex;align-items:stretch;height:30px;background:#000;border-bottom:1px solid #7a3a00;flex-shrink:0}
+.tb-brand{background:var(--org);color:#000;font-weight:700;font-size:13px;padding:0 14px;display:flex;align-items:center;letter-spacing:2px;border-right:2px solid #000;white-space:nowrap}
+.tb-seg{display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px solid var(--bdr);font-size:11px;white-space:nowrap}
+.tb-seg .l{color:var(--txt3);font-size:10px}.tb-seg .v{color:var(--wht);font-weight:500}
+.tb-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.tb-dot.live{background:var(--up);box-shadow:0 0 5px var(--up)}.tb-dot.dead{background:var(--dn)}
+.tb-right{margin-left:auto}
+#tape{height:20px;background:#000;border-bottom:1px solid var(--bdr);overflow:hidden;display:flex;align-items:center;flex-shrink:0;position:relative}
+#tape::before,#tape::after{content:'';position:absolute;top:0;bottom:0;width:40px;z-index:2;pointer-events:none}
+#tape::before{left:0;background:linear-gradient(90deg,#000,transparent)}
+#tape::after{right:0;background:linear-gradient(-90deg,#000,transparent)}
+#tape-inner{display:flex;white-space:nowrap}
+.ti{display:inline-flex;gap:5px;align-items:center;padding:0 14px;font-size:10px;border-right:1px solid var(--bdr);cursor:pointer}
+.ti-s{color:var(--cyn);font-weight:700}.ti-p{font-variant-numeric:tabular-nums}
+.ti-chg{font-size:9px;font-variant-numeric:tabular-nums}
+@keyframes tape-flash{0%{background:rgba(255,140,0,.25)}100%{background:transparent}}
+.ti.flash{animation:tape-flash .8s ease-out}
+#fkbar{display:flex;background:#000;border-bottom:2px solid var(--bdr);flex-shrink:0;height:24px;overflow-x:auto;overflow-y:hidden}
+.fk{flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:5px;height:100%;cursor:pointer;border-right:1px solid var(--bdr);font-size:10px;transition:background .08s;user-select:none;color:var(--txt2);padding:0 12px}
+.fk:hover{background:var(--bg3);color:var(--txt)}
+.fk.active{background:var(--bg3);color:var(--wht);border-bottom:2px solid var(--org);margin-bottom:-2px}
+.fk-n{background:var(--bg4);color:var(--txt3);font-size:9px;padding:0 3px;font-weight:700}
+.fk.active .fk-n{background:var(--org);color:#000}
+.fk-l{font-size:10px;font-weight:700;letter-spacing:1px}
+#panels{flex:1;overflow:hidden;position:relative}
+.panel{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.panel.active{display:flex}
+#cmdbar{display:flex;align-items:center;height:22px;background:#000;border-top:1px solid var(--bdr);flex-shrink:0}
+.cmd-p{padding:0 8px;font-size:10px;color:var(--org);border-right:1px solid var(--bdr);height:100%;display:flex;align-items:center;white-space:nowrap}
+#cmd-in{flex:1;background:transparent;border:none;outline:none;color:var(--wht);font-family:var(--font);font-size:11px;padding:0 8px;caret-color:var(--wht)}
+#cmd-st{padding:0 10px;font-size:10px;color:var(--txt3);border-left:1px solid var(--bdr);white-space:nowrap;min-width:200px;text-align:right}
+</style>
+</head>
+<body>
+<div id="app">
+
+<div id="topbar">
+  <div class="tb-brand">BLOOMBERG</div>
+  <div class="tb-seg"><span class="l">EXCHANGE</span><span class="v">NER — REDMONT</span></div>
+  <div class="tb-seg"><span class="tb-dot dead" id="tb-dot"></span><span class="v" id="tb-conn">CONNECTING</span></div>
+  <div class="tb-seg"><span class="l">TIER</span><span class="v">ANALYST</span></div>
+  <div class="tb-seg"><span class="l">SECS</span><span class="v" id="tb-nsec">—</span></div>
+  <div class="tb-seg" id="tb-session" style="gap:12px">
+    <span><span class="l">P&amp;L </span><span class="v" id="tb-pnl" style="color:var(--txt2)">—</span></span>
+    <span><span class="l">TRADES </span><span class="v" id="tb-trades">—</span></span>
+    <span><span class="l">VOL </span><span class="v" id="tb-vol">—</span></span>
+    <span><span class="l">WIN </span><span class="v" id="tb-wr" style="color:var(--txt2)">—</span></span>
+    <canvas id="tb-spark" width="64" height="18" style="opacity:.7;margin-left:4px;cursor:pointer" title="Session equity" onclick="sw('pf')"></canvas>
+  </div>
+  <div class="tb-seg" id="tb-alerts" style="cursor:pointer;display:none" onclick="sw('al')">
+    <span style="color:var(--dn);font-weight:700" id="tb-alert-ct">0</span><span class="l" style="margin-left:4px">ALERTS</span>
+  </div>
+  <div class="tb-seg tb-right">
+    <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
+    &nbsp;<span id="tb-date" style="color:var(--txt2);font-size:10px"></span>
+  </div>
+</div>
+
+<div id="tape"><div id="tape-inner"><span class="loading" style="height:auto;font-size:10px">LOADING…</span></div></div>
+<div id="trade-feed" style="height:18px;background:#050505;border-bottom:1px solid var(--bdr);overflow:hidden;display:flex;align-items:center;flex-shrink:0;position:relative">
+  <div style="padding:0 8px;font-size:8px;font-weight:700;letter-spacing:1.5px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap;flex-shrink:0">TRADES</div>
+  <div id="trade-feed-inner" style="display:flex;align-items:center;gap:0;overflow:hidden;white-space:nowrap;flex:1;position:relative">
+    <span style="font-size:9px;color:var(--txt3);padding:0 10px">No recent trades</span>
+  </div>
+</div>
+
+<div id="fkbar">
+  <div class="fk active" data-p="mkt"  ><span class="fk-n">F1</span><span class="fk-l">MARKET</span></div>
+  <div class="fk"        data-p="tkr"  ><span class="fk-n">F2</span><span class="fk-l">TICKER</span></div>
+  <div class="fk"        data-p="pf"   ><span class="fk-n">F3</span><span class="fk-l">PORTFOLIO</span></div>
+  <div class="fk"        data-p="ord"  ><span class="fk-n">F4</span><span class="fk-l">ORDERS</span></div>
+  <div class="fk"        data-p="bt"   ><span class="fk-n">F5</span><span class="fk-l">BACKTEST</span></div>
+  <div class="fk"        data-p="cmp"  ><span class="fk-n">F6</span><span class="fk-l">COMPARE</span></div>
+  <div class="fk"        data-p="wl"   ><span class="fk-n">F7</span><span class="fk-l">WATCHLIST</span></div>
+  <div class="fk"        data-p="hm"   ><span class="fk-n">F8</span><span class="fk-l">HEATMAP</span></div>
+  <div class="fk"        data-p="exch" ><span class="fk-n">F9</span><span class="fk-l">EXCHANGE</span></div>
+  <div class="fk"        data-p="liq"  ><span class="fk-n">F10</span><span class="fk-l">LIQUIDITY</span></div>
+  <div class="fk"        data-p="hold" ><span class="fk-n">F11</span><span class="fk-l">HOLDERS</span></div>
+  <div class="fk"        data-p="scr"  ><span class="fk-n">F12</span><span class="fk-l">SCREENER</span></div>
+  <div class="fk"        data-p="al"   ><span class="fk-n">F13</span><span class="fk-l">ALERTS</span></div>
+  <div class="fk"        data-p="nf"   ><span class="fk-n">F14</span><span class="fk-l">FEED</span></div>
+</div>
+
+<div id="panels">
+  <div class="panel active" id="p-mkt" ></div>
+  <div class="panel"        id="p-tkr" ></div>
+  <div class="panel"        id="p-pf"  ></div>
+  <div class="panel"        id="p-ord" ></div>
+  <div class="panel"        id="p-bt"  ></div>
+  <div class="panel"        id="p-cmp" ></div>
+  <div class="panel"        id="p-wl"  ></div>
+  <div class="panel"        id="p-hm"  ></div>
+  <div class="panel"        id="p-exch"></div>
+  <div class="panel"        id="p-liq" ></div>
+  <div class="panel"        id="p-hold"></div>
+  <div class="panel"        id="p-scr" ></div>
+  <div class="panel"        id="p-al"  ></div>
+  <div class="panel"        id="p-nf"  ></div>
+</div>
+
+<div id="cmdbar">
+  <div class="cmd-p">CMD&gt;</div>
+  <input id="cmd-in" placeholder="F1–F14 · B=BUY · S=SELL · ESC=CLOSE · &lt;TICKER&gt; · HELP" autocomplete="off">
+  <div id="cmd-st">READY</div>
+</div>
+</div>
+
+<script>
+// ── Shared state ──────────────────────────────────────────────────────────────
+window.BB = {
+  secs: [], watchlist: [], cmpTickers: [],
+  activePanel: 'mkt',
+};
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function tick(){
+  const n=new Date();
+  document.getElementById('tb-clock').textContent=n.toLocaleTimeString('en-GB');
+  document.getElementById('tb-date').textContent=n.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'2-digit'}).toUpperCase();
+}
+setInterval(tick,1000);tick();
+
+// ── Page loader — properly awaits script execution ────────────────────────────
+const PAGE_SRCS = {
+  mkt:'market',tkr:'ticker',pf:'portfolio',ord:'orders',
+  bt:'backtest',cmp:'compare',wl:'watchlist',hm:'heatmap',
+  exch:'exchange',liq:'liquidity',hold:'holders',
+  scr:'screener',al:'alerts',nf:'news'
+};
+const loaded = new Set();
+
+function injectScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.textContent = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+    // Inline scripts execute synchronously on append — resolve immediately
+    resolve();
+  });
+}
+
+async function loadPage(id) {
+  if(loaded.has(id)) return;
+  loaded.add(id);
+  const name = PAGE_SRCS[id];
+  const resp = await fetch(`/page/${name}`);
+  if(!resp.ok){ console.error('Failed to load page', name, resp.status); return; }
+  const html = await resp.text();
+  const panel = document.getElementById(`p-${id}`);
+  
+  // Parse and inject: non-script HTML first, then scripts sequentially
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  
+  // Extract scripts before setting innerHTML (they won't auto-run)
+  const scripts = [...tmp.querySelectorAll('script')];
+  scripts.forEach(s => s.remove());
+  
+  // Set HTML content
+  panel.innerHTML = tmp.innerHTML;
+  
+  // Run scripts sequentially and synchronously
+  for(const s of scripts) {
+    const ns = document.createElement('script');
+    if(s.src) {
+      // External script — await load
+      await new Promise((res, rej) => {
+        ns.src = s.src; ns.onload = res; ns.onerror = rej;
+        document.head.appendChild(ns);
+      });
+    } else {
+      // Inline script — runs synchronously on append
+      ns.textContent = s.textContent;
+      document.head.appendChild(ns);
+    }
+  }
+}
+
+// ── Tab switch ────────────────────────────────────────────────────────────────
+async function sw(id) {
+  document.querySelectorAll('.fk').forEach(f=>f.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelector(`[data-p="${id}"]`).classList.add('active');
+  document.getElementById(`p-${id}`).classList.add('active');
+  BB.activePanel = id;
+  await loadPage(id);
+  // By here all scripts have executed synchronously — safe to call onShow
+  if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
+}
+
+// ── Wire FK clicks ────────────────────────────────────────────────────────────
+document.querySelectorAll('.fk').forEach(fk=>{
+  fk.addEventListener('click',()=>sw(fk.dataset.p));
+});
+document.addEventListener('keydown',e=>{
+  const m={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf'};
+  if(m[e.key]){e.preventDefault();sw(m[e.key]);return;}
+  // Global shortcuts — only fire when command bar is not focused
+  const cmd=document.getElementById('cmd-in');
+  if(document.activeElement===cmd) return;
+  // B = quick buy, S = quick sell → open orders page with side pre-set
+  if(e.key==='b'||e.key==='B'){sw('ord');setTimeout(()=>{if(window.opSide)opSide('buy');},300);}
+  if(e.key==='s'||e.key==='S'){sw('ord');setTimeout(()=>{if(window.opSide)opSide('sell');},300);}
+  // Esc = close any open modal or flyout tool
+  if(e.key==='Escape'){
+    if(window.opmClose) opmClose();
+    if(window.opCloseTool) opCloseTool();
+  }
+});
+
+// ── Ticker tape ───────────────────────────────────────────────────────────────
+function buildTape(newList){
+  const inner=document.getElementById('tape-inner');
+  // detect changes from previous render and flash those tickers
+  const prev=window._tapePrev||{};
+  const changed=new Set(newList.filter(s=>prev[s.ticker]&&prev[s.ticker]!==s.market_price).map(s=>s.ticker));
+  window._tapePrev=Object.fromEntries(newList.map(s=>[s.ticker,s.market_price]));
+  const chg=s=>s.change_pct??0;
+  inner.innerHTML=newList.map(s=>`<span class="ti${changed.has(s.ticker)?' flash':''}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${s.ticker}'),200)">
+    <span class="ti-s">${s.ticker}</span>
+    <span class="ti-p" style="color:${gcI(chg(s))}">${f(s.market_price,4)}</span>
+    <span class="ti-chg" style="color:${gcI(chg(s))}">${chg(s)>=0?'+':''}${chg(s).toFixed(2)}%</span>
+  </span>`).join('');
+  inner.innerHTML+=inner.innerHTML;
+  let pos=0;clearInterval(window._tape);
+  window._tape=setInterval(()=>{pos-=.5;if(-pos>=inner.scrollWidth/2)pos=0;inner.style.transform=`translateX(${pos}px)`;},16);
+}
+
+// ── Command line ──────────────────────────────────────────────────────────────
+document.getElementById('cmd-in').addEventListener('keydown', e=>{
+  if(e.key!=='Enter')return;
+  const raw=e.target.value.trim().toUpperCase();e.target.value='';if(!raw)return;
+  const parts=raw.split(/\s+/);
+  const fk={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf'};
+  const st=id=>document.getElementById('cmd-st').textContent=id;
+  if(fk[parts[0]]){sw(fk[parts[0]]);return;}
+  if(parts[0]==='HELP'){st('F1-F14 | TICKER | WATCH TICKER | LIQ TICKER | SCR | FEED | HELP | CLEAR');return;}
+  if(parts[0]==='SCR'){sw('scr');return;}
+  if(parts[0]==='FEED'||parts[0]==='NEWS'){sw('nf');return;}
+  if(parts[0]==='CLEAR'){st('—');return;}
+  if(parts[0]==='WATCH'&&parts[1]){
+    if(!BB.watchlist.find(w=>w.ticker===parts[1]))
+      BB.watchlist.push({ticker:parts[1],price:null,prev:null,hi:null,lo:null});
+    sw('wl');st('Added '+parts[1]+' to watchlist');return;
+  }
+  if(parts[0]==='LIQ'&&parts[1]){
+    sw('liq');
+    // Give page time to mount then call load
+    const check=setInterval(()=>{if(window.PAGE_liq_load){clearInterval(check);PAGE_liq_load(parts[1]);}},50);
+    return;
+  }
+  const sec=BB.secs.find(s=>s.ticker===parts[0]);
+  if(sec){
+    sw('tkr');
+    // Ticker page mounts synchronously via loadPage, so PAGE_tkr_load is available
+    const check=setInterval(()=>{if(window.PAGE_tkr_load){clearInterval(check);PAGE_tkr_load(parts[0]);}},50);
+    st(parts[0]+' — '+sec.full_name);
+  } else {
+    st('UNKNOWN: '+parts[0]);
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init(){
+  const r=await api('/api/securities');
+  const dot=document.getElementById('tb-dot'),conn=document.getElementById('tb-conn');
+  if(!r.ok){conn.textContent='OFFLINE';dot.className='tb-dot dead';return;}
+  BB.secs=r.d;
+  dot.className='tb-dot live';conn.textContent='LIVE';
+  document.getElementById('tb-nsec').textContent=BB.secs.length;
+  buildTape(BB.secs);
+  // Load and show first page
+  await loadPage('mkt');
+  if(window.PAGE_mkt_onShow) PAGE_mkt_onShow();
+  // Re-call onShow for any already-active panel so ticker selects get populated
+  if(BB.activePanel && BB.activePanel!=='mkt' && window[`PAGE_${BB.activePanel}_onShow`])
+    window[`PAGE_${BB.activePanel}_onShow`]();
+  updateSessionStats();
+  updateTradeFeed();
+}
+
+// Session equity history for spark
+window._sessionEquity = [];
+
+async function updateSessionStats(){
+  const [txR, pfR] = await Promise.all([
+    api('/api/transactions?type=Trade&limit=200'),
+    api('/api/portfolio')
+  ]);
+
+  // ── Trades / volume ──────────────────────────────────────────
+  const txs = txR.ok && Array.isArray(txR.d) ? txR.d : [];
+  const today = new Date().toISOString().slice(0,10);
+  const todayTxs = txs.filter(tx=>tx.timestamp&&tx.timestamp.slice(0,10)===today);
+  const trades = todayTxs.length;
+  const vol = todayTxs.reduce((s,tx)=>s+Math.abs(tx.quantity||0),0);
+  const te=document.getElementById('tb-trades'); if(te) te.textContent=trades;
+  const ve=document.getElementById('tb-vol');    if(ve) ve.textContent=fk(vol);
+
+  // ── Win rate (FIFO realized P&L) ─────────────────────────────
+  let wins=0, losses=0;
+  const buyQs = {};
+  [...txs].reverse().forEach(tx => {
+    if(tx.type!=='Trade'||!tx.ticker) return;
+    const tk=tx.ticker, isBuy=(tx.amount||0)<0;
+    if(!buyQs[tk]) buyQs[tk]=[];
+    if(isBuy) {
+      buyQs[tk].push({qty:Math.abs(tx.quantity||0),price:tx.price||0});
+    } else {
+      let rem=Math.abs(tx.quantity||0), sp=tx.price||0;
+      while(rem>0&&buyQs[tk].length) {
+        const b=buyQs[tk][0], m=Math.min(rem,b.qty);
+        const pnl=m*(sp-b.price);
+        if(pnl>0) wins++; else if(pnl<0) losses++;
+        b.qty-=m; rem-=m; if(b.qty<=0) buyQs[tk].shift();
+      }
+    }
+  });
+  const wr = (wins+losses)>0 ? Math.round(wins/(wins+losses)*100)+'%' : '—';
+  const wrEl=document.getElementById('tb-wr');
+  if(wrEl){
+    wrEl.textContent=wr;
+    if((wins+losses)>0) wrEl.style.color=wins>=losses?'var(--up)':'var(--dn)';
+  }
+
+  // ── P&L + session equity spark ───────────────────────────────
+  if(pfR.ok) {
+    const holds=pfR.d.holdings||[];
+    const pnl=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+    const totalEq = pfR.d.total_equity||1;
+    const pnlEl=document.getElementById('tb-pnl');
+    if(pnlEl){pnlEl.textContent=(pnl>=0?'+':'')+f(pnl,0);pnlEl.style.color=gcI(pnl/Math.abs(totalEq)*100);}
+    // Track equity over session
+    window._sessionEquity.push(totalEq);
+    if(window._sessionEquity.length>120) window._sessionEquity.shift();
+    drawSessionSpark(window._sessionEquity);
+  }
+}
+
+function drawSessionSpark(pts) {
+  const canvas = document.getElementById('tb-spark');
+  if(!canvas||pts.length<2) return;
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const mn=Math.min(...pts), mx=Math.max(...pts), rng=mx-mn||1;
+  const x=i=>(i/(pts.length-1))*(W-2)+1;
+  const y=v=>H-2-((v-mn)/rng)*(H-4);
+  const up=pts[pts.length-1]>=pts[0];
+  ctx.strokeStyle=up?'rgba(0,200,83,.9)':'rgba(244,67,54,.9)';
+  ctx.lineWidth=1.2;
+  ctx.beginPath();
+  pts.forEach((p,i)=>i?ctx.lineTo(x(i),y(p)):ctx.moveTo(x(i),y(p)));
+  ctx.stroke();
+  // subtle fill
+  ctx.fillStyle=up?'rgba(0,200,83,.12)':'rgba(244,67,54,.12)';
+  ctx.lineTo(x(pts.length-1),H); ctx.lineTo(x(0),H); ctx.closePath(); ctx.fill();
+}
+
+// ── Trade feed ───────────────────────────────────────────────────────────────
+let _lastTradeTs = null;
+let _tradeFeedItems = [];
+
+async function updateTradeFeed() {
+  const r = await api('/api/transactions?type=Trade&limit=20');
+  if(!r.ok || !Array.isArray(r.d) || !r.d.length) return;
+  const inner = document.getElementById('trade-feed-inner');
+  if(!inner) return;
+
+  // Find new trades since last check
+  const newTrades = _lastTradeTs
+    ? r.d.filter(tx => tx.timestamp && tx.timestamp > _lastTradeTs)
+    : r.d.slice(0,5);
+
+  if(newTrades.length || !_tradeFeedItems.length) {
+    _lastTradeTs = r.d[0]?.timestamp || _lastTradeTs;
+    // Prepend new trades, keep last 30
+    _tradeFeedItems = [...newTrades, ..._tradeFeedItems].slice(0,30);
+    if(!_tradeFeedItems.length) _tradeFeedItems = r.d.slice(0,10);
+  }
+
+  if(!_tradeFeedItems.length) return;
+
+  inner.innerHTML = _tradeFeedItems.map(tx => {
+    const isBuy = (tx.amount||0) < 0;
+    const col = isBuy ? 'var(--up)' : 'var(--dn)';
+    const side = isBuy ? '▲' : '▼';
+    const t = tx.timestamp ? new Date(tx.timestamp).toLocaleTimeString('en-GB',{hour12:false,hour:'2-digit',minute:'2-digit'}) : '';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:0 10px;border-right:1px solid var(--bdr);font-size:9px;cursor:pointer;flex-shrink:0"
+      onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${tx.ticker}'),200)">
+      <span style="color:var(--txt3);font-size:8px">${t}</span>
+      <span style="color:${col};font-weight:700">${side}</span>
+      <span style="color:var(--cyn);font-weight:700">${tx.ticker||'?'}</span>
+      <span style="color:var(--wht)">${tx.quantity!=null?tx.quantity.toLocaleString():'?'}</span>
+      <span style="color:${col}">$${tx.price!=null?f(tx.price,4):'?'}</span>
+    </span>`;
+  }).join('');
+}
+
+setInterval(async()=>{
+  const r=await api('/api/securities');
+  if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;
+    if(BB.activePanel && window[`PAGE_${BB.activePanel}_onShow`]) window[`PAGE_${BB.activePanel}_onShow`]();}
+  // Update alert badge from fired log
+  try{
+    const log=JSON.parse(localStorage.getItem('al_log')||'[]');
+    const recent=log.filter(e=>Date.now()-new Date(e.isoTime||0).getTime()<3600000).length;
+    const badge=document.getElementById('tb-alerts');
+    if(badge){badge.style.display=recent>0?'flex':'none';document.getElementById('tb-alert-ct').textContent=recent;}
+  }catch(e){}
+  updateSessionStats();
+  updateTradeFeed();
+},30000);
+
+setInterval(updateSessionStats, 60000);
+setInterval(updateTradeFeed, 15000);
+
+init();
+</script>
+</body>
+</html>
