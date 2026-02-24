@@ -1,0 +1,185 @@
+<!-- F7: WATCHLIST — Smart monitoring with RSI/volume/volatility alerts -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+<div class="frow">
+  <div class="ff"><label>ADD TICKER</label>
+    <select id="wl-sel" style="min-width:160px"><option value="">SELECT</option></select>
+  </div>
+  <div class="ff"><label>ALERT ABOVE</label><input type="number" id="wl-ahi" step="0.01" placeholder="—" style="width:76px"></div>
+  <div class="ff"><label>ALERT BELOW</label><input type="number" id="wl-alo" step="0.01" placeholder="—" style="width:76px"></div>
+  <div class="ff"><label>RSI ABOVE</label><input type="number" id="wl-rhi" step="1" placeholder="70" style="width:54px"></div>
+  <div class="ff"><label>RSI BELOW</label><input type="number" id="wl-rlo" step="1" placeholder="30" style="width:54px"></div>
+  <button class="btn on" onclick="wlAdd()">+ WATCH</button>
+  <button class="btn" onclick="wlRefresh()">REFRESH</button>
+  <span style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px">Auto-refresh every 30s</span>
+</div>
+
+<div class="wrow" style="flex:1">
+  <div class="win" style="width:400px;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">WATCHLIST</span><span class="wsub" id="wl-count"></span></div>
+      <div class="wbar-r"><span id="wl-last-upd" style="font-size:9px;color:var(--txt3)"></span></div>
+    </div>
+    <div class="scroll" id="wl-list"><div class="loading">EMPTY — ADD TICKERS</div></div>
+  </div>
+
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">QUICK CHART</span><span class="wsub" id="wl-ct"></span></div></div>
+    <div class="chart-wrap"><canvas id="wl-c"></canvas></div>
+  </div>
+
+  <div class="wcol" style="width:230px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">WATCHLIST STATS</span></div></div>
+      <div style="padding:8px;font-size:11px" id="wl-stats"><div class="loading">—</div></div>
+    </div>
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">VOLATILITY RANK</span></div></div>
+      <div class="scroll" id="wl-vol-rank"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+(function(){
+let _wlC=null, _rsiCache={};
+
+window.PAGE_wl_onShow=function(){
+  populateSel('wl-sel');
+  wlRefresh();
+};
+
+window.wlAdd=function(){
+  const t=document.getElementById('wl-sel').value; if(!t) return;
+  if(BB.watchlist.find(w=>w.ticker===t)) return;
+  const hi  =parseFloat(document.getElementById('wl-ahi').value)||null;
+  const lo  =parseFloat(document.getElementById('wl-alo').value)||null;
+  const rhi =parseFloat(document.getElementById('wl-rhi').value)||null;
+  const rlo =parseFloat(document.getElementById('wl-rlo').value)||null;
+  BB.watchlist.push({ticker:t,price:null,prev:null,hi,lo,rhi,rlo,rsi:null});
+  document.getElementById('wl-ahi').value='';document.getElementById('wl-alo').value='';
+  document.getElementById('wl-rhi').value='';document.getElementById('wl-rlo').value='';
+  wlRefresh();
+};
+
+window.wlRefresh=async function(){
+  if(!BB.watchlist.length){
+    document.getElementById('wl-list').innerHTML='<div class="loading">EMPTY — ADD TICKERS ABOVE</div>';
+    document.getElementById('wl-count').textContent='';
+    document.getElementById('wl-stats').innerHTML='<div class="loading">—</div>';
+    document.getElementById('wl-vol-rank').innerHTML='<div class="loading">—</div>';
+    return;
+  }
+  document.getElementById('wl-count').textContent=` (${BB.watchlist.length})`;
+
+  // Fetch current prices + RSI from ticker stats
+  await Promise.all(BB.watchlist.map(async w=>{
+    const sec=BB.secs.find(s=>s.ticker===w.ticker);
+    w.prev=w.price;
+    w.price=sec?.market_price??w.price;
+    // Fetch RSI from 30D stats (cached)
+    if(!_rsiCache[w.ticker]||Date.now()-_rsiCache[w.ticker].ts>60000){
+      const r=await api(`/api/ticker_stats/${w.ticker}?days=30`);
+      if(r.ok&&r.d.rsi14){
+        const rsiArr=r.d.rsi14.filter(v=>v!=null);
+        w.rsi=rsiArr.length?rsiArr[rsiArr.length-1]:null;
+        w.annVol=r.d.volatility_ann_pct||null;
+        _rsiCache[w.ticker]={ts:Date.now(),rsi:w.rsi,annVol:w.annVol};
+      }
+    } else {
+      w.rsi=_rsiCache[w.ticker].rsi;
+      w.annVol=_rsiCache[w.ticker].annVol;
+    }
+  }));
+
+  document.getElementById('wl-last-upd').textContent='Updated '+new Date().toLocaleTimeString('en-GB');
+  renderWL();
+  renderWLStats();
+  renderVolRank();
+};
+
+function renderWL(){
+  document.getElementById('wl-list').innerHTML=BB.watchlist.map((w,i)=>{
+    const chg=w.prev&&w.price?((w.price-w.prev)/w.prev*100):0;
+    const aH=w.hi&&w.price>w.hi, aL=w.lo&&w.price<w.lo;
+    const aRH=w.rhi!=null&&w.rsi!=null&&w.rsi>w.rhi, aRL=w.rlo!=null&&w.rsi!=null&&w.rsi<w.rlo;
+    const anyAlert=aH||aL||aRH||aRL;
+    const rsiColor=w.rsi>70?'var(--dn)':w.rsi<30?'var(--up)':'var(--txt3)';
+    return `<div style="display:flex;align-items:center;padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.4);gap:5px;font-size:11px;${anyAlert?'background:rgba(255,140,0,.06)':''};cursor:pointer"
+        onclick="wlLoadChart('${w.ticker}')">
+      <span style="width:58px;font-weight:700;color:var(--wht)">${w.ticker}</span>
+      <span style="width:72px;font-variant-numeric:tabular-nums;color:${anyAlert?'var(--org)':'var(--wht)'};font-weight:${anyAlert?700:400}">${f(w.price)}</span>
+      <span style="width:64px;text-align:right;font-weight:600;color:${gc(chg)}">${fp(chg)}</span>
+      <span style="width:42px;text-align:right;font-size:9px;color:${rsiColor}">${w.rsi!=null?'RSI '+w.rsi.toFixed(0):'—'}</span>
+      <span style="flex:1;font-size:9px;color:var(--txt3)">${w.annVol!=null?w.annVol+'%v':''}</span>
+      <span style="font-size:9px;display:flex;gap:2px">
+        ${aH?'<span class="badge b-org">&#9650;HI</span>':''}
+        ${aL?'<span class="badge b-org">&#9660;LO</span>':''}
+        ${aRH?'<span class="badge b-dn">OB</span>':''}
+        ${aRL?'<span class="badge b-up">OS</span>':''}
+      </span>
+      <span style="font-size:9px;color:var(--txt3);cursor:pointer;padding:0 3px" onclick="event.stopPropagation();wlDel(${i})">&#10005;</span>
+    </div>`;
+  }).join('');
+}
+
+function renderWLStats(){
+  const wl=BB.watchlist.filter(w=>w.price);
+  if(!wl.length){ document.getElementById('wl-stats').innerHTML='<div class="loading">—</div>'; return; }
+  const chgs=wl.map(w=>w.prev&&w.price?((w.price-w.prev)/w.prev*100):0);
+  const ups=chgs.filter(c=>c>0).length,dns=chgs.filter(c=>c<0).length;
+  const avg=chgs.reduce((s,c)=>s+c,0)/chgs.length;
+  const alerts=BB.watchlist.filter(w=>(w.hi&&w.price>w.hi)||(w.lo&&w.price<w.lo)||(w.rhi!=null&&w.rsi>w.rhi)||(w.rlo!=null&&w.rsi<w.rlo)).length;
+  const obCount=wl.filter(w=>w.rsi>70).length, osCount=wl.filter(w=>w.rsi<30).length;
+  document.getElementById('wl-stats').innerHTML=`
+    <div class="rm"><span class="k">TICKERS</span><span class="v wht">${BB.watchlist.length}</span></div>
+    <div class="rm"><span class="k">ADVANCING</span><span class="v up">${ups}</span></div>
+    <div class="rm"><span class="k">DECLINING</span><span class="v dn">${dns}</span></div>
+    <div class="rm"><span class="k">AVG CHG</span><span class="v" style="color:${gc(avg)}">${fp(avg)}</span></div>
+    <div class="rm"><span class="k">ALERTS</span><span class="v ${alerts?'org':'dim'}">${alerts}</span></div>
+    <div class="rm"><span class="k">RSI OVERBOUGHT</span><span class="v ${obCount?'dn':'dim'}">${obCount}</span></div>
+    <div class="rm"><span class="k">RSI OVERSOLD</span><span class="v ${osCount?'up':'dim'}">${osCount}</span></div>
+    <div style="margin-top:8px">
+      <div style="font-size:9px;color:var(--txt3);margin-bottom:3px">BREADTH</div>
+      <div style="height:5px;background:var(--bdr);display:flex">
+        <div style="background:var(--up);width:${(ups/wl.length*100).toFixed(0)}%;height:100%"></div>
+        <div style="background:var(--dn);width:${(dns/wl.length*100).toFixed(0)}%;height:100%"></div>
+      </div>
+    </div>`;
+}
+
+function renderVolRank(){
+  const wl=BB.watchlist.filter(w=>w.annVol!=null);
+  if(!wl.length){ document.getElementById('wl-vol-rank').innerHTML='<div class="loading">—</div>'; return; }
+  const sorted=[...wl].sort((a,b)=>b.annVol-a.annVol);
+  const maxV=sorted[0].annVol||1;
+  document.getElementById('wl-vol-rank').innerHTML=sorted.map(w=>`
+    <div style="padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+        <span class="wht" style="font-weight:700">${w.ticker}</span>
+        <span class="yel">${w.annVol}% pa</span>
+      </div>
+      <div style="height:3px;background:var(--bdr)">
+        <div style="height:100%;background:${w.annVol>50?'var(--dn)':w.annVol>25?'var(--org)':'var(--yel)'};width:${(w.annVol/maxV*100).toFixed(0)}%"></div>
+      </div>
+    </div>`).join('');
+}
+
+window.wlDel=function(i){ BB.watchlist.splice(i,1); wlRefresh(); };
+
+window.wlLoadChart=async function(ticker){
+  document.getElementById('wl-ct').textContent=' '+ticker;
+  const r=await api(`/api/analytics/price_history/${ticker}?days=30`);
+  _wlC=dc(_wlC);
+  if(r.ok&&r.d.length){
+    const pts=r.d, chg=(pts[pts.length-1].price-pts[0].price)/pts[0].price*100;
+    _wlC=mkLine(document.getElementById('wl-c'),
+      pts.map(p=>p.timestamp.slice(5,10)),
+      [{data:pts.map(p=>p.price),borderColor:chg>=0?'#00c853':'#f44336',borderWidth:1.5,
+        pointRadius:0,fill:true,backgroundColor:chg>=0?'rgba(0,200,83,.06)':'rgba(244,67,54,.06)',tension:.2}]);
+  }
+};
+
+setInterval(()=>{ if(BB.activePanel==='wl'&&BB.watchlist.length) wlRefresh(); },30000);
+})();
+</script>

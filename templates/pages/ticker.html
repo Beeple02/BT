@@ -1,0 +1,331 @@
+<!-- F2: TICKER — Institutional deep dive (fixed + enhanced) -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- Controls row -->
+<div class="frow">
+  <div class="ff"><label>TICKER</label>
+    <select id="tkr-sel" style="min-width:180px"><option value="">SELECT…</option></select>
+  </div>
+  <div class="ff"><label>RANGE</label>
+    <select id="tkr-rng">
+      <option value="7">7D</option><option value="14">14D</option><option value="30" selected>30D</option>
+      <option value="60">60D</option><option value="90">90D</option><option value="180">180D</option>
+    </select>
+  </div>
+  <div class="ff"><label>CHART TYPE</label>
+    <select id="tkr-ct"><option value="line">LINE</option><option value="candle">OHLCV</option></select>
+  </div>
+  <div class="ff"><label>OVERLAYS</label>
+    <div style="display:flex;gap:3px">
+      <button class="btn btn-xs" id="ov-sma20"  onclick="tkrOv('sma20')">SMA20</button>
+      <button class="btn btn-xs" id="ov-sma50"  onclick="tkrOv('sma50')">SMA50</button>
+      <button class="btn btn-xs" id="ov-sma100" onclick="tkrOv('sma100')">SMA100</button>
+      <button class="btn btn-xs on" id="ov-vwap" onclick="tkrOv('vwap')">VWAP</button>
+      <button class="btn btn-xs" id="ov-bb"     onclick="tkrOv('bb')">BB</button>
+    </div>
+  </div>
+  <div style="margin-left:auto;display:flex;align-items:flex-end;gap:14px">
+    <div><div class="kpi-l">LAST</div><div id="tkr-px" class="kpi-v">—</div></div>
+    <div><div class="kpi-l">CHG%</div><div id="tkr-chg" class="kpi-v2">—</div></div>
+    <div><div class="kpi-l">ANN.VOL</div><div id="tkr-vol" class="kpi-v2 yel">—</div></div>
+    <div><div class="kpi-l">SHARPE</div><div id="tkr-shrp" class="kpi-v2">—</div></div>
+    <div><div class="kpi-l">MAX DD</div><div id="tkr-mdd" class="kpi-v2 dn">—</div></div>
+    <span id="tkr-frz" class="badge b-cyn" style="display:none;margin-bottom:4px">FROZEN</span>
+  </div>
+</div>
+
+<!-- Stat strip -->
+<div class="sstrip">
+  <div class="ss"><div class="ss-l">OPEN</div><div class="ss-v" id="ts-o">—</div></div>
+  <div class="ss"><div class="ss-l">HIGH</div><div class="ss-v up" id="ts-h">—</div></div>
+  <div class="ss"><div class="ss-l">LOW</div><div class="ss-v dn" id="ts-l">—</div></div>
+  <div class="ss"><div class="ss-l">CLOSE</div><div class="ss-v" id="ts-c">—</div></div>
+  <div class="ss"><div class="ss-l">VOLUME</div><div class="ss-v" id="ts-v">—</div></div>
+  <div class="ss"><div class="ss-l">AVG VOL</div><div class="ss-v" id="ts-av">—</div></div>
+  <div class="ss"><div class="ss-l">PERIOD H</div><div class="ss-v up" id="ts-ph">—</div></div>
+  <div class="ss"><div class="ss-l">PERIOD L</div><div class="ss-v dn" id="ts-pl">—</div></div>
+  <div class="ss"><div class="ss-l">ATR(14)</div><div class="ss-v yel" id="ts-atr">—</div></div>
+  <div class="ss"><div class="ss-l">MKT CAP</div><div class="ss-v" id="ts-mc">—</div></div>
+</div>
+
+<div class="wrow" style="flex:1">
+
+  <!-- Charts column -->
+  <div class="wcol">
+    <div class="win" style="flex:3;border-right:0;border-bottom:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PRICE HISTORY</span></div>
+        <div class="wbar-r" id="tkr-leg" style="gap:10px;font-size:9px"></div>
+      </div>
+      <div class="chart-wrap"><canvas id="tkr-c"></canvas></div>
+    </div>
+    <div class="win" style="height:68px;border-right:0;border-top:0;border-bottom:0">
+      <div class="wbar" style="height:14px"><div class="wbar-l"><span class="wnum" style="font-size:8px">2</span><span class="wtitle" style="font-size:9px">MACD (12/26/9)</span><span class="wsub" id="macd-val"></span></div></div>
+      <div class="chart-wrap" style="padding:2px"><canvas id="tkr-macd"></canvas></div>
+    </div>
+    <div class="win" style="height:63px;border-right:0;border-top:0;border-bottom:0">
+      <div class="wbar" style="height:14px"><div class="wbar-l"><span class="wnum" style="font-size:8px">3</span><span class="wtitle" style="font-size:9px">RSI (14)</span><span class="wsub" id="rsi-val"></span></div></div>
+      <div class="chart-wrap" style="padding:2px"><canvas id="tkr-rsi"></canvas></div>
+    </div>
+    <div class="win" style="height:52px;border-right:0;border-top:0">
+      <div class="wbar" style="height:14px"><div class="wbar-l"><span class="wnum" style="font-size:8px">4</span><span class="wtitle" style="font-size:9px">VOLUME</span></div></div>
+      <div class="chart-wrap" style="padding:2px"><canvas id="tkr-vc"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Right panels -->
+  <div class="wcol" style="max-width:205px">
+    <!-- Order Book -->
+    <div class="win" style="flex:1;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">ORDER BOOK</span></div><div class="wbar-r" id="tkr-spr"></div></div>
+      <div class="scroll" id="tkr-ob"><div class="loading">—</div></div>
+    </div>
+    <!-- Microstructure -->
+    <div class="win" style="height:148px;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">MICROSTRUCTURE</span></div></div>
+      <div id="tkr-micro" style="padding:5px 8px;font-size:10px">—</div>
+    </div>
+    <!-- Risk Profile -->
+    <div class="win" style="height:148px;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">7</span><span class="wtitle">RISK PROFILE</span></div></div>
+      <div id="tkr-risk" style="padding:5px 8px;font-size:10px">—</div>
+    </div>
+    <!-- Shareholder Intelligence -->
+    <div class="win" style="height:148px;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">8</span><span class="wtitle">HOLDER INTEL</span></div></div>
+      <div id="tkr-hi" style="padding:5px 8px;font-size:10px">—</div>
+    </div>
+    <!-- Shareholders list -->
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">9</span><span class="wtitle">SHAREHOLDERS</span></div></div>
+      <div class="scroll" id="tkr-sh"><div class="loading">—</div></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<style>
+.kpi-l{font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:1px}
+.kpi-v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--wht)}
+.kpi-v2{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+.micro-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 6px}
+.micro-grid .k{color:var(--txt3);font-size:9px;letter-spacing:.5px}
+.micro-grid .v{font-variant-numeric:tabular-nums;font-size:10px;font-weight:600}
+</style>
+
+<script>
+(function(){
+let _d=null, _ovs=new Set(['vwap']), _ch={};
+
+window.PAGE_tkr_onShow = function(){
+  populateSel('tkr-sel');
+  const sel=document.getElementById('tkr-sel');
+  sel.onchange = () => PAGE_tkr_load(sel.value);
+  document.getElementById('tkr-rng').onchange = () => { if(sel.value) PAGE_tkr_load(sel.value); };
+  document.getElementById('tkr-ct').onchange  = () => { if(sel.value) PAGE_tkr_load(sel.value); };
+};
+
+window.PAGE_tkr_load = async function(ticker) {
+  if(!ticker) return;
+  document.getElementById('tkr-sel').value = ticker;
+  const days  = document.getElementById('tkr-rng').value;
+  const ctype = document.getElementById('tkr-ct').value;
+
+  const [sR, obR, hiR] = await Promise.all([
+    api(`/api/ticker_stats/${ticker}?days=${days}`),
+    api(`/api/orderbook?ticker=${ticker}`),
+    api(`/api/holder_intel/${ticker}`)
+  ]);
+
+  if(!sR.ok) {
+    document.getElementById('tkr-px').textContent = 'ERR';
+    document.getElementById('tkr-px').style.color = 'var(--dn)';
+    console.error('ticker_stats failed', sR.s, sR.d);
+    return;
+  }
+  _d = sR.d;
+  const cs=_d.candles, cl=cs.map(c=>c.close), hi=cs.map(c=>c.high), lo=cs.map(c=>c.low);
+  const vols=cs.map(c=>c.volume), dates=cs.map(c=>c.date), last=cl[cl.length-1];
+  const sec = (BB.secs||[]).find(s=>s.ticker===ticker) || {};
+
+  // ── Header KPIs ────────────────────────────────────────────────────────────
+  const set = (id, v, cls) => { const e=document.getElementById(id); if(!e) return; e.textContent=v; if(cls) e.className=e.className.replace(/up|dn|yel/g,'')+' '+cls; };
+  set('tkr-px',   f(last)); document.getElementById('tkr-px').style.color = gc(_d.price_chg_pct);
+  set('tkr-chg',  fp(_d.price_chg_pct)); document.getElementById('tkr-chg').style.color = gc(_d.price_chg_pct);
+  set('tkr-vol',  _d.volatility_ann_pct + '%');
+  set('tkr-shrp', f(_d.sharpe, 2)); document.getElementById('tkr-shrp').style.color = gc(_d.sharpe);
+  set('tkr-mdd',  '-' + _d.max_drawdown_pct + '%');
+  document.getElementById('tkr-frz').style.display = sec.frozen ? 'inline-block' : 'none';
+
+  // ── Stat strip ─────────────────────────────────────────────────────────────
+  const lc = cs[cs.length-1];
+  const lastATR = (_d.atr14||[]).filter(v=>v!=null).pop();
+  set('ts-o',  f(lc.open)); set('ts-h', f(lc.high)); set('ts-l', f(lc.low));
+  set('ts-c',  f(lc.close));
+  set('ts-v',  lc.volume != null ? lc.volume.toLocaleString() : '—');
+  set('ts-av', (_d.avg_volume||0).toLocaleString());
+  set('ts-ph', f(_d.high_period)); set('ts-pl', f(_d.low_period));
+  set('ts-atr', lastATR ? f(lastATR,4) : '—');
+  set('ts-mc',  sec.total_shares ? fk(sec.total_shares * last) : '—');
+
+  // ── Destroy old charts ─────────────────────────────────────────────────────
+  Object.values(_ch).forEach(c => c && c.destroy()); _ch = {};
+
+  // ── Price chart ────────────────────────────────────────────────────────────
+  if(ctype === 'candle') {
+    _ch.price = mkCandle(document.getElementById('tkr-c'), cs);
+  } else {
+    const ds = [{label:'Close',data:cl,borderColor:'#aa7700',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(170,119,0,.05)',tension:.2}];
+    if(_ovs.has('sma20')  && _d.sma20)   ds.push({label:'SMA20', data:_d.sma20,  borderColor:'#00e5ff',borderWidth:1,pointRadius:0,fill:false,tension:0,spanGaps:true});
+    if(_ovs.has('sma50')  && _d.sma50)   ds.push({label:'SMA50', data:_d.sma50,  borderColor:'#ffd600',borderWidth:1,pointRadius:0,fill:false,tension:0,spanGaps:true});
+    if(_ovs.has('sma100') && _d.sma100)  ds.push({label:'SMA100',data:_d.sma100, borderColor:'#e040fb',borderWidth:1,pointRadius:0,fill:false,tension:0,spanGaps:true});
+    if(_ovs.has('vwap')   && _d.vwap)    ds.push({label:'VWAP',  data:_d.vwap,   borderColor:'#ff8c00',borderWidth:1,borderDash:[4,3],pointRadius:0,fill:false,tension:0,spanGaps:true});
+    if(_ovs.has('bb') && _d.bb_upper) {
+      ds.push({label:'BB+',data:_d.bb_upper,borderColor:'rgba(0,229,255,.35)',borderWidth:1,pointRadius:0,fill:false,tension:0,spanGaps:true,borderDash:[2,4]});
+      ds.push({label:'BB-',data:_d.bb_lower,borderColor:'rgba(0,229,255,.35)',borderWidth:1,pointRadius:0,fill:'-1',backgroundColor:'rgba(0,229,255,.025)',tension:0,spanGaps:true,borderDash:[2,4]});
+    }
+    _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
+    const leg = [
+      {c:'#aa7700',l:'PRICE'},
+      _ovs.has('sma20')  && {c:'#00e5ff',l:'SMA20'},
+      _ovs.has('sma50')  && {c:'#ffd600',l:'SMA50'},
+      _ovs.has('sma100') && {c:'#e040fb',l:'SMA100'},
+      _ovs.has('vwap')   && {c:'#ff8c00',l:'VWAP'},
+      _ovs.has('bb')     && {c:'rgba(0,229,255,.6)',l:'BB'},
+    ].filter(Boolean);
+    document.getElementById('tkr-leg').innerHTML = leg.map(x=>
+      `<span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:12px;height:2px;background:${x.c}"></span>${x.l}</span>`
+    ).join('');
+  }
+
+  // ── MACD ───────────────────────────────────────────────────────────────────
+  if(_d.macd_line) {
+    const lastM = _d.macd_line[_d.macd_line.length-1];
+    document.getElementById('macd-val').textContent = lastM!=null?' '+f(lastM,4):'';
+    const hcols = (_d.macd_hist||[]).map(v=>v>=0?'rgba(0,200,83,.6)':'rgba(244,67,54,.6)');
+    _ch.macd = new Chart(document.getElementById('tkr-macd'),{type:'bar',
+      data:{labels:dates,datasets:[
+        {data:_d.macd_hist,backgroundColor:hcols,borderWidth:0,order:2},
+        {type:'line',data:_d.macd_line,borderColor:'#00e5ff',borderWidth:1,pointRadius:0,fill:false,order:1,spanGaps:true},
+        {type:'line',data:_d.macd_signal,borderColor:'#ff8c00',borderWidth:1,pointRadius:0,fill:false,order:1,spanGaps:true}
+      ]},options:{responsive:true,maintainAspectRatio:false,animation:false,
+        plugins:{legend:{display:false},tooltip:{...TT}},
+        scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{maxTicksLimit:3,color:'#444'}}}}});
+  }
+
+  // ── RSI ────────────────────────────────────────────────────────────────────
+  if(_d.rsi14) {
+    const lastR = _d.rsi14.filter(v=>v!=null).pop();
+    const rv = document.getElementById('rsi-val');
+    rv.textContent = lastR ? ' '+lastR.toFixed(1) : '';
+    rv.style.color = lastR>70?'var(--dn)':lastR<30?'var(--up)':'var(--txt2)';
+    _ch.rsi = new Chart(document.getElementById('tkr-rsi'),{type:'line',
+      data:{labels:dates,datasets:[{data:_d.rsi14,borderColor:'#e040fb',borderWidth:1.2,pointRadius:0,fill:false,tension:.2,spanGaps:true}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,
+        plugins:{legend:{display:false},tooltip:{...TT}},
+        scales:{x:{display:false},y:{min:0,max:100,grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:3}}}}});
+  }
+
+  // ── Volume ─────────────────────────────────────────────────────────────────
+  _ch.vol = new Chart(document.getElementById('tkr-vc'),{type:'bar',
+    data:{labels:dates,datasets:[
+      {data:vols,backgroundColor:cs.map(c=>c.close>=c.open?'rgba(0,200,83,.5)':'rgba(244,67,54,.5)'),borderWidth:0},
+      {type:'line',data:_d.vol_ma20,borderColor:'#ff8c00',borderWidth:1,pointRadius:0,fill:false,spanGaps:true}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{...TT}},
+      scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{maxTicksLimit:3,color:'#444'}}}}});
+
+  // ── Order Book + Microstructure ────────────────────────────────────────────
+  if(obR.ok) {
+    const sp = renderOB('tkr-ob', obR.d);
+    document.getElementById('tkr-spr').textContent = sp ? `SPR ${sp}` : '';
+    const bids=obR.d.bids||[], asks=obR.d.asks||[];
+    const bq=bids.reduce((s,b)=>s+b.quantity,0), aq=asks.reduce((s,a)=>s+a.quantity,0);
+    const imb = (bq-aq)/Math.max(bq+aq,1)*100;
+    const wallCount = countWalls(bids,asks);
+    const depthConc = bids.length > 0 ? (bids.slice(0,3).reduce((s,b)=>s+b.quantity,0)/Math.max(bq,1)*100).toFixed(1) : '—';
+    document.getElementById('tkr-micro').innerHTML = `
+      <div class="micro-grid">
+        <span class="k">BID DEPTH</span><span class="v up">${fk(bq)}</span>
+        <span class="k">ASK DEPTH</span><span class="v dn">${fk(aq)}</span>
+        <span class="k">IMBALANCE</span><span class="v" style="color:${gc(imb)}">${imb.toFixed(1)}%</span>
+        <span class="k">SPREAD %</span><span class="v yel">${sp?sp+'%':'—'}</span>
+        <span class="k">MID</span><span class="v wht">${f(obR.d.mid,4)}</span>
+        <span class="k">TOP3 CONC</span><span class="v">${depthConc}%</span>
+        <span class="k">WALLS</span><span class="v ${wallCount>0?'org':''}">${wallCount}</span>
+        <span class="k">BID LVLS</span><span class="v dim">${bids.length}</span>
+      </div>`;
+  }
+
+  // ── Risk Profile ───────────────────────────────────────────────────────────
+  if(stR.ok) {
+    const d = stR.d;
+    const mr = d.mean_reversion_score;
+    const dv = d.downside_vol;
+    const vs = d.vol_spike;
+    // Vol percentile vs exchange (approx: compare to all securities' volatility from BB.secs)
+    const thisVol = d.volatility_ann_pct;
+    const mrColor = mr != null ? (mr > 2 ? 'var(--dn)' : mr > 1 ? 'var(--yel)' : mr < -2 ? 'var(--up)' : 'var(--txt2)') : 'var(--txt3)';
+    const mrLabel = mr != null ? (mr > 2 ? 'OVERBOUGHT' : mr > 1 ? 'STRETCHED HI' : mr < -2 ? 'OVERSOLD' : mr < -1 ? 'STRETCHED LO' : 'NEUTRAL') : '—';
+    document.getElementById('tkr-risk').innerHTML = `
+      <div class="micro-grid">
+        <span class="k">ANN VOL</span><span class="v yel">${thisVol != null ? thisVol+'%' : '—'}</span>
+        <span class="k">DOWNSIDE VOL</span><span class="v ${dv>30?'dn':dv>15?'yel':'up'}">${dv != null ? dv+'%' : '—'}</span>
+        <span class="k">MR Z-SCORE</span><span class="v" style="color:${mrColor}">${mr != null ? mr.toFixed(2) : '—'}</span>
+        <span class="k">MR SIGNAL</span><span class="v" style="color:${mrColor};font-size:9px">${mrLabel}</span>
+        <span class="k">VOL SPIKE</span><span class="v ${vs>2?'org':vs>1.5?'yel':'dim'}">${vs != null ? vs.toFixed(2)+'x' : '—'}</span>
+        <span class="k">MAX DD</span><span class="v dn">${d.max_drawdown_pct != null ? '-'+d.max_drawdown_pct+'%' : '—'}</span>
+        <span class="k">SHARPE</span><span class="v ${(d.sharpe||0)>=0?'up':'dn'}">${d.sharpe != null ? f(d.sharpe,2) : '—'}</span>
+        <span class="k">NEAR HIGH</span><span class="v ${d.near_high?'up':'dim'}">${d.near_high ? 'YES ▲' : 'NO'}</span>
+      </div>`;
+  }
+
+  // ── Shareholder Intelligence ───────────────────────────────────────────────
+  if(hiR.ok && hiR.d.stats) {
+    const st = hiR.d.stats;
+    const histBuckets = hiR.d.histogram || {};
+    const giniColor = st.gini > 0.7 ? 'var(--dn)' : st.gini > 0.4 ? 'var(--yel)' : 'var(--up)';
+    document.getElementById('tkr-hi').innerHTML = `
+      <div class="micro-grid">
+        <span class="k">HOLDERS</span><span class="v wht">${(st.num_holders||0).toLocaleString()}</span>
+        <span class="k">HHI</span><span class="v ${st.hhi>2500?'dn':st.hhi>1500?'yel':'up'}">${st.hhi}</span>
+        <span class="k">TOP 1%</span><span class="v">${st.top1_pct}%</span>
+        <span class="k">TOP 5%</span><span class="v">${st.top5_pct}%</span>
+        <span class="k">WHALES</span><span class="v ${st.whale_count>0?'org':''}">${st.whale_count}</span>
+        <span class="k">GINI</span><span class="v" style="color:${giniColor}">${st.gini}</span>
+        <span class="k">FLOAT</span><span class="v dim">${hiR.d.float_pct!=null?hiR.d.float_pct+'%':'—'}</span>
+        <span class="k">TOTAL SH</span><span class="v dim">${fk(hiR.d.total_shares)}</span>
+      </div>`;
+    // Shareholder list
+    const holders = hiR.d.holders || [];
+    const total = hiR.d.total_held || 1;
+    document.getElementById('tkr-sh').innerHTML = holders.slice(0,25).map(h=>{
+      const pct = (h.quantity/total*100).toFixed(1);
+      const isWhale = h.quantity/total > 0.10;
+      return `<div style="padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+        <div style="display:flex;justify-content:space-between;font-size:10px">
+          <span class="${isWhale?'org dim':'dim'}">…${h.user_id.slice(-8)}</span>
+          <span class="wht">${h.quantity.toLocaleString()} <span class="dim">${pct}%</span></span>
+        </div>
+        <div style="height:2px;background:${isWhale?'var(--org)':'var(--sel)'};width:${Math.max(parseFloat(pct),0.5)}%;opacity:.6;margin-top:2px"></div>
+      </div>`;
+    }).join('') || '<div class="loading">NO DATA</div>';
+  }
+};
+
+window.tkrOv = function(key) {
+  if(_ovs.has(key)) _ovs.delete(key); else _ovs.add(key);
+  document.getElementById(`ov-${key}`).classList.toggle('on', _ovs.has(key));
+  const t = document.getElementById('tkr-sel').value;
+  if(t) PAGE_tkr_load(t);
+};
+
+function countWalls(bids, asks) {
+  const bq=bids.reduce((s,b)=>s+b.quantity,0), aq=asks.reduce((s,a)=>s+a.quantity,0);
+  const avgB=bq/Math.max(bids.length,1), avgA=aq/Math.max(asks.length,1);
+  return bids.filter(b=>b.quantity>avgB*3).length + asks.filter(a=>a.quantity>avgA*3).length;
+}
+})();
+</script>

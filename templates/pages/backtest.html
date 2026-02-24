@@ -1,0 +1,551 @@
+<!-- F5: BACKTEST — Multi-ticker + walk-forward validation -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span class="bt-tab active" data-t="single"   onclick="btTab(this)">SINGLE TICKER</span>
+  <span class="bt-tab"        data-t="multi"    onclick="btTab(this)">MULTI-TICKER</span>
+  <span class="bt-tab"        data-t="wf"       onclick="btTab(this)">WALK-FORWARD</span>
+  <span class="bt-tab"        data-t="mc"       onclick="btTab(this)">MONTE CARLO</span>
+  <span class="bt-tab"        data-t="sens"     onclick="btTab(this)">PARAM SENSITIVITY</span>
+</div>
+
+<!-- ── SINGLE TICKER ── -->
+<div class="bt-view active" id="bv-single" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="bt-tk" style="min-width:140px"><option value="">SELECT</option></select>
+    </div>
+    <div class="ff"><label>DAYS</label>
+      <select id="bt-days"><option value="30">30D</option><option value="60">60D</option><option value="90" selected>90D</option><option value="180">180D</option><option value="365">365D</option></select>
+    </div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="bt-str" onchange="btParams()">
+        <option value="buy_hold">BUY & HOLD</option>
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+        <option value="bb_reversal">BB REVERSAL</option>
+      </select>
+    </div>
+    <div id="bp-sma" style="display:none;gap:6px" class="bt-pg">
+      <div class="ff"><label>FAST</label><input type="number" id="bp-f" value="5" style="width:48px"></div>
+      <div class="ff"><label>SLOW</label><input type="number" id="bp-s" value="20" style="width:48px"></div>
+    </div>
+    <div id="bp-rsi" style="display:none;gap:6px" class="bt-pg">
+      <div class="ff"><label>PERIOD</label><input type="number" id="bp-rp" value="14" style="width:48px"></div>
+      <div class="ff"><label>OB</label><input type="number" id="bp-ob" value="70" style="width:48px"></div>
+      <div class="ff"><label>OS</label><input type="number" id="bp-os" value="30" style="width:48px"></div>
+    </div>
+    <div id="bp-macd" style="display:none;gap:6px" class="bt-pg">
+      <div class="ff"><label>FAST</label><input type="number" id="bp-mf" value="12" style="width:48px"></div>
+      <div class="ff"><label>SLOW</label><input type="number" id="bp-ms" value="26" style="width:48px"></div>
+      <div class="ff"><label>SIG</label><input type="number" id="bp-mg" value="9" style="width:48px"></div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <div class="ff"><label>STOP%</label><input type="number" id="bp-sl" value="0" step="0.5" style="width:52px" placeholder="off"></div>
+      <div class="ff"><label>TP%</label><input type="number" id="bp-tp" value="0" step="0.5" style="width:52px" placeholder="off"></div>
+    </div>
+    <button class="btn on" onclick="runBT()">RUN</button>
+  </div>
+  <div class="sstrip" id="bt-strip" style="display:none">
+    <div class="ss"><div class="ss-l">RETURN</div><div class="ss-v" id="bm-r">—</div></div>
+    <div class="ss"><div class="ss-l">BENCHMARK</div><div class="ss-v" id="bm-b">—</div></div>
+    <div class="ss"><div class="ss-l">ALPHA</div><div class="ss-v" id="bm-a">—</div></div>
+    <div class="ss"><div class="ss-l">MAX DD</div><div class="ss-v dn" id="bm-d">—</div></div>
+    <div class="ss"><div class="ss-l">SHARPE</div><div class="ss-v" id="bm-sh">—</div></div>
+    <div class="ss"><div class="ss-l">CALMAR</div><div class="ss-v" id="bm-cal">—</div></div>
+    <div class="ss"><div class="ss-l">TRADES</div><div class="ss-v" id="bm-tr">—</div></div>
+    <div class="ss"><div class="ss-l">WIN RATE</div><div class="ss-v" id="bm-wr">—</div></div>
+    <div class="ss"><div class="ss-l">FINAL EQ</div><div class="ss-v" id="bm-eq">—</div></div>
+  </div>
+  <div class="wrow" style="flex:1">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">EQUITY CURVE</span><span class="wsub" id="bt-sub"></span></div></div>
+      <div class="chart-wrap"><canvas id="bt-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">TRADE LOG</span></div></div>
+      <div class="scroll" id="bt-log"><div class="loading">RUN A BACKTEST</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MULTI-TICKER ── -->
+<div class="bt-view" id="bv-multi" style="flex:1;overflow:hidden;display:none;flex-direction:column">
+  <div class="frow">
+    <div class="ff"><label>STRATEGY</label>
+      <select id="mt-str">
+        <option value="buy_hold">BUY & HOLD</option>
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+      </select>
+    </div>
+    <div class="ff"><label>DAYS</label>
+      <select id="mt-days"><option value="60">60D</option><option value="90" selected>90D</option><option value="180">180D</option></select>
+    </div>
+    <div class="ff"><label>RANK BY</label>
+      <select id="mt-rank">
+        <option value="total_return_pct">RETURN</option>
+        <option value="sharpe_ratio">SHARPE</option>
+        <option value="max_drawdown_pct">MAX DD</option>
+        <option value="calmar_ratio">CALMAR</option>
+        <option value="win_rate">WIN RATE</option>
+      </select>
+    </div>
+    <button class="btn on" onclick="runMulti()">RUN ALL TICKERS</button>
+    <span id="mt-prog" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
+  <div class="win" style="flex:1">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">MULTI-TICKER RANKING</span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--txt3)" id="mt-sub"></div>
+    </div>
+    <div class="scroll">
+      <table class="dt">
+        <thead><tr>
+          <th>TICKER</th><th>NAME</th>
+          <th class="r">RETURN</th><th class="r">BENCHMARK</th><th class="r">ALPHA</th>
+          <th class="r">MAX DD</th><th class="r">SHARPE</th><th class="r">CALMAR</th>
+          <th class="r">TRADES</th><th class="r">WIN%</th><th class="r">FINAL EQ</th>
+        </tr></thead>
+        <tbody id="mt-tbody"><tr><td colspan="11" class="loading">SELECT STRATEGY AND RUN</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── WALK-FORWARD ── -->
+<div class="bt-view" id="bv-wf" style="flex:1;overflow:hidden;display:none;flex-direction:column">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="wf-tk" style="min-width:140px"><option value="">SELECT</option></select>
+    </div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="wf-str">
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+        <option value="bb_reversal">BB REVERSAL</option>
+      </select>
+    </div>
+    <div class="ff"><label>TOTAL DAYS</label>
+      <select id="wf-days"><option value="180">180D</option><option value="365" selected>365D</option></select>
+    </div>
+    <div class="ff"><label>TRAIN%</label>
+      <select id="wf-split"><option value="0.6">60%</option><option value="0.7" selected>70%</option><option value="0.8">80%</option></select>
+    </div>
+    <button class="btn on" onclick="runWF()">RUN WALK-FORWARD</button>
+  </div>
+  <div class="sstrip" id="wf-strip" style="display:none">
+    <div class="ss"><div class="ss-l">TRAIN RETURN</div><div class="ss-v" id="wf-tr">—</div></div>
+    <div class="ss"><div class="ss-l">TEST RETURN</div><div class="ss-v" id="wf-te">—</div></div>
+    <div class="ss"><div class="ss-l">DEGRADATION</div><div class="ss-v" id="wf-deg">—</div></div>
+    <div class="ss"><div class="ss-l">TEST SHARPE</div><div class="ss-v" id="wf-tsh">—</div></div>
+    <div class="ss"><div class="ss-l">TEST MAX DD</div><div class="ss-v dn" id="wf-tdd">—</div></div>
+    <div class="ss"><div class="ss-l">OVERFIT RISK</div><div class="ss-v" id="wf-ovf">—</div></div>
+  </div>
+  <div class="wrow" style="flex:1">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">EQUITY CURVE — TRAIN vs TEST</span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--org)">■</span> Train &nbsp;<span style="color:var(--cyn)">■</span> Test &nbsp;<span style="color:#444">- -</span> Buy&Hold
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="wf-c"></canvas></div>
+    </div>
+    <div class="win" style="width:320px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">VALIDATION REPORT</span></div></div>
+      <div style="padding:10px;font-size:11px" id="wf-report"><div class="loading">RUN WALK-FORWARD</div></div>
+    </div>
+  </div>
+</div>
+<!-- ── MONTE CARLO ── -->
+<div class="bt-view" id="bv-mc" style="flex:1;overflow:hidden;display:none;flex-direction:column">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="mc-tk" style="min-width:140px"><option value="">SELECT</option></select>
+    </div>
+    <div class="ff"><label>HISTORY DAYS</label>
+      <select id="mc-days"><option value="30">30D</option><option value="60" selected>60D</option><option value="90">90D</option><option value="180">180D</option></select>
+    </div>
+    <div class="ff"><label>HORIZON DAYS</label>
+      <select id="mc-hor"><option value="10">10D</option><option value="20">20D</option><option value="30" selected>30D</option><option value="60">60D</option></select>
+    </div>
+    <div class="ff"><label>SIMULATIONS</label>
+      <select id="mc-sims"><option value="500">500</option><option value="1000" selected>1000</option><option value="2000">2000</option></select>
+    </div>
+    <button class="btn on" onclick="runMC()">▶ SIMULATE</button>
+    <span id="mc-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
+  </div>
+  <div class="sstrip" id="mc-strip" style="display:none">
+    <div class="ss"><div class="ss-l">P5 (BEAR)</div><div class="ss-v dn" id="mc-p5">—</div></div>
+    <div class="ss"><div class="ss-l">P25</div><div class="ss-v" id="mc-p25">—</div></div>
+    <div class="ss"><div class="ss-l">MEDIAN (P50)</div><div class="ss-v wht" id="mc-p50">—</div></div>
+    <div class="ss"><div class="ss-l">P75</div><div class="ss-v" id="mc-p75">—</div></div>
+    <div class="ss"><div class="ss-l">P95 (BULL)</div><div class="ss-v up" id="mc-p95">—</div></div>
+    <div class="ss"><div class="ss-l">PROB PROFIT</div><div class="ss-v" id="mc-pp">—</div></div>
+    <div class="ss"><div class="ss-l">PROB DD>20%</div><div class="ss-v dn" id="mc-pdd">—</div></div>
+  </div>
+  <div class="wrow" style="flex:1">
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SIMULATION PATHS (50 sample)</span><span class="wsub" id="mc-sub"></span></div></div>
+      <div class="chart-wrap"><canvas id="mc-paths-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0;border-left:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">OUTCOME DISTRIBUTION</span></div></div>
+      <div class="chart-wrap"><canvas id="mc-hist-c"></canvas></div>
+    </div>
+    <div class="win" style="max-width:200px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERCENTILES</span></div></div>
+      <div id="mc-detail" style="padding:10px;font-size:10px"><div class="loading">Run simulation</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PARAMETER SENSITIVITY ── -->
+<div class="bt-view" id="bv-sens" style="flex:1;overflow:hidden;display:none;flex-direction:column">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="sens-tk" style="min-width:140px"><option value="">SELECT</option></select>
+    </div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="sens-str">
+        <option value="sma_cross">SMA CROSSOVER</option>
+        <option value="rsi">RSI REVERSAL</option>
+      </select>
+    </div>
+    <div class="ff"><label>DAYS</label>
+      <select id="sens-days"><option value="60">60D</option><option value="90" selected>90D</option><option value="180">180D</option></select>
+    </div>
+    <button class="btn on" onclick="runSens()">▶ SCAN PARAMS</button>
+    <span id="sens-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
+  </div>
+  <div class="wrow" style="flex:1">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PARAMETER SENSITIVITY HEATMAP</span><span class="wsub" id="sens-sub"></span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Green = outperforms buy&hold · Red = underperforms</div></div>
+      <div style="flex:1;overflow:auto;padding:12px" id="sens-heatmap"></div>
+    </div>
+    <div class="win" style="max-width:260px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">BEST PARAMETERS</span></div></div>
+      <div id="sens-detail" style="padding:10px;font-size:10px"><div class="loading">Run scan first</div></div>
+    </div>
+  </div>
+</div>
+
+<style>
+.bt-tab{padding:4px 14px;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:2px solid transparent}
+.bt-tab:hover{color:var(--txt);background:var(--bg4)}
+.bt-tab.active{color:var(--wht);border-bottom-color:var(--org);background:var(--bg4)}
+</style>
+
+<script>
+(function(){
+let _btC=null,_wfC=null;
+
+window.PAGE_bt_onShow=function(){
+  populateSel('bt-tk'); populateSel('wf-tk');
+  populateSel('mc-tk'); populateSel('sens-tk');
+};
+
+window.btTab=function(el){
+  document.querySelectorAll('.bt-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.bt-view').forEach(v=>{v.style.display='none';v.style.flex='';});
+  el.classList.add('active');
+  const v=document.getElementById('bv-'+el.dataset.t);
+  if(v){v.style.display='flex';v.style.flex='1';v.style.flexDirection='column';}
+};
+
+window.btParams=function(){
+  document.querySelectorAll('.bt-pg').forEach(g=>g.style.display='none');
+  const m={sma_cross:'sma',rsi:'rsi',macd:'macd'}[document.getElementById('bt-str').value];
+  if(m) document.getElementById('bp-'+m).style.display='flex';
+};
+
+function getParams(){
+  const strat=document.getElementById('bt-str').value, p={};
+  p.stop_loss_pct  =+document.getElementById('bp-sl').value||0;
+  p.take_profit_pct=+document.getElementById('bp-tp').value||0;
+  if(strat==='sma_cross'){ p.fast=+document.getElementById('bp-f').value; p.slow=+document.getElementById('bp-s').value; }
+  if(strat==='rsi'){ p.rsi_period=+document.getElementById('bp-rp').value; p.overbought=+document.getElementById('bp-ob').value; p.oversold=+document.getElementById('bp-os').value; }
+  if(strat==='macd'){ p.fast=+document.getElementById('bp-mf').value; p.slow=+document.getElementById('bp-ms').value; p.signal=+document.getElementById('bp-mg').value; }
+  return p;
+}
+
+window.runBT=async function(){
+  const ticker=document.getElementById('bt-tk').value; if(!ticker) return;
+  const strat=document.getElementById('bt-str').value, days=+document.getElementById('bt-days').value;
+  document.getElementById('bt-log').innerHTML='<div class="loading">RUNNING</div>';
+  const r=await apiPost('/api/backtest',{ticker,days,strategy:strat,params:getParams()});
+  if(!r.ok){ document.getElementById('bt-log').innerHTML=`<div class="alert err">${r.d.detail}</div>`; return; }
+  const d=r.d, m=d.metrics;
+  document.getElementById('bt-strip').style.display='flex';
+  document.getElementById('bt-sub').textContent=` — ${ticker} ${strat.toUpperCase()} ${days}D`;
+  const sf=v=>(v>=0?'+':'')+v+'%';
+  [[m.total_return_pct,'bm-r'],[m.benchmark_return_pct,'bm-b'],[+(m.total_return_pct-m.benchmark_return_pct).toFixed(2),'bm-a']].forEach(([v,id])=>{
+    const el=document.getElementById(id); el.textContent=sf(v); el.style.color=gc(v);
+  });
+  document.getElementById('bm-d').textContent='-'+m.max_drawdown_pct+'%';
+  document.getElementById('bm-sh').textContent=m.sharpe_ratio; document.getElementById('bm-sh').style.color=gc(m.sharpe_ratio);
+  document.getElementById('bm-cal').textContent=m.calmar_ratio;
+  document.getElementById('bm-tr').textContent=m.num_trades;
+  document.getElementById('bm-wr').textContent=m.win_rate+'%';
+  document.getElementById('bm-eq').textContent=f(m.final_equity);
+  _btC=dc(_btC);
+  const bhEq=d.candles.map(c=>10000*c.close/d.candles[0].close);
+  _btC=mkLine(document.getElementById('bt-c'),d.dates,[
+    {label:'Strategy',data:d.equity_curve,borderColor:'#cc9900',borderWidth:2,pointRadius:0,fill:false,tension:.2},
+    {label:'Buy&Hold',data:bhEq,borderColor:'#444',borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false,tension:.2}
+  ]);
+  document.getElementById('bt-log').innerHTML=d.trades.length?
+    `<table class="dt"><thead><tr><th>#</th><th>DATE</th><th>ACTION</th><th class="r">PRICE</th><th class="r">QTY</th><th class="r">VALUE</th></tr></thead><tbody>
+    ${d.trades.map((t,i)=>`<tr><td class="dim">${i+1}</td><td>${t.date}</td><td style="color:${t.action==='BUY'?'var(--up)':t.action==='SELL'?'var(--dn)':'var(--yel)'};font-weight:700">${t.action}</td><td class="r wht">${f(t.price)}</td><td class="r dim">${t.qty.toLocaleString()}</td><td class="r">${f(t.price*t.qty)}</td></tr>`).join('')}
+    </tbody></table>`:'<div class="loading">NO TRADES</div>';
+};
+
+window.runMulti=async function(){
+  const strat=document.getElementById('mt-str').value, days=+document.getElementById('mt-days').value;
+  const rankBy=document.getElementById('mt-rank').value;
+  const tickers=BB.secs.map(s=>s.ticker);
+  const tb=document.getElementById('mt-tbody');
+  tb.innerHTML=`<tr><td colspan="11" class="loading">RUNNING ON ${tickers.length} TICKERS…</td></tr>`;
+  document.getElementById('mt-prog').textContent='0/'+tickers.length;
+
+  const results=[]; let done=0;
+  await Promise.all(tickers.map(async ticker=>{
+    const r=await apiPost('/api/backtest',{ticker,days,strategy:strat,params:{}});
+    done++;
+    document.getElementById('mt-prog').textContent=done+'/'+tickers.length;
+    if(r.ok) results.push({ticker,m:r.d.metrics,name:(BB.secs.find(s=>s.ticker===ticker)||{}).full_name||''});
+  }));
+
+  // Sort
+  const rev=['max_drawdown_pct'].includes(rankBy)?1:-1;
+  results.sort((a,b)=>(a.m[rankBy]<b.m[rankBy]?1:-1)*rev);
+
+  document.getElementById('mt-sub').textContent=`${results.length} tickers · ranked by ${rankBy.replace(/_/g,' ').toUpperCase()}`;
+  tb.innerHTML='';
+  results.forEach((r,i)=>{
+    const m=r.m, alpha=+(m.total_return_pct-m.benchmark_return_pct).toFixed(2);
+    const tr=document.createElement('tr');
+    tr.className=m.total_return_pct>0?'up-row':m.total_return_pct<-5?'dn-row':'';
+    tr.innerHTML=`
+      <td><strong class="wht">${r.ticker}</strong></td>
+      <td class="dim" style="max-width:110px;overflow:hidden;text-overflow:ellipsis">${r.name}</td>
+      <td class="r ${m.total_return_pct>=0?'up':'dn'}">${fp(m.total_return_pct)}</td>
+      <td class="r dim">${fp(m.benchmark_return_pct)}</td>
+      <td class="r ${alpha>=0?'up':'dn'}">${fp(alpha)}</td>
+      <td class="r dn">-${m.max_drawdown_pct}%</td>
+      <td class="r ${m.sharpe_ratio>=0?'up':'dn'}">${f(m.sharpe_ratio,2)}</td>
+      <td class="r ${m.calmar_ratio>=0?'up':'dn'}">${f(m.calmar_ratio,2)}</td>
+      <td class="r dim">${m.num_trades}</td>
+      <td class="r">${m.win_rate}%</td>
+      <td class="r wht">${f(m.final_equity)}</td>`;
+    tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(r.ticker),200); };
+    tb.appendChild(tr);
+  });
+};
+
+window.runWF=async function(){
+  const ticker=document.getElementById('wf-tk').value; if(!ticker) return;
+  const strat=document.getElementById('wf-str').value;
+  const totalDays=+document.getElementById('wf-days').value;
+  const split=parseFloat(document.getElementById('wf-split').value);
+  const trainDays=Math.round(totalDays*split), testDays=totalDays-trainDays;
+
+  document.getElementById('wf-report').innerHTML='<div class="loading">RUNNING…</div>';
+  const [trainR,testR]=await Promise.all([
+    apiPost('/api/backtest',{ticker,days:trainDays,strategy:strat,params:{}}),
+    apiPost('/api/backtest',{ticker,days:testDays, strategy:strat,params:{}}),
+  ]);
+  if(!trainR.ok||!testR.ok){ document.getElementById('wf-report').innerHTML='<div class="alert err">Failed to run backtest</div>'; return; }
+
+  const tm=trainR.d.metrics, te=testR.d.metrics;
+  const deg=tm.total_return_pct-te.total_return_pct;
+  const overfit=deg>20?'HIGH':deg>10?'MODERATE':'LOW';
+  const ofColor=deg>20?'var(--dn)':deg>10?'var(--yel)':'var(--up)';
+
+  document.getElementById('wf-strip').style.display='flex';
+  const S=(id,v,c)=>{ const el=document.getElementById(id); el.textContent=v; if(c) el.style.color=c; };
+  S('wf-tr',fp(tm.total_return_pct),gc(tm.total_return_pct));
+  S('wf-te',fp(te.total_return_pct),gc(te.total_return_pct));
+  S('wf-deg',fp(deg),deg>10?'var(--dn)':'var(--up)');
+  S('wf-tsh',f(te.sharpe_ratio,2),gc(te.sharpe_ratio));
+  S('wf-tdd','-'+te.max_drawdown_pct+'%');
+  S('wf-ovf',overfit,ofColor);
+
+  // Chart: train then test equity curves
+  const trainDates=trainR.d.dates, testDates=testR.d.dates;
+  const separator=trainDates.length;
+  const allDates=[...trainDates,...testDates];
+  const trainEq=[...trainR.d.equity_curve,...new Array(testDates.length).fill(null)];
+  const testEq=[...new Array(trainDates.length).fill(null),...testR.d.equity_curve.map(v=>v*trainR.d.equity_curve[trainR.d.equity_curve.length-1]/10000)];
+  const bhAll=[...trainR.d.candles,...testR.d.candles].map((c,i,a)=>10000*c.close/a[0].close);
+
+  _wfC=dc(_wfC);
+  _wfC=new Chart(document.getElementById('wf-c'),{type:'line',data:{labels:allDates,datasets:[
+    {label:'Train',data:trainEq,borderColor:'#ff8c00',borderWidth:2,pointRadius:0,fill:false,tension:.2,spanGaps:false},
+    {label:'Test', data:testEq, borderColor:'#00e5ff',borderWidth:2,pointRadius:0,fill:false,tension:.2,spanGaps:false},
+    {label:'B&H',  data:bhAll,  borderColor:'#333',   borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false,tension:.2},
+  ]},options:{responsive:true,maintainAspectRatio:false,animation:false,
+    interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:false},tooltip:{...TT}},
+    scales:{x:{grid:{color:'#1a1a1a'},ticks:{maxTicksLimit:8,maxRotation:0,color:'#444'}},
+            y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444'}}}}});
+
+  document.getElementById('wf-report').innerHTML=`
+    <div style="margin-bottom:10px;font-size:9px;color:var(--txt3);letter-spacing:1.5px">TRAIN PERIOD (${trainDays}D)</div>
+    <div class="rm"><span class="k">RETURN</span><span class="v" style="color:${gc(tm.total_return_pct)}">${fp(tm.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span><span class="v" style="color:${gc(tm.sharpe_ratio)}">${f(tm.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span><span class="v dn">-${tm.max_drawdown_pct}%</span></div>
+    <div class="rm"><span class="k">TRADES</span><span class="v dim">${tm.num_trades}</span></div>
+    <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">TEST PERIOD (${testDays}D)</div>
+    <div class="rm"><span class="k">RETURN</span><span class="v" style="color:${gc(te.total_return_pct)}">${fp(te.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span><span class="v" style="color:${gc(te.sharpe_ratio)}">${f(te.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span><span class="v dn">-${te.max_drawdown_pct}%</span></div>
+    <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">VERDICT</div>
+    <div class="rm"><span class="k">DEGRADATION</span><span class="v" style="color:${gc(-deg)}">${fp(deg)}</span></div>
+    <div class="rm"><span class="k">OVERFIT RISK</span><span class="v" style="color:${ofColor}">${overfit}</span></div>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">${overfit==='HIGH'?'Strategy shows significant performance decay in unseen data — likely overfit.':overfit==='MODERATE'?'Moderate decay detected — use caution in live deployment.':'Strategy generalises well to unseen data.'}</div>`;
+};
+
+let _mcPathsC=null, _mcHistC=null, _sensData=null;
+
+window.runMC=async function(){
+  const ticker=document.getElementById('mc-tk').value; if(!ticker){return;}
+  const days=+document.getElementById('mc-days').value;
+  const horizon=+document.getElementById('mc-hor').value;
+  const sims=+document.getElementById('mc-sims').value;
+  document.getElementById('mc-status').textContent='Simulating…';
+  document.getElementById('mc-detail').innerHTML='<div class="loading">Running…</div>';
+  const r=await apiPost('/api/monte_carlo',{ticker,days,horizon,sims});
+  if(!r.ok){document.getElementById('mc-status').textContent='Error: '+(r.d.detail||'failed'); return;}
+  const d=r.d;
+  document.getElementById('mc-strip').style.display='flex';
+  document.getElementById('mc-p5').textContent=f(d.p5,4);
+  document.getElementById('mc-p5').style.color=gc(d.p5-d.start);
+  document.getElementById('mc-p25').textContent=f(d.p25,4);
+  document.getElementById('mc-p25').style.color=gc(d.p25-d.start);
+  document.getElementById('mc-p50').textContent=f(d.p50,4);
+  document.getElementById('mc-p50').style.color=gc(d.p50-d.start);
+  document.getElementById('mc-p75').textContent=f(d.p75,4);
+  document.getElementById('mc-p75').style.color=gc(d.p75-d.start);
+  document.getElementById('mc-p95').textContent=f(d.p95,4);
+  document.getElementById('mc-p95').style.color=gc(d.p95-d.start);
+  document.getElementById('mc-pp').textContent=d.prob_profit+'%';
+  document.getElementById('mc-pp').style.color=d.prob_profit>50?'var(--up)':'var(--dn)';
+  document.getElementById('mc-pdd').textContent=d.prob_dd20+'%';
+  document.getElementById('mc-pdd').style.color=d.prob_dd20>30?'var(--dn)':'var(--up)';
+  document.getElementById('mc-sub').textContent=` — ${ticker} · ${d.sims} sims · ${d.horizon}D · μ=${d.mu_daily?.toFixed(3)}% σ=${d.std_daily?.toFixed(3)}%`;
+
+  // Paths chart
+  _mcPathsC=dc(_mcPathsC);
+  const labels=Array.from({length:d.horizon+1},(_,i)=>'D'+i);
+  const pathDS=d.paths.slice(0,50).map((path,i)=>({
+    data:path, borderColor:`rgba(255,140,0,${i===0?0.8:0.08})`,
+    borderWidth:i===0?1.5:0.8, pointRadius:0, fill:false, tension:0.2
+  }));
+  // Add percentile bands
+  pathDS.push({data:Array(d.horizon+1).fill(d.p95),borderColor:'rgba(0,200,83,.5)',borderWidth:1,borderDash:[4,3],pointRadius:0,fill:false,label:'P95'});
+  pathDS.push({data:Array(d.horizon+1).fill(d.p50),borderColor:'rgba(255,214,0,.7)',borderWidth:1.5,borderDash:[3,3],pointRadius:0,fill:false,label:'P50'});
+  pathDS.push({data:Array(d.horizon+1).fill(d.p5),borderColor:'rgba(244,67,54,.5)',borderWidth:1,borderDash:[4,3],pointRadius:0,fill:false,label:'P5'});
+  pathDS.push({data:Array(d.horizon+1).fill(d.start),borderColor:'rgba(100,100,100,.6)',borderWidth:1,pointRadius:0,fill:false,label:'Start'});
+  _mcPathsC=new Chart(document.getElementById('mc-paths-c'),{type:'line',
+    data:{labels,datasets:pathDS},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{...TT}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',maxTicksLimit:8}},
+              y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444'}}}}});
+
+  // Distribution histogram
+  _mcHistC=dc(_mcHistC);
+  const ends=d.sim_ends||[];
+  const bins=40; const mn=ends[0]||0, mx=ends[ends.length-1]||1, step=(mx-mn)/bins||0.001;
+  const cnts=Array(bins).fill(0);
+  ends.forEach(v=>{const bi=Math.min(Math.floor((v-mn)/step),bins-1);cnts[bi]++;});
+  const hlabels=Array.from({length:bins},(_,i)=>f(mn+i*step,2));
+  const hColors=hlabels.map(l=>parseFloat(l)>=d.start?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)');
+  _mcHistC=mkBar(document.getElementById('mc-hist-c'),hlabels,cnts,hColors);
+
+  const chgP5=(d.p5-d.start)/d.start*100, chgP50=(d.p50-d.start)/d.start*100, chgP95=(d.p95-d.start)/d.start*100;
+  document.getElementById('mc-detail').innerHTML=`
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">PRICE OUTCOMES</div>
+    <div class="rm"><span class="k">START</span><span class="v wht">${f(d.start,4)}</span></div>
+    <div class="rm"><span class="k">P5 (5% chance below)</span><span class="v dn">${f(d.p5,4)} (${fp(chgP5)})</span></div>
+    <div class="rm"><span class="k">P25</span><span class="v">${f(d.p25,4)}</span></div>
+    <div class="rm"><span class="k">P50 (median)</span><span class="v yel">${f(d.p50,4)} (${fp(chgP50)})</span></div>
+    <div class="rm"><span class="k">P75</span><span class="v">${f(d.p75,4)}</span></div>
+    <div class="rm"><span class="k">P95 (5% chance above)</span><span class="v up">${f(d.p95,4)} (${fp(chgP95)})</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0"></div>
+    <div class="rm"><span class="k">PROB PROFIT</span><span class="v ${d.prob_profit>50?'up':'dn'}">${d.prob_profit}%</span></div>
+    <div class="rm"><span class="k">PROB MAX DD>20%</span><span class="v ${d.prob_dd20>30?'dn':'up'}">${d.prob_dd20}%</span></div>
+    <div class="rm"><span class="k">DAILY DRIFT (μ)</span><span class="v dim">${d.mu_daily?.toFixed(4)}%</span></div>
+    <div class="rm"><span class="k">DAILY VOL (σ)</span><span class="v dim">${d.std_daily?.toFixed(4)}%</span></div>`;
+
+  document.getElementById('mc-status').textContent=`${d.sims} simulations complete · ${d.horizon}D horizon`;
+};
+
+window.runSens=async function(){
+  const ticker=document.getElementById('sens-tk').value; if(!ticker){return;}
+  const strategy=document.getElementById('sens-str').value;
+  const days=+document.getElementById('sens-days').value;
+  document.getElementById('sens-status').textContent='Scanning parameters…';
+  document.getElementById('sens-detail').innerHTML='<div class="loading">Running…</div>';
+  const r=await apiPost('/api/param_sensitivity',{ticker,strategy,days});
+  if(!r.ok){document.getElementById('sens-status').textContent='Error: '+(r.d.detail||'failed');return;}
+  const d=r.d; _sensData=d;
+  document.getElementById('sens-sub').textContent=` — ${ticker} · ${strategy.replace('_',' ').toUpperCase()} · B&H: ${fp(d.bh_return)}`;
+
+  // Build heatmap table
+  const rows=d.rows, cols=d.cols, rowsData=d.rows_data||[];
+  let best={ret:-Infinity,row:null,col:null};
+  let allVals=rowsData.flat().filter(v=>v!=null);
+  const minV=Math.min(...allVals), maxV=Math.max(...allVals), rng=maxV-minV||1;
+
+  let html=`<table style="border-collapse:collapse;font-size:10px;margin:0 auto">`;
+  html+=`<thead><tr><th style="padding:4px 10px;color:var(--txt3);text-align:left">${d.row_label||'ROW'}</th>`;
+  cols.forEach(c=>html+=`<th style="padding:4px 10px;color:var(--txt3);text-align:center">${c}</th>`);
+  html+=`</tr></thead><tbody>`;
+  rows.forEach((rowVal,ri)=>{
+    html+=`<tr><td style="padding:4px 10px;color:var(--txt3);font-weight:700;white-space:nowrap">${rowVal}</td>`;
+    cols.forEach((colVal,ci)=>{
+      const v=rowsData[ri]?.[ci];
+      if(v==null){html+=`<td style="padding:6px 10px;background:#111;color:#444;text-align:center">—</td>`;return;}
+      if(v>best.ret){best={ret:v,row:rowVal,col:colVal};}
+      const norm=(v-minV)/rng;
+      const isPos=v>=d.bh_return;
+      // Color: green gradient for above BH, red for below
+      const intensity=Math.abs((v-d.bh_return)/Math.max(Math.abs(rng),1));
+      const bg=isPos?`rgba(0,200,83,${Math.min(intensity*2,0.8)})`:
+                     `rgba(244,67,54,${Math.min(intensity*2,0.8)})`;
+      html+=`<td style="padding:6px 10px;background:${bg};text-align:center;font-weight:700;color:${Math.abs(v)>5?'#fff':'#999'};cursor:pointer" title="${d.row_label}=${rowVal}, ${d.col_label}=${colVal}: ${v}%">
+        ${v>=0?'+':''}${v}%</td>`;
+    });
+    html+=`</tr>`;
+  });
+  html+=`</tbody></table>`;
+  html+=`<div style="margin-top:8px;font-size:9px;color:var(--txt3);text-align:center">
+    <span style="color:var(--up)">■</span> Above buy&hold (${fp(d.bh_return)})
+    &nbsp;<span style="color:var(--dn)">■</span> Below buy&hold
+    &nbsp;· Darker = stronger signal</div>`;
+  document.getElementById('sens-heatmap').innerHTML=html;
+
+  // Best params detail
+  const bestRet=best.ret>=0?`+${best.ret}%`:`${best.ret}%`;
+  const beatBH=+(best.ret-d.bh_return).toFixed(2);
+  document.getElementById('sens-detail').innerHTML=`
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">OPTIMAL PARAMETERS</div>
+    <div class="rm"><span class="k">${d.row_label}</span><span class="v wht">${best.row}</span></div>
+    <div class="rm"><span class="k">${d.col_label}</span><span class="v wht">${best.col}</span></div>
+    <div class="rm"><span class="k">STRATEGY RETURN</span><span class="v ${best.ret>=0?'up':'dn'}">${bestRet}</span></div>
+    <div class="rm"><span class="k">B&H RETURN</span><span class="v dim">${fp(d.bh_return)}</span></div>
+    <div class="rm"><span class="k">ALPHA vs B&H</span><span class="v ${beatBH>=0?'up':'dn'}">${fp(beatBH)}</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0;padding-top:8px;font-size:9px;color:var(--txt3)">
+    ${allVals.filter(v=>v>d.bh_return).length} / ${allVals.length} param combos beat buy&hold.
+    Robustness: <span style="color:${allVals.filter(v=>v>d.bh_return).length/allVals.length>0.5?'var(--up)':'var(--dn)'}">
+    ${(allVals.filter(v=>v>d.bh_return).length/allVals.length*100).toFixed(0)}%</span></div>
+    <div style="font-size:9px;color:var(--txt3)">⚠ In-sample only. Use Walk-Forward to validate out-of-sample.</div>`;
+
+  document.getElementById('sens-status').textContent=`${rows.length}×${cols.length} parameter grid complete`;
+};
+})();

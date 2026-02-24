@@ -1,0 +1,355 @@
+<!-- F12: SCREENER — Multi-attribute security filter with saved templates -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- Filter builder bar -->
+<div style="background:var(--bg3);border-bottom:1px solid var(--bdr);padding:6px 10px;flex-shrink:0">
+  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+    <div class="ff"><label>METRIC</label>
+      <select id="scr-met" style="min-width:160px">
+        <option value="chg_pct">PRICE CHG%</option>
+        <option value="volatility">VOLATILITY% pa</option>
+        <option value="sharpe">SHARPE RATIO</option>
+        <option value="max_dd">MAX DRAWDOWN%</option>
+        <option value="market_cap">MARKET CAP</option>
+        <option value="volume">VOLUME</option>
+        <option value="vol_spike">VOLUME SPIKE x</option>
+        <option value="spread_pct">SPREAD%</option>
+        <option value="liq_depth">LIQUIDITY DEPTH</option>
+        <option value="hhi">CONCENTRATION HHI</option>
+        <option value="top1_pct">TOP HOLDER%</option>
+        <option value="rsi">RSI (14)</option>
+        <option value="atr_pct">ATR% (14d)</option>
+        <option value="near_high">NEAR PERIOD HIGH</option>
+        <option value="near_low">NEAR PERIOD LOW</option>
+      </select>
+    </div>
+    <div class="ff"><label>OPERATOR</label>
+      <select id="scr-op">
+        <option value="gt">&gt; GREATER THAN</option>
+        <option value="lt">&lt; LESS THAN</option>
+        <option value="gte">&gt;= AT LEAST</option>
+        <option value="lte">&lt;= AT MOST</option>
+        <option value="eq">= EQUALS (bool)</option>
+      </select>
+    </div>
+    <div class="ff"><label>VALUE</label>
+      <input type="number" id="scr-val" step="any" value="0" style="width:80px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+    </div>
+    <div class="ff"><label>RANGE</label>
+      <select id="scr-days">
+        <option value="7">7D</option><option value="14">14D</option>
+        <option value="30" selected>30D</option><option value="60">60D</option><option value="90">90D</option>
+      </select>
+    </div>
+    <button class="btn on" onclick="scrAddFilter()">+ ADD FILTER</button>
+  </div>
+
+  <!-- Active filters row -->
+  <div id="scr-filters" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;min-height:18px"></div>
+
+  <!-- Action row -->
+  <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+    <button class="btn on" onclick="runScreener()">▶ RUN SCREEN</button>
+    <button class="btn" onclick="scrClearFilters()">✕ CLEAR ALL</button>
+    <span style="color:var(--bdr2);font-size:11px">|</span>
+    <div class="ff" style="margin:0"><label>SAVE AS</label>
+      <input type="text" id="scr-tpl-name" placeholder="Template name…" style="width:140px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+    </div>
+    <button class="btn" onclick="scrSaveTemplate()">SAVE</button>
+    <span style="color:var(--bdr2);font-size:11px">|</span>
+    <select id="scr-tpl-load" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px;outline:none;min-width:140px">
+      <option value="">LOAD TEMPLATE…</option>
+    </select>
+    <button class="btn" onclick="scrLoadTemplate()">LOAD</button>
+    <span id="scr-count" style="margin-left:auto;font-size:10px;color:var(--txt3)"></span>
+  </div>
+</div>
+
+<!-- Results -->
+<div class="wrow" style="flex:1">
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SCREEN RESULTS</span><span class="wsub" id="scr-sub"></span></div>
+      <div class="wbar-r" style="gap:8px">
+        <span style="font-size:9px;color:var(--txt3)">SORT BY</span>
+        <select id="scr-sort" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:1px;outline:none" onchange="scrSort()">
+          <option value="chg_pct">CHG%</option><option value="sharpe">SHARPE</option>
+          <option value="volatility">VOL</option><option value="market_cap">MCAP</option>
+          <option value="volume">VOLUME</option><option value="vol_spike">VOL SPIKE</option>
+        </select>
+      </div>
+    </div>
+    <div class="scroll">
+      <table class="dt" id="scr-tbl">
+        <thead><tr>
+          <th>TICKER</th><th>NAME</th>
+          <th class="r">PRICE</th><th class="r">CHG%</th>
+          <th class="r">VOL%pa</th><th class="r">SHARPE</th>
+          <th class="r">MAX DD</th><th class="r">MCAP</th>
+          <th class="r">VOL SPIKE</th><th class="r">RSI</th>
+          <th class="r">SPREAD%</th><th class="r">HHI</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="scr-tbody"><tr><td colspan="13" class="loading">CONFIGURE FILTERS AND RUN SCREEN</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Templates + summary sidebar -->
+  <div class="wcol" style="width:220px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SAVED TEMPLATES</span></div></div>
+      <div class="scroll" id="scr-tpl-list"><div class="loading">NO TEMPLATES</div></div>
+    </div>
+    <div class="win" style="height:180px;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RESULT STATS</span></div></div>
+      <div style="padding:8px;font-size:11px" id="scr-stats"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+(function(){
+let _filters = [];
+let _results = [];
+let _templates = JSON.parse(localStorage.getItem('scr_templates')||'{}');
+
+const METRIC_LABELS = {
+  chg_pct:'CHG%', volatility:'VOL%pa', sharpe:'SHARPE', max_dd:'MAX DD%',
+  market_cap:'MCAP', volume:'VOL', vol_spike:'VOL SPIKE', spread_pct:'SPREAD%',
+  liq_depth:'LIQ DEPTH', hhi:'HHI', top1_pct:'TOP1%', rsi:'RSI',
+  atr_pct:'ATR%', near_high:'NEAR HI', near_low:'NEAR LO'
+};
+const OP_LABELS = {gt:'>',lt:'<',gte:'≥',lte:'≤',eq:'='};
+
+window.PAGE_scr_onShow = function(){
+  renderTemplateList();
+  renderTemplateSelect();
+};
+
+window.scrAddFilter = function(){
+  const met = document.getElementById('scr-met').value;
+  const op  = document.getElementById('scr-op').value;
+  const val = parseFloat(document.getElementById('scr-val').value);
+  _filters.push({met, op, val});
+  renderFilterTags();
+};
+
+window.scrClearFilters = function(){
+  _filters = [];
+  renderFilterTags();
+};
+
+function renderFilterTags(){
+  document.getElementById('scr-filters').innerHTML = _filters.map((f,i)=>
+    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:var(--bg4);border:1px solid var(--bdr2);font-size:9px;color:var(--cyn)">
+      <span style="color:var(--txt2)">${METRIC_LABELS[f.met]}</span>
+      <span style="color:var(--org)">${OP_LABELS[f.op]}</span>
+      <span>${f.val}</span>
+      <span style="cursor:pointer;color:var(--txt3);margin-left:2px" onclick="scrRemoveFilter(${i})">✕</span>
+    </span>`
+  ).join('');
+}
+
+window.scrRemoveFilter = function(i){
+  _filters.splice(i,1);
+  renderFilterTags();
+};
+
+window.runScreener = async function(){
+  if(!_filters.length && !confirm('No filters set — show all securities?')) return;
+  const days = +document.getElementById('scr-days').value;
+  document.getElementById('scr-tbody').innerHTML = `<tr><td colspan="13" class="loading">SCREENING ${BB.secs.length} SECURITIES…</td></tr>`;
+  document.getElementById('scr-count').textContent = '';
+
+  // Fetch analytics for all securities in parallel
+  const allData = await Promise.all(BB.secs.map(async s => {
+    const [statR, liqR, holdR] = await Promise.all([
+      api(`/api/ticker_stats/${s.ticker}?days=${days}`),
+      api(`/api/liquidity/${s.ticker}`),
+      api(`/api/holder_intel/${s.ticker}`),
+    ]);
+    const st = statR.ok ? statR.d : {};
+    const lq = liqR.ok  ? liqR.d  : {};
+    const hd = holdR.ok ? holdR.d  : {};
+    const rsiArr = (st.rsi14||[]).filter(v=>v!=null);
+    const lastRsi = rsiArr.length ? rsiArr[rsiArr.length-1] : null;
+    const atr = (st.atr14||[]).filter(v=>v!=null);
+    const lastAtr = atr.length ? atr[atr.length-1] : null;
+    const lastPrice = st.candles?.length ? st.candles[st.candles.length-1].close : s.market_price;
+    const atrPct = lastAtr && lastPrice ? round4(lastAtr/lastPrice*100) : null;
+    return {
+      ticker:      s.ticker,
+      name:        s.full_name || '',
+      price:       lastPrice || 0,
+      chg_pct:     st.price_chg_pct || 0,
+      volatility:  st.volatility_ann_pct || 0,
+      sharpe:      st.sharpe || 0,
+      max_dd:      st.max_drawdown_pct || 0,
+      market_cap:  round4((lastPrice||0) * (s.total_shares||0)),
+      volume:      (st.candles||[]).reduce((sum,c)=>sum+(c.volume||0),0),
+      vol_spike:   st.vol_spike || 0,
+      spread_pct:  lq.spread_pct || null,
+      liq_depth:   (lq.total_bid_qty||0)+(lq.total_ask_qty||0),
+      hhi:         hd.hhi || null,
+      top1_pct:    hd.top1_pct || null,
+      rsi:         lastRsi,
+      atr_pct:     atrPct,
+      near_high:   st.near_high || false,
+      near_low:    st.near_low  || false,
+      frozen:      s.frozen || false,
+    };
+  }));
+
+  // Apply filters
+  _results = allData.filter(row => {
+    return _filters.every(f => {
+      const v = row[f.met];
+      if(v === null || v === undefined) return false;
+      switch(f.op){
+        case 'gt':  return v >  f.val;
+        case 'lt':  return v <  f.val;
+        case 'gte': return v >= f.val;
+        case 'lte': return v <= f.val;
+        case 'eq':  return Boolean(v) === Boolean(f.val);
+        default:    return true;
+      }
+    });
+  });
+
+  renderResults();
+  renderStats();
+  const fc = _filters.length ? _filters.map(f=>`${METRIC_LABELS[f.met]} ${OP_LABELS[f.op]} ${f.val}`).join(' · ') : 'ALL SECURITIES';
+  document.getElementById('scr-sub').textContent = ` — ${fc}`;
+  document.getElementById('scr-count').textContent = `${_results.length} / ${allData.length} MATCHED`;
+};
+
+function renderResults(){
+  const sortCol = document.getElementById('scr-sort').value;
+  const sorted = [..._results].sort((a,b)=>(b[sortCol]||0)-(a[sortCol]||0));
+  const tb = document.getElementById('scr-tbody'); tb.innerHTML = '';
+  if(!sorted.length){
+    tb.innerHTML = '<tr><td colspan="13" class="loading">NO SECURITIES MATCHED</td></tr>';
+    return;
+  }
+  sorted.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.className = r.chg_pct > 0.5 ? 'up-row' : r.chg_pct < -0.5 ? 'dn-row' : '';
+    tr.innerHTML = `
+      <td><strong class="wht">${r.ticker}</strong>${r.frozen?' <span class="badge b-cyn" style="font-size:7px">FRZ</span>':''}</td>
+      <td class="dim" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;font-size:10px">${r.name}</td>
+      <td class="r wht">${f(r.price)}</td>
+      <td class="r ${r.chg_pct>=0?'up':'dn'}">${fp(r.chg_pct)}</td>
+      <td class="r yel">${r.volatility?r.volatility.toFixed(1)+'%':'—'}</td>
+      <td class="r ${r.sharpe>=0?'up':'dn'}">${f(r.sharpe,2)}</td>
+      <td class="r dn">-${r.max_dd}%</td>
+      <td class="r dim">${fk(r.market_cap)}</td>
+      <td class="r ${r.vol_spike>2?'org':r.vol_spike>1.5?'yel':'dim'}">${r.vol_spike?r.vol_spike.toFixed(1)+'x':'—'}</td>
+      <td class="r ${r.rsi!=null?(r.rsi>70?'dn':r.rsi<30?'up':'dim'):'dim'}">${r.rsi!=null?r.rsi.toFixed(0):'—'}</td>
+      <td class="r ${r.spread_pct!=null?(r.spread_pct<0.1?'up':r.spread_pct<0.5?'yel':'dn'):'dim'}">${r.spread_pct!=null?r.spread_pct.toFixed(3)+'%':'—'}</td>
+      <td class="r ${r.hhi!=null?(r.hhi<1500?'up':r.hhi<2500?'yel':'dn'):'dim'}">${r.hhi!=null?r.hhi.toFixed(0):'—'}</td>
+      <td>
+        <span class="wbtn" onclick="event.stopPropagation();sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${r.ticker}'),200)" title="Chart">📈</span>
+        <span class="wbtn" onclick="event.stopPropagation();addToWatchlist('${r.ticker}')" title="Watch">★</span>
+      </td>`;
+    tr.onclick = () => { sw('tkr'); setTimeout(()=>window.PAGE_tkr_load&&PAGE_tkr_load(r.ticker),200); };
+    tb.appendChild(tr);
+  });
+}
+
+function renderStats(){
+  if(!_results.length){ document.getElementById('scr-stats').innerHTML='<div class="loading">—</div>'; return; }
+  const chgs = _results.map(r=>r.chg_pct), vols = _results.map(r=>r.volatility).filter(v=>v>0);
+  const sharpes = _results.map(r=>r.sharpe);
+  const avgChg = chgs.reduce((s,v)=>s+v,0)/chgs.length;
+  const avgVol = vols.length ? vols.reduce((s,v)=>s+v,0)/vols.length : 0;
+  const avgSh  = sharpes.reduce((s,v)=>s+v,0)/sharpes.length;
+  const ups = chgs.filter(c=>c>0).length, dns = chgs.filter(c=>c<0).length;
+  document.getElementById('scr-stats').innerHTML=`
+    <div class="rm"><span class="k">MATCHED</span><span class="v wht">${_results.length}</span></div>
+    <div class="rm"><span class="k">ADVANCING</span><span class="v up">${ups}</span></div>
+    <div class="rm"><span class="k">DECLINING</span><span class="v dn">${dns}</span></div>
+    <div class="rm"><span class="k">AVG CHG</span><span class="v" style="color:${gc(avgChg)}">${fp(avgChg)}</span></div>
+    <div class="rm"><span class="k">AVG VOL</span><span class="v yel">${avgVol.toFixed(1)}%</span></div>
+    <div class="rm"><span class="k">AVG SHARPE</span><span class="v" style="color:${gc(avgSh)}">${f(avgSh,2)}</span></div>`;
+}
+
+window.scrSort = function(){ if(_results.length) renderResults(); };
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+window.scrSaveTemplate = function(){
+  const name = document.getElementById('scr-tpl-name').value.trim();
+  if(!name || !_filters.length) return;
+  _templates[name] = {filters: [..._filters], days: +document.getElementById('scr-days').value};
+  localStorage.setItem('scr_templates', JSON.stringify(_templates));
+  document.getElementById('scr-tpl-name').value = '';
+  renderTemplateList();
+  renderTemplateSelect();
+};
+
+window.scrLoadTemplate = function(){
+  const name = document.getElementById('scr-tpl-load').value; if(!name) return;
+  const tpl = _templates[name]; if(!tpl) return;
+  _filters = [...tpl.filters];
+  document.getElementById('scr-days').value = tpl.days || 30;
+  renderFilterTags();
+};
+
+window.scrDeleteTemplate = function(name){
+  delete _templates[name];
+  localStorage.setItem('scr_templates', JSON.stringify(_templates));
+  renderTemplateList();
+  renderTemplateSelect();
+};
+
+function renderTemplateList(){
+  const keys = Object.keys(_templates);
+  document.getElementById('scr-tpl-list').innerHTML = keys.length
+    ? keys.map(k=>`
+      <div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5);display:flex;justify-content:space-between;align-items:center;font-size:10px;cursor:pointer" onclick="scrQuickLoad('${k}')">
+        <div>
+          <div class="wht" style="font-weight:700">${k}</div>
+          <div class="dim" style="font-size:9px">${_templates[k].filters.length} filter(s) · ${_templates[k].days}D</div>
+        </div>
+        <span class="wbtn" onclick="event.stopPropagation();scrDeleteTemplate('${k}')">✕</span>
+      </div>`).join('')
+    : '<div class="loading">NO TEMPLATES SAVED</div>';
+}
+
+function renderTemplateSelect(){
+  const sel = document.getElementById('scr-tpl-load');
+  sel.innerHTML = '<option value="">LOAD TEMPLATE…</option>' +
+    Object.keys(_templates).map(k=>`<option value="${k}">${k}</option>`).join('');
+}
+
+window.scrQuickLoad = function(name){
+  const tpl = _templates[name]; if(!tpl) return;
+  _filters = [...tpl.filters];
+  document.getElementById('scr-days').value = tpl.days || 30;
+  renderFilterTags();
+  runScreener();
+};
+
+function addToWatchlist(ticker){
+  if(!BB.watchlist.find(w=>w.ticker===ticker))
+    BB.watchlist.push({ticker,price:null,prev:null,hi:null,lo:null,rhi:null,rlo:null,rsi:null});
+  sw('wl');
+}
+
+// Built-in starter templates
+if(!Object.keys(_templates).length){
+  _templates = {
+    'HIGH SHARPE': {filters:[{met:'sharpe',op:'gt',val:1}], days:30},
+    'OVERSOLD RSI': {filters:[{met:'rsi',op:'lt',val:35}], days:30},
+    'VOLUME SPIKE': {filters:[{met:'vol_spike',op:'gt',val:2}], days:7},
+    'LOW SPREAD': {filters:[{met:'spread_pct',op:'lt',val:0.2},{met:'liq_depth',op:'gt',val:1000}], days:7},
+    'CONCENTRATED': {filters:[{met:'hhi',op:'gt',val:2500}], days:30},
+    'NEAR HIGH': {filters:[{met:'near_high',op:'eq',val:1}], days:30},
+  };
+  localStorage.setItem('scr_templates', JSON.stringify(_templates));
+  renderTemplateList();
+  renderTemplateSelect();
+}
+})();
+</script>

@@ -1,0 +1,288 @@
+<!-- F8: HEATMAP — TradingView-style squarified treemap -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+<div class="frow">
+  <div class="ff"><label>METRIC</label>
+    <select id="hm-mode" onchange="loadHM()">
+      <option value="chg">PRICE CHG%</option>
+      <option value="vol">VOLATILITY</option>
+      <option value="sharpe">SHARPE RATIO</option>
+      <option value="max_dd">MAX DRAWDOWN</option>
+      <option value="vol_spike">VOLUME SPIKE</option>
+      <option value="spread">SPREAD%</option>
+      <option value="liq_depth">LIQUIDITY DEPTH</option>
+      <option value="concentration">CONCENTRATION (HHI)</option>
+      <option value="momentum_burst">MOMENTUM BURST ⚡</option>
+      <option value="rel_volume">RELATIVE VOLUME</option>
+    </select>
+  </div>
+  <div class="ff"><label>SIZE BY</label>
+    <select id="hm-size" onchange="loadHM()">
+      <option value="mcap">MARKET CAP</option>
+      <option value="volume">VOLUME</option>
+      <option value="equal">EQUAL</option>
+    </select>
+  </div>
+  <div class="ff"><label>RANGE</label>
+    <select id="hm-rng" onchange="loadHM()">
+      <option value="1">1D</option><option value="7" selected>7D</option>
+      <option value="30">30D</option><option value="90">90D</option>
+    </select>
+  </div>
+  <button class="btn on" onclick="loadHM()">↻ REFRESH</button>
+  <div style="margin-left:auto;display:flex;gap:16px;align-items:flex-end;padding-bottom:4px;font-size:10px">
+    <span style="color:var(--txt3)">BEST <span id="hm-best" class="up">—</span></span>
+    <span style="color:var(--txt3)">WORST <span id="hm-worst" class="dn">—</span></span>
+    <span style="color:var(--txt3)">COUNT <span id="hm-cnt" class="wht">—</span></span>
+    <span id="hm-upd" style="color:var(--txt3)"></span>
+  </div>
+</div>
+<div style="padding:0 8px 3px;flex-shrink:0;font-size:9px;color:var(--txt3)"><span id="hm-legend"></span></div>
+<div id="heatmap" style="flex:1;position:relative;overflow:hidden"></div>
+</div>
+
+<style>
+.hm-cell{position:absolute;box-sizing:border-box;border:2px solid #0a0a0a;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:filter .1s;overflow:hidden;user-select:none}
+.hm-cell:hover{filter:brightness(1.35);z-index:10}
+.hm-cell .hm-t{font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px rgba(0,0,0,.9);line-height:1.2}
+.hm-cell .hm-v{font-weight:600;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.9);line-height:1.2}
+</style>
+
+<script>
+(function(){
+let _cache={}, _obCache={}, _holderCache={};
+
+window.PAGE_hm_onShow=function(){ loadHM(); };
+
+// ── Correct squarified treemap (Bruls et al.) ──────────────────────────────
+// items: array of {v: pixel-area, ...data}
+// returns array of {x, y, w, h, ...data}
+function squarify(items, x, y, w, h) {
+  const result = [];
+  _layout(items.slice(), x, y, w, h, result);
+  return result;
+}
+
+function _layout(items, x, y, w, h, result) {
+  if (!items.length) return;
+  if (items.length === 1) {
+    result.push({...items[0], x, y, w, h});
+    return;
+  }
+
+  const total = items.reduce((s, i) => s + i.v, 0);
+  const row = [];
+  let rowSum = 0;
+  let prev = Infinity;
+
+  for (let i = 0; i < items.length; i++) {
+    row.push(items[i]);
+    rowSum += items[i].v;
+    const curr = _worst(row, rowSum, w, h);
+    if (curr > prev) {
+      // Adding this item makes it worse — commit previous row without last item
+      row.pop();
+      rowSum -= items[i].v;
+      _placeRow(row, rowSum, total, x, y, w, h, result);
+      // Recurse on remainder
+      const placed = _rowArea(rowSum, total, w, h);
+      if (w >= h) _layout(items.slice(i), x + placed, y, w - placed, h, result);
+      else        _layout(items.slice(i), x, y + placed, w, h - placed, result);
+      return;
+    }
+    prev = curr;
+  }
+
+  // All items fit in one row
+  _placeRow(row, rowSum, total, x, y, w, h, result);
+}
+
+function _rowArea(rowSum, total, w, h) {
+  // Length of the strip along the SHORT side
+  return Math.min(w, h) === w ? rowSum / total * w : rowSum / total * h;
+}
+
+function _worst(row, rowSum, w, h) {
+  const s = Math.min(w, h);
+  const l = Math.max(w, h);
+  // Fraction of total length used by this row along the long axis
+  // Each item gets: rowSum/total * l pixels along long, item.v/rowSum * s along short
+  const max = Math.max(...row.map(i => i.v));
+  const min = Math.min(...row.map(i => i.v));
+  // Aspect ratio metric from paper
+  return Math.max(
+    (s * s * max) / (rowSum * rowSum),
+    (rowSum * rowSum) / (s * s * (min || 0.0001))
+  );
+}
+
+function _placeRow(row, rowSum, total, x, y, w, h, result) {
+  const horiz = w >= h; // strip runs along the horizontal or vertical?
+  // Strip thickness = rowSum/total * SHORT side
+  const thick = (rowSum / total) * (horiz ? h : w);
+  let pos = horiz ? y : x;
+
+  row.forEach(item => {
+    // item's share along the LONG axis
+    const span = (item.v / rowSum) * (horiz ? w : h);
+    if (horiz) {
+      result.push({...item, x, y: pos, w: thick, h: span});
+      pos += span;
+    } else {
+      result.push({...item, x: pos, y, w: span, h: thick});
+      pos += span;
+    }
+  });
+}
+
+window.loadHM = async function() {
+  const days     = document.getElementById('hm-rng').value;
+  const mode     = document.getElementById('hm-mode').value;
+  const sizeMode = document.getElementById('hm-size').value;
+  const el       = document.getElementById('heatmap');
+  el.innerHTML   = '<div class="loading" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">LOADING…</div>';
+
+  const needsOB   = ['spread','liq_depth','vol_spike'].includes(mode);
+  const needsHold = mode === 'concentration';
+
+  const priceResults = await Promise.all(BB.secs.map(async s => {
+    const key = s.ticker + days;
+    if (_cache[key]) return _cache[key];
+    const r = await api(`/api/analytics/ohlcv/${s.ticker}?days=${days}`);
+    if (!r.ok || !r.d.candles?.length) return null;
+    const cs = r.d.candles, closes = cs.map(c => c.close), vols = cs.map(c => c.volume);
+    const first = cs[0].open || closes[0], last = closes[closes.length - 1];
+    const chg = (last - first) / first * 100;
+    const rets = closes.map((c, i) => i ? (c - closes[i-1]) / closes[i-1] : 0).slice(1);
+    const avg = rets.reduce((s, v) => s + v, 0) / (rets.length || 1);
+    const std = Math.sqrt(rets.reduce((s, v) => s + (v - avg) ** 2, 0) / (rets.length || 1)) || 0.0001;
+    const annVol = std * Math.sqrt(252) * 100;
+    const sharpe = avg / std * Math.sqrt(252);
+    let peak = closes[0], maxDD = 0;
+    for (const c of closes) { if (c > peak) peak = c; const dd = (peak - c) / peak; if (dd > maxDD) maxDD = dd; }
+    const avgVol = vols.slice(0, -1).reduce((s, v) => s + v, 0) / Math.max(vols.length - 1, 1);
+    const volSpike = avgVol > 0 ? vols[vols.length - 1] / avgVol : 1;
+    const mb = closes.length >= 6 ? (() => {
+      const lastChg = (closes[closes.length-1] - closes[closes.length-2]) / closes[closes.length-2];
+      const prior = closes.slice(-7, -2);
+      const a5 = prior.length > 1 ? prior.map((c,i) => i ? (c-prior[i-1])/prior[i-1] : 0).slice(1).reduce((s,v)=>s+v,0)/(prior.length-1) : 0;
+      return (lastChg - a5) * 100;
+    })() : 0;
+    const relVol = avgVol > 0 ? (vols[vols.length-1] / avgVol - 1) * 100 : 0;
+    const result = {
+      ticker: s.ticker, name: s.full_name,
+      mcap: (s.total_shares || 1) * last, volume: vols[vols.length-1] || 1, last,
+      chg, annVol, sharpe, maxDD: maxDD * 100, volSpike, relVol, momentumBurst: mb
+    };
+    _cache[key] = result;
+    return result;
+  }));
+
+  let valid = priceResults.filter(Boolean);
+  if (!valid.length) { el.innerHTML = '<div class="loading">NO DATA</div>'; return; }
+
+  if (needsOB) {
+    const obR = await api('/api/market_orderbook');
+    if (obR.ok) obR.d.books.forEach(b => { _obCache[b.ticker] = b; });
+    valid = valid.map(s => ({...s, spread: _obCache[s.ticker]?.spread_pct ?? null, liqDepth: _obCache[s.ticker]?.total_depth ?? 0}));
+  }
+  if (needsHold) {
+    const holdR = await api('/api/holder_intel');
+    if (holdR.ok) holdR.d.securities.forEach(h => { _holderCache[h.ticker] = h; });
+    valid = valid.map(s => ({...s, hhi: _holderCache[s.ticker]?.hhi ?? null}));
+  }
+
+  const val = v => ({
+    chg: v.chg, vol: -v.annVol, sharpe: v.sharpe, max_dd: -v.maxDD,
+    vol_spike: v.volSpike != null ? v.volSpike - 1 : null,
+    spread: v.spread != null ? -v.spread : null,
+    liq_depth: v.liqDepth ?? null,
+    concentration: v.hhi != null ? -v.hhi : null,
+    momentum_burst: v.momentumBurst ?? null,
+    rel_volume: v.relVol ?? null,
+  }[mode]);
+
+  const label = v => {
+    const vv = val(v); if (vv == null) return '—';
+    switch (mode) {
+      case 'chg':            return (vv >= 0 ? '+' : '') + vv.toFixed(2) + '%';
+      case 'vol':            return (-vv).toFixed(1) + '% pa';
+      case 'sharpe':         return vv.toFixed(2);
+      case 'max_dd':         return '-' + (-vv).toFixed(1) + '%';
+      case 'vol_spike':      return (vv + 1).toFixed(2) + 'x';
+      case 'spread':         return (-vv).toFixed(3) + '%';
+      case 'liq_depth':      return fk(vv);
+      case 'concentration':  return 'HHI ' + (-vv).toFixed(0);
+      case 'momentum_burst': return (vv >= 0 ? '⚡+' : '') + vv.toFixed(2) + '%';
+      case 'rel_volume':     return (vv >= 0 ? '+' : '') + vv.toFixed(0) + '% vs avg';
+    }
+  };
+
+  const sizeOf = v => sizeMode === 'mcap' ? v.mcap : sizeMode === 'volume' ? v.volume : 1;
+  const sorted = [...valid].filter(v => val(v) != null).sort((a, b) => sizeOf(b) - sizeOf(a));
+  if (!sorted.length) { el.innerHTML = '<div class="loading">NO DATA FOR THIS METRIC</div>'; return; }
+
+  const vals = sorted.map(v => val(v));
+  const maxAbs = Math.max(...vals.map(v => Math.abs(v)), 0.001);
+
+  document.getElementById('hm-best').textContent   = [...sorted].sort((a,b) => val(b)-val(a))[0]?.ticker || '—';
+  document.getElementById('hm-worst').textContent  = [...sorted].sort((a,b) => val(a)-val(b))[0]?.ticker || '—';
+  document.getElementById('hm-cnt').textContent    = sorted.length;
+  document.getElementById('hm-upd').textContent    = 'Updated ' + new Date().toLocaleTimeString('en-GB');
+
+  const legends = {
+    chg:'Green=up · Red=down', vol:'Green=low vol · Red=high vol',
+    sharpe:'Green=high Sharpe · Red=negative', max_dd:'Green=small DD · Red=large',
+    vol_spike:'Volume vs prior avg — spike detection', spread:'Green=tight · Red=wide',
+    liq_depth:'Green=deep book · Red=thin', concentration:'Green=distributed · Red=concentrated',
+    momentum_burst:'⚡ Green=accelerating vs prior 5 bars', rel_volume:'Green=above 30d avg · Red=below'
+  };
+  document.getElementById('hm-legend').textContent = legends[mode] || '';
+
+  // Build treemap
+  const W = el.offsetWidth || 800, H = el.offsetHeight || 400;
+  const totalSz = sorted.reduce((s, v) => s + sizeOf(v), 0) || 1;
+  const items = sorted.map(v => ({...v, v: (sizeOf(v) / totalSz) * W * H}));
+  const rects = squarify(items, 0, 0, W, H);
+
+  el.innerHTML = '';
+  rects.forEach(r => {
+    const v = val(r);
+    if (v == null) return;
+    const intensity = Math.min(Math.abs(v) / maxAbs, 1);
+    // Rich colours matching TradingView style
+    const bg = v > 0
+      ? `rgb(${Math.round(10 + intensity*15)}, ${Math.round(80 + intensity*100)}, ${Math.round(30 + intensity*30)})`
+      : v < 0
+      ? `rgb(${Math.round(120 + intensity*110)}, ${Math.round(15 + intensity*10)}, ${Math.round(20 + intensity*15)})`
+      : 'rgb(38,38,38)';
+
+    const cell = document.createElement('div');
+    cell.className = 'hm-cell';
+    // Use Math.round to avoid sub-pixel overlaps
+    cell.style.left   = Math.round(r.x) + 'px';
+    cell.style.top    = Math.round(r.y) + 'px';
+    cell.style.width  = Math.round(r.w) + 'px';
+    cell.style.height = Math.round(r.h) + 'px';
+    cell.style.background = bg;
+
+    const minSide = Math.min(r.w, r.h);
+    const tkSz = Math.max(9, Math.min(20, minSide * 0.22));
+    const vlSz = Math.max(8, Math.min(13, minSide * 0.14));
+    const valColor = v > 0 ? '#7fffa0' : v < 0 ? '#ff9090' : '#aaa';
+
+    if (minSide > 22) {
+      cell.innerHTML = `<span class="hm-t" style="font-size:${tkSz}px;max-width:${Math.round(r.w)-6}px">${r.ticker}</span>`
+        + (minSide > 40 ? `<span class="hm-v" style="font-size:${vlSz}px;color:${valColor}">${label(r)}</span>` : '');
+    } else {
+      // Too small — just show a colored dot
+      cell.style.fontSize = '7px';
+      cell.textContent = r.ticker;
+    }
+
+    cell.title = `${r.ticker} — ${r.name}\n${label(r)}`;
+    cell.onmousedown = () => { sw('tkr'); setTimeout(() => { if (window.PAGE_tkr_load) PAGE_tkr_load(r.ticker); }, 200); };
+    el.appendChild(cell);
+  });
+};
+})();
+</script>

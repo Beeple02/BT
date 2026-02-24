@@ -1,0 +1,303 @@
+<!-- F10: LIQUIDITY LAB — Full depth, slippage sim, spread monitoring -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<div class="frow">
+  <div class="ff"><label>TICKER</label>
+    <select id="liq-sel" style="min-width:180px" onchange="loadLiq(this.value)"><option value="">SELECT…</option></select>
+  </div>
+  <div id="liq-kpis" style="display:flex;gap:14px;align-items:flex-end;flex:1;flex-wrap:wrap">
+    <div><div class="kpi-l">MID</div><div class="kpi-v" id="lq-mid">—</div></div>
+    <div><div class="kpi-l">SPREAD%</div><div class="kpi-v2 yel" id="lq-spr">—</div></div>
+    <div><div class="kpi-l">IMBALANCE</div><div class="kpi-v2" id="lq-imb">—</div></div>
+    <div><div class="kpi-l">LIQ SCORE</div><div class="kpi-v2" id="lq-scr">—</div></div>
+    <div><div class="kpi-l">BID DEPTH</div><div class="kpi-v2 up" id="lq-bq">—</div></div>
+    <div><div class="kpi-l">ASK DEPTH</div><div class="kpi-v2 dn" id="lq-aq">—</div></div>
+    <div><div class="kpi-l">WALLS</div><div class="kpi-v2 org" id="lq-walls">—</div></div>
+  </div>
+  <button class="btn on" onclick="loadLiq(document.getElementById('liq-sel').value)">↻</button>
+</div>
+
+<div class="wrow" style="flex:1">
+
+  <!-- Left: order book + slippage sim -->
+  <div class="wcol" style="max-width:260px">
+    <!-- Full depth book -->
+    <div class="win" style="flex:1;border-right:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">FULL DEPTH</span></div></div>
+      <div class="scroll" id="liq-ob"><div class="loading">SELECT TICKER</div></div>
+    </div>
+    <!-- Slippage sim -->
+    <div class="win" style="height:220px;border-right:0;border-top:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SLIPPAGE SIMULATOR</span></div>
+      </div>
+      <div style="padding:6px 8px;border-bottom:1px solid var(--bdr);display:flex;gap:8px;align-items:flex-end;flex-shrink:0">
+        <div class="ff"><label>QTY</label><input type="number" id="slip-qty" value="100" style="width:70px" oninput="calcSlip()"></div>
+        <div class="ff"><label>SIDE</label>
+          <select id="slip-side" onchange="calcSlip()"><option value="buy">BUY</option><option value="sell">SELL</option></select>
+        </div>
+      </div>
+      <div id="liq-slip" style="padding:6px 8px;font-size:10px;flex:1"><span class="dim">Enter quantity above</span></div>
+    </div>
+  </div>
+
+  <!-- Middle: cumulative depth chart -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">3</span><span class="wtitle">CUMULATIVE DEPTH CURVE</span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--txt3)">Green=Bid · Red=Ask</div>
+    </div>
+    <div class="chart-wrap"><canvas id="liq-depth-c"></canvas></div>
+  </div>
+
+  <!-- Right: slippage table + walls -->
+  <div class="wcol" style="max-width:300px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">SLIPPAGE TABLE (BUY)</span></div></div>
+      <div class="scroll" id="liq-slip-tbl-buy">
+        <table class="dt" style="width:100%">
+          <thead><tr><th>QTY</th><th class="r">AVG PX</th><th class="r">SLIP%</th><th class="r">COST</th></tr></thead>
+          <tbody id="liq-stb"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="win" style="flex:1;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">SLIPPAGE TABLE (SELL)</span></div></div>
+      <div class="scroll">
+        <table class="dt" style="width:100%">
+          <thead><tr><th>QTY</th><th class="r">AVG PX</th><th class="r">SLIP%</th><th class="r">COST</th></tr></thead>
+          <tbody id="liq-sts"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="win" style="height:150px;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">DETECTED WALLS</span></div></div>
+      <div class="scroll" id="liq-walls-list"><div class="loading">—</div></div>
+    </div>
+    <!-- OPTIMAL EXECUTION SLICER -->
+    <div class="win" style="flex:1;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">7</span><span class="wtitle">EXECUTION SLICER (TWAP)</span></div></div>
+      <div style="padding:4px 8px;border-bottom:1px solid var(--bdr);display:flex;gap:5px;flex-wrap:wrap;flex-shrink:0">
+        <div class="ff"><label>QTY</label><input type="number" id="slicer-qty" value="500" style="width:65px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 4px;outline:none"></div>
+        <div class="ff"><label>SLICES</label><select id="slicer-n" style="width:50px"><option>3</option><option>4</option><option selected>5</option><option>10</option></select></div>
+        <div class="ff"><label>SIDE</label><select id="slicer-side"><option value="buy">BUY</option><option value="sell">SELL</option></select></div>
+        <button class="btn btn-xs on" onclick="calcSlicer()">GO</button>
+      </div>
+      <div id="liq-slicer" style="padding:5px 8px;font-size:10px;overflow:auto;flex:1"><span class="dim">Compute above</span></div>
+    </div>
+    <!-- HIDDEN LIQUIDITY / ICEBERG DETECTOR -->
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">8</span><span class="wtitle">ICEBERG DETECTION</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Hidden order est.</div></div>
+      <div id="liq-iceberg" style="padding:8px;font-size:10px"><span class="dim">Load ticker first</span></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<style>
+.kpi-l{font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:1px}
+.kpi-v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--wht)}
+.kpi-v2{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+</style>
+
+<script>
+(function(){
+let _liq=null, _cDepth=null;
+
+window.PAGE_liq_onShow = function(){ populateSel('liq-sel'); };
+
+window.PAGE_liq_load = async function(ticker){
+  document.getElementById('liq-sel').value=ticker;
+  await loadLiq(ticker);
+};
+
+window.loadLiq = async function(ticker){
+  if(!ticker) return;
+  const r=await api(`/api/liquidity/${ticker}`);
+  if(!r.ok){ document.getElementById('liq-ob').innerHTML=`<div class="err-banner">${r.d.detail||'Error fetching liquidity'}</div>`; return; }
+  _liq=r.d;
+
+  // KPIs
+  document.getElementById('lq-mid').textContent = f(_liq.mid, 4);
+  const sprEl=document.getElementById('lq-spr');
+  sprEl.textContent = _liq.spread_pct!=null ? _liq.spread_pct+'%' : '—';
+  sprEl.style.color = _liq.spread_pct > 1 ? 'var(--dn)' : _liq.spread_pct > 0.3 ? 'var(--yel)' : 'var(--up)';
+  const imbEl=document.getElementById('lq-imb');
+  imbEl.textContent = (_liq.imbalance_pct>=0?'+':'')+_liq.imbalance_pct+'%';
+  imbEl.style.color = gc(_liq.imbalance_pct);
+  const scrEl=document.getElementById('lq-scr');
+  scrEl.textContent = _liq.liquidity_score;
+  scrEl.style.color = _liq.liquidity_score > 1 ? 'var(--up)' : _liq.liquidity_score > 0.1 ? 'var(--yel)' : 'var(--dn)';
+  document.getElementById('lq-bq').textContent = fk(_liq.total_bid_qty);
+  document.getElementById('lq-aq').textContent = fk(_liq.total_ask_qty);
+  document.getElementById('lq-walls').textContent = _liq.walls.length;
+
+  // Full depth book
+  renderOB('liq-ob', {bids:_liq.bids, asks:_liq.asks, best_bid:_liq.best_bid, best_ask:_liq.best_ask, mid:_liq.mid}, 20);
+
+  // Cumulative depth chart
+  _cDepth=dc(_cDepth);
+  const bidPts = _liq.cum_bid_depth.slice(0,30);
+  const askPts = _liq.cum_ask_depth.slice(0,30);
+  const allPrices = [...bidPts.map(p=>p.price), ...askPts.map(p=>p.price)];
+  const priceLabels = [...new Set(allPrices)].sort((a,b)=>a-b);
+  // Map cumulative qty to each price level
+  function mapDepth(pts, prices, side) {
+    return prices.map(px => {
+      const match = pts.find(p=>p.price===px);
+      return match ? match.cum_qty : null;
+    });
+  }
+  _cDepth = new Chart(document.getElementById('liq-depth-c'), {
+    type:'line',
+    data:{labels:priceLabels.map(p=>f(p,4)),datasets:[
+      {label:'Bid',data:mapDepth(bidPts,priceLabels,'bid'),
+        borderColor:'rgba(0,200,83,.8)',backgroundColor:'rgba(0,200,83,.1)',
+        borderWidth:1.5,pointRadius:0,fill:true,tension:.1,spanGaps:true},
+      {label:'Ask',data:mapDepth(askPts,priceLabels,'ask'),
+        borderColor:'rgba(244,67,54,.8)',backgroundColor:'rgba(244,67,54,.1)',
+        borderWidth:1.5,pointRadius:0,fill:true,tension:.1,spanGaps:true}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` ${c.dataset.label}: ${fk(c.parsed.y)} shares`}}},
+      scales:{
+        x:{grid:{color:'#1a1a1a'},ticks:{maxTicksLimit:8,maxRotation:0,color:'#444'}},
+        y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>fk(v)}}
+      }}
+  });
+
+  // Slippage tables
+  const mkRow=(d,side)=>`<tr>
+    <td class="dim">${fk(d.qty)}</td>
+    <td class="r wht">${f(d.avg_px,4)}</td>
+    <td class="r ${d.slippage_pct>0.5?'dn':d.slippage_pct>0.1?'yel':'up'}">${d.slippage_pct.toFixed(4)}%</td>
+    <td class="r">${fk(d.cost)}</td>
+  </tr>`;
+  document.getElementById('liq-stb').innerHTML = (_liq.slippage_buy||[]).map(d=>mkRow(d,'buy')).join('') || '<tr><td colspan="4" class="loading">NO DATA</td></tr>';
+  document.getElementById('liq-sts').innerHTML = (_liq.slippage_sell||[]).map(d=>mkRow(d,'sell')).join('') || '<tr><td colspan="4" class="loading">NO DATA</td></tr>';
+
+  // Walls
+  const wl=document.getElementById('liq-walls-list');
+  wl.innerHTML = _liq.walls.length ? _liq.walls.map(w=>`
+    <div style="padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.5);font-size:11px;display:flex;justify-content:space-between;align-items:center">
+      <span class="${w.side==='bid'?'up':'dn'}" style="font-weight:700;width:35px">${w.side.toUpperCase()}</span>
+      <span class="wht">${f(w.price,4)}</span>
+      <span class="org">${fk(w.qty)} <span class="dim">(${w.multiple}x avg)</span></span>
+    </div>`).join('') : '<div class="loading">NO WALLS DETECTED</div>';
+
+  calcSlip();
+  calcSlicer();
+  detectIceberg();
+};
+
+window.calcSlicer=function(){
+  if(!_liq) return;
+  const totalQty=parseInt(document.getElementById('slicer-qty').value)||0;
+  const n=parseInt(document.getElementById('slicer-n').value)||5;
+  const side=document.getElementById('slicer-side').value;
+  if(!totalQty||n<1) return;
+  const book=side==='buy'?[..._liq.asks]:[..._liq.bids].reverse();
+  const totalDepth=book.reduce((s,l)=>s+l.quantity,0);
+  // TWAP-optimal sizing: allocate slices proportionally to available depth at each level
+  // Simple equal slices (TWAP) with timing recommendation
+  const sliceQty=Math.ceil(totalQty/n);
+  let rows='', totalCost=0, totalFilled=0;
+  let remaining=[...book];
+  for(let i=0;i<n;i++){
+    let qty=Math.min(sliceQty,totalQty-i*sliceQty); if(qty<=0) break;
+    let filled=0,cost=0,levelsHit=0;
+    const bookCopy=[...remaining];
+    for(const lvl of bookCopy){
+      const take=Math.min(lvl.quantity,qty-filled);
+      cost+=take*lvl.price; filled+=take; levelsHit++;
+      if(filled>=qty) break;
+    }
+    // Remove consumed liquidity
+    let consume=filled;
+    remaining=remaining.map(l=>{const take=Math.min(l.quantity,consume);consume-=take;return{...l,quantity:l.quantity-take};}).filter(l=>l.quantity>0);
+    const avgPx=filled>0?cost/filled:0;
+    const ref=side==='buy'?_liq.best_ask:_liq.best_bid;
+    const slip=ref&&avgPx?Math.abs((avgPx-ref)/ref*100):0;
+    totalCost+=cost; totalFilled+=filled;
+    rows+=`<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:1px solid rgba(46,46,46,.3);font-size:9px">
+      <span class="dim" style="width:14px">${i+1}</span>
+      <span class="wht">${fk(filled)}</span>
+      <span class="dim">@ ${f(avgPx,4)}</span>
+      <span class="${slip>0.5?'dn':slip>0.1?'yel':'up'}" style="margin-left:auto">${slip.toFixed(3)}%</span>
+    </div>`;
+  }
+  const totalAvg=totalFilled>0?totalCost/totalFilled:0;
+  const totalRef=side==='buy'?_liq.best_ask:_liq.best_bid;
+  const totalSlip=totalRef&&totalAvg?Math.abs((totalAvg-totalRef)/totalRef*100):0;
+  document.getElementById('liq-slicer').innerHTML=`
+    <div style="font-size:9px;color:var(--txt3);margin-bottom:4px">${n} EQUAL SLICES · ${fk(totalQty)} ${side.toUpperCase()}</div>
+    ${rows}
+    <div style="margin-top:4px;padding:3px 0;font-size:9px;display:flex;justify-content:space-between">
+      <span>TOTAL FILLED: <span class="wht">${fk(totalFilled)}</span></span>
+      <span>AVG SLIP: <span class="${totalSlip>0.5?'dn':'up'}">${totalSlip.toFixed(4)}%</span></span>
+    </div>
+    <div style="font-size:9px;color:var(--txt3);margin-top:4px">vs single-order slippage: <span class="${totalSlip<0?'up':'yel'}">splitting reduces market impact at thin depth</span></div>`;
+};
+
+function detectIceberg(){
+  if(!_liq) return;
+  // Estimate hidden liquidity by comparing orderbook depth to price_history volume
+  // Heuristic: if best bid/ask spread is tight but orderbook depth is low,
+  // that suggests hidden (iceberg) orders
+  const visibleBid=_liq.total_bid_qty||0;
+  const visibleAsk=_liq.total_ask_qty||0;
+  const totalVisible=visibleBid+visibleAsk;
+  const spread_pct=_liq.spread_pct||999;
+  // Score: tight spread + low visible depth = high iceberg probability
+  // Iceberg score 0-100
+  const depthScore=totalVisible>0?Math.min(100,10000/totalVisible):100; // lower depth = higher score
+  const spreadScore=spread_pct<0.1?10:spread_pct<0.5?30:spread_pct<1?60:90; // tight spread with low depth
+  const icebergScore=Math.round((depthScore*0.7+spreadScore*0.3));
+  const wallsHidden=(_liq.walls||[]).length;
+  const prob=icebergScore>70?'HIGH':icebergScore>40?'MODERATE':'LOW';
+  const probColor=icebergScore>70?'var(--dn)':icebergScore>40?'var(--yel)':'var(--up)';
+  document.getElementById('liq-iceberg').innerHTML=`
+    <div class="rm"><span class="k">ICEBERG PROBABILITY</span><span class="v" style="color:${probColor}">${prob} (${icebergScore})</span></div>
+    <div class="rm"><span class="k">VISIBLE BID DEPTH</span><span class="v up">${fk(visibleBid)}</span></div>
+    <div class="rm"><span class="k">VISIBLE ASK DEPTH</span><span class="v dn">${fk(visibleAsk)}</span></div>
+    <div class="rm"><span class="k">SPREAD %</span><span class="v yel">${spread_pct}%</span></div>
+    <div class="rm"><span class="k">WALLS DETECTED</span><span class="v org">${wallsHidden}</span></div>
+    <div style="font-size:9px;color:var(--txt3);margin-top:6px;line-height:1.5">
+    ${icebergScore>70?'⚠ Low visible depth + tight spread suggests significant hidden orders. Trade cautiously — actual liquidity may differ from book.':
+      icebergScore>40?'Moderate iceberg risk. Some hidden orders possible. Verify with transaction-level data before large trades.':
+      'Normal liquidity profile. Orderbook depth appears representative of true available liquidity.'}</div>`;
+}
+
+window.calcSlip = function(){
+  if(!_liq) return;
+  const qty = parseInt(document.getElementById('slip-qty').value)||0;
+  const side = document.getElementById('slip-side').value;
+  if(!qty || qty<=0) return;
+  const book = side==='buy' ? _liq.asks : [..._liq.bids].reverse();
+  let filled=0, cost=0;
+  for(const lvl of book){
+    const take=Math.min(lvl.quantity, qty-filled);
+    cost+=take*lvl.price; filled+=take;
+    if(filled>=qty) break;
+  }
+  const el=document.getElementById('liq-slip');
+  if(filled===0){ el.innerHTML='<span class="dn">Insufficient liquidity</span>'; return; }
+  const avgPx=cost/filled;
+  const ref = side==='buy' ? _liq.best_ask : _liq.best_bid;
+  const slip = ref ? Math.abs((avgPx-ref)/ref*100) : 0;
+  const pct = filled/qty*100;
+  const slipColor = slip>0.5?'var(--dn)':slip>0.1?'var(--yel)':'var(--up)';
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px">
+      <span class="dim">REQUESTED</span><span class="wht">${fk(qty)}</span>
+      <span class="dim">FILLED</span><span class="${pct<100?'yel':'up'}">${fk(filled)} (${pct.toFixed(1)}%)</span>
+      <span class="dim">AVG PRICE</span><span class="wht">${f(avgPx,4)}</span>
+      <span class="dim">MID/REF</span><span class="wht">${f(ref,4)}</span>
+      <span class="dim">SLIPPAGE</span><span style="color:${slipColor}">${slip.toFixed(4)}%</span>
+      <span class="dim">TOTAL COST</span><span class="wht">${fk(cost)}</span>
+    </div>`;
+};
+})();
+</script>

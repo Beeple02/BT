@@ -1,0 +1,258 @@
+<!-- F6: COMPARE — Pairs analysis, rolling correlation, statistical spread -->
+<style>
+.corr-cell{width:36px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;border-radius:2px}
+</style>
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+<div class="frow">
+  <div class="ff"><label>TICKERS (2–6)</label>
+    <div id="cmp-chips" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;min-width:180px">
+      <span style="font-size:9px;color:var(--txt3)">Add tickers:</span>
+    </div>
+  </div>
+  <div class="ff"><label>ADD TICKER</label>
+    <select id="cmp-add-sel" onchange="cmpAddTicker(this.value);this.value=''">
+      <option value="">SELECT…</option>
+    </select>
+  </div>
+  <div class="ff"><label>PERIOD</label>
+    <select id="cmp-days" onchange="loadCompare()">
+      <option value="7">7D</option><option value="14">14D</option><option value="30" selected>30D</option><option value="60">60D</option><option value="90">90D</option>
+    </select>
+  </div>
+  <div class="ff"><label>CORR WINDOW</label>
+    <select id="cmp-win" onchange="loadCompare()">
+      <option value="7">7D</option><option value="10">10D</option><option value="14" selected>14D</option><option value="21">21D</option>
+    </select>
+  </div>
+  <div class="ff"><label>CHART MODE</label>
+    <select id="cmp-mode" onchange="rebuildNormChart()">
+      <option value="raw">RAW PRICE</option>
+      <option value="norm">REBASED 100</option>
+      <option value="pct">% RETURN</option>
+    </select>
+  </div>
+  <button class="btn on" onclick="loadCompare()">▶ ANALYSE</button>
+  <button class="btn" onclick="cmpClear()">CLEAR</button>
+  <span id="cmp-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
+</div>
+
+<div class="wrow" style="flex:1">
+  <div class="wcol" style="flex:1">
+    <div class="win" style="flex:2;border-bottom:0;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle" id="cmp-chart1-title">PRICE CHART</span></div>
+      </div>
+      <div class="chart-wrap"><canvas id="cmp-norm-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0;border-top:0;border-bottom:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">2</span><span class="wtitle">ROLLING CORRELATION</span><span class="wsub" id="cmp-corr-sub"></span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">2-ticker mode</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cmp-corr-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0;border-top:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">3</span><span class="wtitle">SPREAD Z-SCORE</span><span class="wsub" id="cmp-spread-sub"></span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">Pairs signal</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cmp-spread-c"></canvas></div>
+    </div>
+  </div>
+
+  <div class="wcol" style="width:300px;flex:none">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">CORRELATION MATRIX</span></div></div>
+      <div style="padding:8px;overflow:auto;flex:1" id="cmp-matrix-wrap"><div class="loading">Run analysis</div></div>
+    </div>
+    <div class="win" style="flex:2;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">COMPARISON STATS</span></div></div>
+      <div class="scroll">
+        <table class="dt">
+          <thead><tr>
+            <th>TICKER</th><th class="r">RETURN</th><th class="r">VOL</th><th class="r">SHARPE</th>
+            <th class="r">MAX DD</th><th class="r">SPREAD%</th><th class="r">LIQ</th>
+          </tr></thead>
+          <tbody id="cmp-stats-body"><tr><td colspan="7" class="loading">Add 2+ tickers</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="win" style="height:130px;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">PAIRS SIGNAL</span></div></div>
+      <div id="cmp-pairs-detail" style="padding:8px;font-size:10px;display:grid;grid-template-columns:1fr 1fr;gap:3px 10px">
+        <span style="color:var(--txt3);font-size:9px;grid-column:span 2">Select exactly 2 tickers for pairs analysis</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+(function(){
+const COLORS=['#ffd600','#00e5ff','#00c853','#e040fb','#ff8c00','#f44336'];
+let _tickers=[], _cNorm=null, _cCorr=null, _cSpread=null, _statsData=[];
+
+window.PAGE_cmp_onShow=function(){
+  populateSel('cmp-add-sel');
+  if(_tickers.length>=2) loadCompare();
+};
+
+window.cmpAddTicker=function(t){
+  if(!t||_tickers.includes(t)) return;
+  if(_tickers.length>=6){ document.getElementById('cmp-status').textContent='MAX 6'; return; }
+  _tickers.push(t); renderChips();
+  if(_tickers.length>=2) loadCompare();
+};
+window.cmpClear=function(){ _tickers=[]; _statsData=[]; renderChips(); document.getElementById('cmp-status').textContent='Cleared'; };
+window.cmpRemove=function(t){ _tickers=_tickers.filter(x=>x!==t); renderChips(); if(_tickers.length>=2) loadCompare(); };
+
+function renderChips(){
+  document.getElementById('cmp-chips').innerHTML=_tickers.length
+    ?_tickers.map((t,i)=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border:1px solid ${COLORS[i]};color:${COLORS[i]};font-size:9px;font-weight:700">${t}<span style="cursor:pointer;opacity:.5;margin-left:3px" onclick="cmpRemove('${t}')">✕</span></span>`).join('')
+    :'<span style="font-size:9px;color:var(--txt3)">Add tickers:</span>';
+}
+
+window.rebuildNormChart=function(){
+  if(!_statsData.length) return;
+  buildPriceChart(document.getElementById('cmp-mode').value);
+};
+
+function buildPriceChart(mode){
+  _cNorm=dc(_cNorm);
+  if(!_statsData.length) return;
+  const allDates=_statsData[0].candles.map(c=>c.date);
+  const titles={raw:'RAW PRICE',norm:'NORMALISED (rebased 100)',pct:'% RETURN FROM START'};
+  document.getElementById('cmp-chart1-title').textContent=titles[mode]||'PRICE CHART';
+  const datasets=_statsData.map((sd,i)=>{
+    const cs=sd.candles.map(c=>c.close);
+    let data=cs;
+    if(mode==='norm'){ const b=cs[0]||1; data=cs.map(v=>+(v/b*100).toFixed(4)); }
+    else if(mode==='pct'){ const b=cs[0]||1; data=cs.map(v=>+((v/b-1)*100).toFixed(4)); }
+    return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2};
+  });
+  _cNorm=new Chart(document.getElementById('cmp-norm-c'),{type:'line',
+    data:{labels:allDates,datasets},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:true,position:'top',labels:{color:'#888',font:{size:9},boxWidth:10,padding:6}},
+        tooltip:{...TT,callbacks:{label:c=>` ${c.dataset.label}: ${mode==='raw'?f(c.parsed.y,4):c.parsed.y.toFixed(2)+(mode==='pct'?' %':'')}`}}},
+      scales:{
+        x:{grid:{color:'#111'},ticks:{maxTicksLimit:8,color:'#444',font:{size:9}}},
+        y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444'}}
+      }}});
+}
+
+window.loadCompare=async function(){
+  if(_tickers.length<2){ document.getElementById('cmp-status').textContent='Need 2+ tickers'; return; }
+  const days=+document.getElementById('cmp-days').value;
+  const win=+document.getElementById('cmp-win').value;
+  const mode=document.getElementById('cmp-mode').value;
+  document.getElementById('cmp-status').textContent='Loading…';
+
+  const [statsArr,liqArr]=await Promise.all([
+    Promise.all(_tickers.map(t=>api(`/api/ticker_stats/${t}?days=${days}`))),
+    Promise.all(_tickers.map(t=>api(`/api/liquidity/${t}`)))
+  ]);
+
+  _statsData=_tickers.map((t,i)=>({ticker:t,candles:statsArr[i].ok?statsArr[i].d.candles:[]})).filter(sd=>sd.candles.length);
+  buildPriceChart(mode);
+
+  // Destroy old corr/spread charts
+  _cCorr=dc(_cCorr); _cSpread=dc(_cSpread);
+  document.getElementById('cmp-corr-sub').textContent='';
+  document.getElementById('cmp-spread-sub').textContent='';
+
+  if(_tickers.length===2){
+    const r=await api(`/api/rolling_correlation?t1=${_tickers[0]}&t2=${_tickers[1]}&days=${days}&window=${win}`);
+    if(r.ok && r.d.dates && r.d.dates.length>0){
+      const d=r.d;
+      const corrVals=d.corr||[];
+      const corrBg=corrVals.map(v=>v==null?'rgba(80,80,80,.15)':v>0.7?'rgba(244,67,54,.75)':v>0.3?'rgba(255,214,0,.7)':v<-0.3?'rgba(0,229,255,.7)':'rgba(100,100,100,.4)');
+      _cCorr=new Chart(document.getElementById('cmp-corr-c'),{type:'bar',
+        data:{labels:d.dates,datasets:[{data:corrVals,backgroundColor:corrBg,borderWidth:0}]},
+        options:{responsive:true,maintainAspectRatio:false,animation:false,
+          interaction:{mode:'index',intersect:false},
+          plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>c.parsed.y!=null?` Corr: ${c.parsed.y.toFixed(3)}`:' —'}}},
+          scales:{x:{display:false},y:{min:-1,max:1,grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:5}}}}});
+      document.getElementById('cmp-corr-sub').textContent=d.full_corr!=null?` — Full period: ${d.full_corr.toFixed(3)}`:'';
+
+      const zData=d.spread_z||[];
+      _cSpread=new Chart(document.getElementById('cmp-spread-c'),{type:'line',
+        data:{labels:d.dates,datasets:[
+          {label:'Z',data:zData,borderColor:COLORS[0],borderWidth:1.5,pointRadius:0,fill:false,tension:.2},
+          {label:'+2σ',data:zData.map(()=>2),borderColor:'rgba(244,67,54,.4)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false},
+          {label:'-2σ',data:zData.map(()=>-2),borderColor:'rgba(0,200,83,.4)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false}]},
+        options:{responsive:true,maintainAspectRatio:false,animation:false,
+          interaction:{mode:'index',intersect:false},
+          plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>c.datasetIndex===0?` Z: ${c.parsed.y?.toFixed(3)}`:null}}},
+          scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:5}}}}});
+
+      const cz=d.current_spread_z;
+      const sig=cz!=null?(cz>2?`LONG ${_tickers[1]} / SHORT ${_tickers[0]}`:cz<-2?`LONG ${_tickers[0]} / SHORT ${_tickers[1]}`:Math.abs(cz)<0.5?'SPREAD AT MEAN':'WATCH — WIDENING'):'—';
+      const sigColor=cz!=null?(Math.abs(cz)>2?'var(--org)':Math.abs(cz)<0.5?'var(--up)':'var(--yel)'):'var(--txt3)';
+      document.getElementById('cmp-spread-sub').textContent=cz!=null?` Z=${cz.toFixed(2)}`:'';
+      document.getElementById('cmp-pairs-detail').innerHTML=`
+        <span style="color:var(--txt3);font-size:9px">FULL CORR</span><span class="wht">${d.full_corr!=null?d.full_corr.toFixed(3):'—'}</span>
+        <span style="color:var(--txt3);font-size:9px">CURR Z</span><span style="color:${sigColor};font-weight:700">${cz!=null?cz.toFixed(3):'—'}</span>
+        <span style="color:var(--txt3);font-size:9px">SPREAD μ</span><span class="dim">${d.sp_mean!=null?d.sp_mean.toFixed(4):'—'}</span>
+        <span style="color:var(--txt3);font-size:9px">SPREAD σ</span><span class="dim">${d.sp_std!=null?d.sp_std.toFixed(4):'—'}</span>
+        <span style="color:var(--txt3);font-size:9px;grid-column:span 2">SIGNAL</span>
+        <span style="color:${sigColor};font-weight:700;font-size:11px;grid-column:span 2">${sig}</span>
+        <span style="color:var(--txt3);font-size:8px;grid-column:span 2">±2σ entry · ±0.5σ exit</span>`;
+    } else {
+      document.getElementById('cmp-corr-sub').textContent=' — Not enough data for window';
+      document.getElementById('cmp-pairs-detail').innerHTML='<span style="color:var(--txt3);font-size:9px;grid-column:span 2">Not enough historical data</span>';
+    }
+  } else {
+    document.getElementById('cmp-pairs-detail').innerHTML='<span style="color:var(--txt3);font-size:9px;grid-column:span 2">Select exactly 2 tickers for pairs analysis</span>';
+  }
+
+  // Correlation matrix
+  const corrR=await api(`/api/correlation_matrix?days=${days}`);
+  if(corrR.ok && corrR.d.tickers && corrR.d.tickers.length){
+    const cm=corrR.d;
+    const pairs=_tickers.map(t=>{const i=cm.tickers.indexOf(t);return i>=0?{ticker:t,i}:null;}).filter(Boolean);
+    if(pairs.length>=2){
+      let html=`<table style="border-collapse:collapse"><thead><tr><th></th>${pairs.map(p=>`<th style="padding:2px 4px;font-size:9px;color:var(--txt3);font-weight:700">${p.ticker}</th>`).join('')}</tr></thead><tbody>`;
+      pairs.forEach(p1=>{
+        html+=`<tr><td style="padding:2px 4px;font-size:9px;color:var(--txt3);font-weight:700;white-space:nowrap">${p1.ticker}</td>`;
+        pairs.forEach(p2=>{
+          const val=(cm.matrix[p1.i]||[])[p2.i]??0;
+          const abs=Math.abs(val);
+          const isDiag=p1.i===p2.i;
+          const bg=isDiag?'#2a2a2a':val>0.7?`rgba(244,67,54,${.3+abs*.6})`:val>0.3?`rgba(255,214,0,${.2+abs*.5})`:val<-0.5?`rgba(0,229,255,${.2+abs*.5})`:'rgba(60,60,60,.4)';
+          html+=`<td><div class="corr-cell" style="background:${bg};color:${abs>0.3||isDiag?'#fff':'#888'}">${val.toFixed(2)}</div></td>`;
+        });
+        html+='</tr>';
+      });
+      html+='</tbody></table>';
+      html+=`<div style="font-size:9px;color:var(--txt3);margin-top:8px">Exchange avg corr: <span class="wht">${cm.avg_corr!=null?cm.avg_corr.toFixed(3):'—'}</span></div>`;
+      document.getElementById('cmp-matrix-wrap').innerHTML=html;
+    } else {
+      document.getElementById('cmp-matrix-wrap').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">Tickers not found in correlation matrix</div>';
+    }
+  }
+
+  // Stats table
+  const tbody=document.getElementById('cmp-stats-body'); tbody.innerHTML='';
+  _tickers.forEach((t,i)=>{
+    const sd=statsArr[i]; const ld=liqArr[i];
+    if(!sd.ok) return;
+    const ret=sd.d.price_chg_pct, vol=sd.d.volatility_ann_pct, sh=sd.d.sharpe, dd=sd.d.max_drawdown_pct;
+    const spread=ld.ok?ld.d.spread_pct:null, liq=ld.ok?(ld.d.total_bid_qty||0)+(ld.d.total_ask_qty||0):null;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><strong style="color:${COLORS[i]}">${t}</strong></td>
+      <td class="r ${ret>=0?'up':'dn'}">${fp(ret)}</td>
+      <td class="r yel">${vol!=null?vol.toFixed(1)+'%':'—'}</td>
+      <td class="r ${sh>=1?'up':sh>0?'yel':'dn'}">${f(sh,2)}</td>
+      <td class="r dn">-${dd}%</td>
+      <td class="r ${spread!=null?(spread<0.1?'up':spread<0.5?'yel':'dn'):'dim'}">${spread!=null?spread.toFixed(3)+'%':'—'}</td>
+      <td class="r dim">${liq!=null?fk(liq):'—'}</td>`;
+    tr.onclick=()=>{sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(t),200)};
+    tbody.appendChild(tr);
+  });
+  document.getElementById('cmp-status').textContent=`${_tickers.length} tickers · ${days}D`;
+};
+})();
+</script>

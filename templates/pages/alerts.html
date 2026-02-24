@@ -1,0 +1,471 @@
+<!-- F13: ALERTS — Real-time multi-condition alert engine -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- Tab selector for simple vs composite -->
+<div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span class="bt-tab active" id="al-tab-simple" onclick="alTabSwitch('simple')">SIMPLE ALERT</span>
+  <span class="bt-tab" id="al-tab-comp" onclick="alTabSwitch('comp')">COMPOSITE ALERT (AND)</span>
+</div>
+
+<!-- Simple Alert builder -->
+<div id="al-builder-simple" style="background:var(--bg3);border-bottom:1px solid var(--bdr);padding:6px 10px;flex-shrink:0">
+  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+    <div class="ff"><label>TICKER</label>
+      <select id="al-tk" style="min-width:130px"><option value="*">ALL TICKERS</option></select>
+    </div>
+    <div class="ff"><label>CONDITION</label>
+      <select id="al-cond" style="min-width:170px" onchange="alCondChange()">
+        <optgroup label="PRICE">
+          <option value="price_above">PRICE ABOVE</option>
+          <option value="price_below">PRICE BELOW</option>
+          <option value="price_chg_above">PRICE CHG% ABOVE</option>
+          <option value="price_chg_below">PRICE CHG% BELOW</option>
+        </optgroup>
+        <optgroup label="TECHNICAL">
+          <option value="rsi_above">RSI ABOVE</option>
+          <option value="rsi_below">RSI BELOW</option>
+          <option value="near_high">NEAR PERIOD HIGH</option>
+          <option value="near_low">NEAR PERIOD LOW</option>
+          <option value="breakout_up">BREAKOUT (UP)</option>
+          <option value="breakout_dn">BREAKOUT (DOWN)</option>
+        </optgroup>
+        <optgroup label="VOLUME">
+          <option value="vol_spike_above">VOLUME SPIKE ABOVE</option>
+          <option value="volume_above">VOLUME ABOVE</option>
+        </optgroup>
+        <optgroup label="MICROSTRUCTURE">
+          <option value="spread_above">SPREAD% ABOVE</option>
+          <option value="spread_below">SPREAD% BELOW</option>
+          <option value="imbalance_above">BID IMBALANCE ABOVE%</option>
+          <option value="wall_detected">LARGE WALL DETECTED</option>
+        </optgroup>
+        <optgroup label="VOLATILITY">
+          <option value="vol_above">ANNVOL% ABOVE</option>
+          <option value="vol_below">ANNVOL% BELOW</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="ff" id="al-val-wrap"><label>VALUE</label>
+      <input type="number" id="al-val" step="any" value="0" style="width:80px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+    </div>
+    <div class="ff"><label>PRIORITY</label>
+      <select id="al-pri">
+        <option value="high">🔴 HIGH</option>
+        <option value="med" selected>🟡 MEDIUM</option>
+        <option value="low">🟢 LOW</option>
+      </select>
+    </div>
+    <div class="ff"><label>NOTE (optional)</label>
+      <input type="text" id="al-note" placeholder="Reason / context…" style="width:160px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+    </div>
+    <button class="btn on" onclick="alAdd()">+ ADD ALERT</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;margin-top:6px;font-size:10px">
+    <span id="al-status" class="up">● ENGINE RUNNING</span>
+    <span style="color:var(--txt3)">Checks every <strong class="wht">15s</strong></span>
+    <span id="al-last" style="color:var(--txt3)"></span>
+    <span style="margin-left:auto;display:flex;gap:6px">
+      <button class="btn btn-xs" onclick="alClearFired()">CLEAR FIRED</button>
+      <button class="btn btn-xs" onclick="alClearAll()">CLEAR ALL</button>
+      <button class="btn btn-xs on" onclick="alCheckNow()">CHECK NOW</button>
+    </span>
+  </div>
+</div>
+
+<!-- Composite Alert builder (AND conditions) -->
+<div id="al-builder-comp" style="display:none;background:var(--bg3);border-bottom:1px solid var(--bdr);padding:6px 10px;flex-shrink:0">
+  <div style="font-size:9px;color:var(--txt3);margin-bottom:6px;letter-spacing:1px">COMPOSITE ALERT — ALL conditions must be true simultaneously (AND logic). Institutional-grade signal filtering.</div>
+  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+    <div class="ff"><label>TICKER</label>
+      <select id="ac-tk" style="min-width:130px"><option value="">SELECT</option></select>
+    </div>
+    <div class="ff"><label>PRIORITY</label>
+      <select id="ac-pri">
+        <option value="high">🔴 HIGH</option>
+        <option value="med" selected>🟡 MEDIUM</option>
+        <option value="low">🟢 LOW</option>
+      </select>
+    </div>
+    <div class="ff"><label>NAME / NOTE</label>
+      <input type="text" id="ac-name" placeholder="e.g. Oversold + Volume Spike" style="width:200px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+    </div>
+  </div>
+  <div style="margin-top:6px;display:flex;gap:4px;align-items:flex-end;flex-wrap:wrap" id="ac-conds-row">
+    <div class="ff"><label>CONDITION 1</label>
+      <select id="ac-c1" style="min-width:160px"><option value="rsi_below">RSI BELOW</option><option value="rsi_above">RSI ABOVE</option><option value="vol_spike_above">VOL SPIKE ABOVE</option><option value="price_chg_above">CHG% ABOVE</option><option value="price_chg_below">CHG% BELOW</option><option value="imbalance_above">BID IMBALANCE ABOVE%</option><option value="spread_above">SPREAD% ABOVE</option><option value="vol_above">ANNVOL% ABOVE</option><option value="near_high">NEAR HIGH</option><option value="near_low">NEAR LOW</option></select>
+    </div>
+    <div class="ff"><label>VALUE</label><input type="number" id="ac-v1" value="30" step="any" style="width:65px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none"></div>
+    <span style="align-self:flex-end;padding-bottom:4px;font-size:10px;color:var(--yel);font-weight:700">AND</span>
+    <div class="ff"><label>CONDITION 2</label>
+      <select id="ac-c2" style="min-width:160px"><option value="vol_spike_above">VOL SPIKE ABOVE</option><option value="rsi_below">RSI BELOW</option><option value="rsi_above">RSI ABOVE</option><option value="price_chg_above">CHG% ABOVE</option><option value="price_chg_below">CHG% BELOW</option><option value="imbalance_above">BID IMBALANCE ABOVE%</option><option value="spread_above">SPREAD% ABOVE</option><option value="vol_above">ANNVOL% ABOVE</option><option value="near_high">NEAR HIGH</option><option value="near_low">NEAR LOW</option></select>
+    </div>
+    <div class="ff"><label>VALUE</label><input type="number" id="ac-v2" value="2" step="any" style="width:65px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none"></div>
+    <span style="align-self:flex-end;padding-bottom:4px;font-size:10px;color:var(--yel);font-weight:700">AND</span>
+    <div class="ff"><label>CONDITION 3 (optional)</label>
+      <select id="ac-c3" style="min-width:160px"><option value="">— NONE —</option><option value="imbalance_above">BID IMBALANCE ABOVE%</option><option value="rsi_below">RSI BELOW</option><option value="rsi_above">RSI ABOVE</option><option value="vol_spike_above">VOL SPIKE ABOVE</option><option value="spread_above">SPREAD% ABOVE</option><option value="vol_above">ANNVOL% ABOVE</option><option value="near_high">NEAR HIGH</option><option value="near_low">NEAR LOW</option></select>
+    </div>
+    <div class="ff"><label>VALUE</label><input type="number" id="ac-v3" value="20" step="any" style="width:65px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none"></div>
+    <button class="btn on" onclick="acAdd()">+ ADD COMPOSITE</button>
+  </div>
+  <div style="margin-top:4px;font-size:9px;color:var(--txt3)">
+    Presets: 
+    <span class="btn btn-xs" style="cursor:pointer" onclick="acPreset('oversold_spike')">Oversold+Vol Spike</span>
+    <span class="btn btn-xs" style="cursor:pointer" onclick="acPreset('overbought_wall')">Overbought+Wall</span>
+    <span class="btn btn-xs" style="cursor:pointer" onclick="acPreset('high_vol_imbal')">High Vol+Imbalance</span>
+  </div>
+</div>
+
+
+<div class="wrow" style="flex:1">
+
+  <!-- Active alert rules -->
+  <div class="win" style="width:340px;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">ACTIVE RULES</span><span class="wsub" id="al-rule-count"></span></div>
+    </div>
+    <div class="scroll" id="al-rules"><div class="loading">NO ALERTS SET</div></div>
+  </div>
+
+  <!-- Fired alerts log -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">2</span><span class="wtitle">ALERT LOG</span><span class="wsub" id="al-log-count"></span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--txt3)">Most recent first</div>
+    </div>
+    <div class="scroll" id="al-log"><div class="loading">NO ALERTS FIRED</div></div>
+  </div>
+
+  <!-- Stats sidebar -->
+  <div class="wcol" style="width:200px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">SUMMARY</span></div></div>
+      <div style="padding:8px;font-size:11px" id="al-summary"><div class="loading">—</div></div>
+    </div>
+    <div class="win" style="height:160px;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">BY TICKER</span></div></div>
+      <div class="scroll" id="al-by-ticker"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<style>
+.al-rule{padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5);font-size:10px}
+.al-rule-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.al-fired{padding:6px 10px;border-bottom:1px solid rgba(46,46,46,.3);font-size:10px;border-left:3px solid transparent}
+.al-fired.high{border-left-color:var(--dn)}
+.al-fired.med{border-left-color:var(--yel)}
+.al-fired.low{border-left-color:var(--up)}
+</style>
+
+<script>
+(function(){
+let _rules  = JSON.parse(localStorage.getItem('al_rules')||'[]');
+let _log    = JSON.parse(localStorage.getItem('al_log')||'[]');
+let _timer  = null;
+let _rsiCache = {}, _statsCache = {}, _liqCache = {};
+
+const COND_LABELS = {
+  price_above:'PRICE >', price_below:'PRICE <',
+  price_chg_above:'CHG% >', price_chg_below:'CHG% <',
+  rsi_above:'RSI >', rsi_below:'RSI <',
+  near_high:'NEAR HI', near_low:'NEAR LO',
+  breakout_up:'BREAKOUT UP', breakout_dn:'BREAKOUT DN',
+  vol_spike_above:'VOL SPIKE >', volume_above:'VOLUME >',
+  spread_above:'SPREAD% >', spread_below:'SPREAD% <',
+  imbalance_above:'BID IMB% >', wall_detected:'WALL DETECTED',
+  vol_above:'ANNVOL% >', vol_below:'ANNVOL% <',
+};
+const BOOL_CONDS = new Set(['near_high','near_low','breakout_up','breakout_dn','wall_detected']);
+const PRI_COLOR = {high:'var(--dn)', med:'var(--yel)', low:'var(--up)'};
+
+window.alTabSwitch=function(mode){
+  document.getElementById('al-builder-simple').style.display=mode==='simple'?'block':'none';
+  document.getElementById('al-builder-comp').style.display=mode==='comp'?'block':'none';
+  document.getElementById('al-tab-simple').classList.toggle('active',mode==='simple');
+  document.getElementById('al-tab-comp').classList.toggle('active',mode==='comp');
+};
+
+window.acPreset=function(name){
+  const presets={
+    'oversold_spike': {c1:'rsi_below',v1:30,c2:'vol_spike_above',v2:2,c3:'',v3:0,nm:'Oversold + Vol Spike'},
+    'overbought_wall': {c1:'rsi_above',v1:70,c2:'vol_spike_above',v2:1.5,c3:'imbalance_above',v3:20,nm:'Overbought + Wall'},
+    'high_vol_imbal': {c1:'vol_above',v1:60,c2:'imbalance_above',v2:25,c3:'',v3:0,nm:'High Vol + Imbalance'},
+  };
+  const p=presets[name]; if(!p) return;
+  document.getElementById('ac-c1').value=p.c1; document.getElementById('ac-v1').value=p.v1;
+  document.getElementById('ac-c2').value=p.c2; document.getElementById('ac-v2').value=p.v2;
+  document.getElementById('ac-c3').value=p.c3; document.getElementById('ac-v3').value=p.v3;
+  document.getElementById('ac-name').value=p.nm;
+};
+
+window.acAdd=function(){
+  const ticker=document.getElementById('ac-tk').value; if(!ticker){return;}
+  const conds=[];
+  const c1=document.getElementById('ac-c1').value, v1=+document.getElementById('ac-v1').value;
+  const c2=document.getElementById('ac-c2').value, v2=+document.getElementById('ac-v2').value;
+  const c3=document.getElementById('ac-c3').value, v3=+document.getElementById('ac-v3').value;
+  conds.push({cond:c1,val:v1});
+  if(c2) conds.push({cond:c2,val:v2});
+  if(c3) conds.push({cond:c3,val:v3});
+  const name=document.getElementById('ac-name').value||'Composite Alert';
+  const pri=document.getElementById('ac-pri').value;
+  _rules.push({
+    id:Date.now(), ticker, composite:true, conds,
+    pri, note:name, fired:false, created:new Date().toISOString()
+  });
+  saveRules(); renderRules();
+};
+
+window.PAGE_al_onShow = function(){
+  populateSel('al-tk', true);
+  populateSel('ac-tk');
+
+  renderRules();
+  renderLog();
+  renderSummary();
+  startEngine();
+};
+
+window.alCondChange = function(){
+  const cond = document.getElementById('al-cond').value;
+  document.getElementById('al-val-wrap').style.opacity = BOOL_CONDS.has(cond) ? '0.3' : '1';
+};
+
+window.alAdd = function(){
+  const ticker = document.getElementById('al-tk').value;
+  const cond   = document.getElementById('al-cond').value;
+  const val    = BOOL_CONDS.has(cond) ? 1 : parseFloat(document.getElementById('al-val').value);
+  const pri    = document.getElementById('al-pri').value;
+  const note   = document.getElementById('al-note').value.trim();
+  _rules.push({ id: Date.now(), ticker, cond, val, pri, note, fired: false, created: new Date().toISOString() });
+  saveRules();
+  renderRules();
+  renderSummary();
+  document.getElementById('al-note').value = '';
+};
+
+window.alRemove = function(id){
+  _rules = _rules.filter(r=>r.id!==id);
+  saveRules();
+  renderRules();
+  renderSummary();
+};
+
+window.alClearFired = function(){
+  _log = [];
+  saveLog();
+  renderLog();
+  renderSummary();
+};
+
+window.alClearAll = function(){
+  _rules = [];
+  _log = [];
+  saveRules(); saveLog();
+  renderRules(); renderLog(); renderSummary();
+};
+
+window.alCheckNow = function(){ checkAlerts(); };
+
+function saveRules(){ localStorage.setItem('al_rules', JSON.stringify(_rules)); }
+function saveLog(){   localStorage.setItem('al_log',   JSON.stringify(_log)); }
+
+function renderRules(){
+  document.getElementById('al-rule-count').textContent = ` (${_rules.length})`;
+  document.getElementById('al-rules').innerHTML = _rules.length
+    ? _rules.map(r=>{
+      if(r.composite){
+        const condStr=(r.conds||[]).map(c=>`<span style="color:var(--cyn)">${COND_LABELS[c.cond]||c.cond}</span>${BOOL_CONDS.has(c.cond)?'':' '+c.val}`).join(' <span style="color:var(--yel)">AND</span> ');
+        return `<div class="al-rule" style="border-left:3px solid ${PRI_COLOR[r.pri]}">
+          <div class="al-rule-hdr">
+            <span>
+              <strong class="wht">${r.ticker}</strong>
+              <span style="color:var(--yel);font-size:8px;margin:0 3px;border:1px solid var(--yel);padding:0 2px">AND</span>
+              ${condStr}
+            </span>
+            <span class="wbtn" onclick="alRemove(${r.id})">✕</span>
+          </div>
+          ${r.note?`<div style="color:var(--org);font-size:9px;margin-top:1px">⬡ ${r.note}</div>`:''}
+          <div style="font-size:9px;color:var(--txt3);margin-top:2px">${new Date(r.created).toLocaleTimeString('en-GB')}</div>
+        </div>`;
+      }
+      return `
+      <div class="al-rule" style="border-left:3px solid ${PRI_COLOR[r.pri]}">
+        <div class="al-rule-hdr">
+          <span>
+            <strong style="color:${r.ticker==='*'?'var(--txt2)':'var(--wht)'}">${r.ticker==='*'?'ALL':r.ticker}</strong>
+            <span style="color:var(--org);margin:0 4px">${COND_LABELS[r.cond]||r.cond}</span>
+            ${BOOL_CONDS.has(r.cond)?'':('<span class="wht">'+r.val+'</span>')}
+          </span>
+          <span class="wbtn" onclick="alRemove(${r.id})">✕</span>
+        </div>
+        ${r.note?`<div style="color:var(--txt3);font-size:9px;margin-top:1px">${r.note}</div>`:''}
+        <div style="font-size:9px;color:var(--txt3);margin-top:2px">${new Date(r.created).toLocaleTimeString('en-GB')}</div>
+      </div>`;
+    }).join('')
+    : '<div class="loading">NO ALERTS SET</div>';
+}
+
+function renderLog(){
+  document.getElementById('al-log-count').textContent = _log.length ? ` (${_log.length})` : '';
+  document.getElementById('al-log').innerHTML = _log.length
+    ? _log.map(e=>`
+      <div class="al-fired ${e.pri}" style="cursor:pointer" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${e.ticker}'),200)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span><strong class="wht">${e.ticker}</strong> <span style="color:var(--org)">${COND_LABELS[e.cond]||e.cond}</span>${e.actualVal!=null?' <span class="dim">@ '+e.actualVal+'</span>':''}</span>
+          <span style="font-size:9px;color:var(--txt3)">${e.time}</span>
+        </div>
+        ${e.note?`<div style="font-size:9px;color:var(--txt3);margin-top:1px">${e.note}</div>`:''}
+      </div>`).join('')
+    : '<div class="loading">NO ALERTS FIRED YET</div>';
+}
+
+function renderSummary(){
+  const total = _rules.length, fired = _log.length;
+  const hi = _rules.filter(r=>r.pri==='high').length;
+  const tickers = [...new Set(_rules.map(r=>r.ticker).filter(t=>t!=='*'))];
+  const byTicker = {};
+  _log.forEach(e=>{ byTicker[e.ticker]=(byTicker[e.ticker]||0)+1; });
+  document.getElementById('al-summary').innerHTML = `
+    <div class="rm"><span class="k">ACTIVE RULES</span><span class="v wht">${total}</span></div>
+    <div class="rm"><span class="k">HIGH PRIORITY</span><span class="v ${hi>0?'dn':'dim'}">${hi}</span></div>
+    <div class="rm"><span class="k">TICKERS WATCHED</span><span class="v cyn">${tickers.length}</span></div>
+    <div class="rm"><span class="k">TOTAL FIRED</span><span class="v ${fired>0?'org':'dim'}">${fired}</span></div>
+    <div class="rm"><span class="k">LAST CHECK</span><span class="v dim" id="al-last-sum">—</span></div>`;
+  document.getElementById('al-by-ticker').innerHTML = Object.keys(byTicker).length
+    ? Object.entries(byTicker).sort((a,b)=>b[1]-a[1]).map(([t,n])=>`
+        <div style="display:flex;justify-content:space-between;padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;cursor:pointer" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${t}'),200)">
+          <span class="wht" style="font-weight:700">${t}</span>
+          <span class="org">${n} alert${n>1?'s':''}</span>
+        </div>`).join('')
+    : '<div class="loading dim" style="font-size:9px">—</div>';
+}
+
+// ── Alert engine ──────────────────────────────────────────────────────────────
+async function checkAlerts(){
+  if(!_rules.length) return;
+  const now = new Date().toLocaleTimeString('en-GB');
+  document.getElementById('al-last').textContent = 'Last check: '+now;
+  const el = document.getElementById('al-last-sum'); if(el) el.textContent = now;
+
+  // Collect tickers needed
+  const tickers = [...new Set(_rules.map(r=>r.ticker==='*'?'__ALL__':r.ticker))];
+  const needsAll = _rules.some(r=>r.ticker==='*');
+  const tickersToFetch = needsAll ? BB.secs.map(s=>s.ticker) : tickers;
+
+  // Fetch fresh data for needed tickers (skip if cached < 15s ago)
+  await Promise.all(tickersToFetch.map(async t=>{
+    const now = Date.now();
+    if(!_statsCache[t] || now-_statsCache[t].ts > 14000){
+      const r = await api(`/api/ticker_stats/${t}?days=30`);
+      if(r.ok) _statsCache[t] = {ts:now, d:r.d};
+    }
+    if(!_liqCache[t] || now-_liqCache[t].ts > 14000){
+      const r = await api(`/api/liquidity/${t}`);
+      if(r.ok) _liqCache[t] = {ts:now, d:r.d};
+    }
+  }));
+
+  // Evaluate each rule
+  let anyFired = false;
+  _rules.forEach(rule => {
+    const targets = rule.ticker==='*' ? tickersToFetch : [rule.ticker];
+    targets.forEach(ticker=>{
+      const st = _statsCache[ticker]?.d || {};
+      const lq = _liqCache[ticker]?.d   || {};
+      const price = st.candles?.length ? st.candles[st.candles.length-1].close : (BB.secs.find(s=>s.ticker===ticker)||{}).market_price;
+      const rsiArr = (st.rsi14||[]).filter(v=>v!=null);
+      const rsi = rsiArr.length ? rsiArr[rsiArr.length-1] : null;
+      const volArr = (st.rolling_vol||[]).filter(v=>v!=null);
+      const annVol = st.volatility_ann_pct || null;
+      const bids = lq.bids||[], asks = lq.asks||[];
+      const bq = bids.reduce((s,b)=>s+b.quantity,0), aq = asks.reduce((s,a)=>s+a.quantity,0);
+      const imb = (bq+aq)>0 ? (bq-aq)/(bq+aq)*100 : 0;
+      const wallCount = (lq.walls||[]).length;
+
+      let triggered = false; let actualVal = null;
+
+      // Helper to eval a single condition
+      function evalCond(cond, val){
+        switch(cond){
+          case 'price_above':     return {t:price!=null&&price>val, v:price};
+          case 'price_below':     return {t:price!=null&&price<val, v:price};
+          case 'price_chg_above': return {t:(st.price_chg_pct||0)>val, v:f(st.price_chg_pct,2)};
+          case 'price_chg_below': return {t:(st.price_chg_pct||0)<val, v:f(st.price_chg_pct,2)};
+          case 'rsi_above':       return {t:rsi!=null&&rsi>val, v:rsi!=null?rsi.toFixed(1):null};
+          case 'rsi_below':       return {t:rsi!=null&&rsi<val, v:rsi!=null?rsi.toFixed(1):null};
+          case 'near_high':       return {t:!!st.near_high};
+          case 'near_low':        return {t:!!st.near_low};
+          case 'breakout_up':     return {t:!!st.near_high&&(st.price_chg_pct||0)>0};
+          case 'breakout_dn':     return {t:!!st.near_low&&(st.price_chg_pct||0)<0};
+          case 'vol_spike_above': return {t:(st.vol_spike||0)>val, v:f(st.vol_spike,2)+'x'};
+          case 'volume_above':    return {t:(lq.total_bid_qty||0)>val};
+          case 'spread_above':    return {t:lq.spread_pct!=null&&lq.spread_pct>val, v:lq.spread_pct!=null?lq.spread_pct.toFixed(3):null};
+          case 'spread_below':    return {t:lq.spread_pct!=null&&lq.spread_pct<val, v:lq.spread_pct!=null?lq.spread_pct.toFixed(3):null};
+          case 'imbalance_above': return {t:imb>val, v:imb.toFixed(1)};
+          case 'wall_detected':   return {t:wallCount>0, v:wallCount+'w'};
+          case 'vol_above':       return {t:annVol!=null&&annVol>val, v:annVol!=null?annVol.toFixed(1):null};
+          case 'vol_below':       return {t:annVol!=null&&annVol<val, v:annVol!=null?annVol.toFixed(1):null};
+          default: return {t:false};
+        }
+      }
+
+      if(rule.composite){
+        // Evaluate ALL conditions — must all be true (AND logic)
+        const results=(rule.conds||[]).map(c=>evalCond(c.cond,c.val));
+        triggered=results.length>0&&results.every(r=>r.t);
+        if(triggered) actualVal=results.map(r=>r.v).filter(Boolean).join(', ');
+      } else {
+        const res=evalCond(rule.cond,rule.val);
+        triggered=res.t; actualVal=res.v!=null?res.v:null;
+      }
+
+      if(triggered){
+        // Check if this exact rule+ticker hasn't fired in last 5 min
+        const key = `${rule.id}_${ticker}`;
+        const lastFire = _log.find(e=>e.key===key);
+        const tooSoon = lastFire && (Date.now()-new Date(lastFire.isoTime||0).getTime()) < 300000;
+        if(!tooSoon){
+          anyFired = true;
+          const entry = {
+            key, ticker,
+            cond: rule.composite ? ('⬡ '+rule.note) : rule.cond,
+            val: rule.composite ? null : rule.val,
+            pri: rule.pri,
+            note: rule.composite ? (rule.conds||[]).map(c=>`${COND_LABELS[c.cond]||c.cond}:${c.val}`).join(' AND ') : rule.note,
+            actualVal, time: now, isoTime: new Date().toISOString()
+          };
+          _log.unshift(entry); // prepend
+          if(_log.length > 200) _log = _log.slice(0,200); // cap log
+        }
+      }
+    });
+  });
+
+  if(anyFired){ saveLog(); renderLog(); renderSummary(); flashAlertBadge(); }
+}
+
+function flashAlertBadge(){
+  // Flash the F13 tab to draw attention
+  const fk = document.querySelector('[data-p="al"]');
+  if(!fk) return;
+  fk.style.background = 'rgba(255,140,0,.3)';
+  setTimeout(()=>fk.style.background='', 2000);
+}
+
+function startEngine(){
+  if(_timer) clearInterval(_timer);
+  _timer = setInterval(checkAlerts, 15000);
+  checkAlerts(); // immediate first check
+}
+
+// Populate ticker select with ALL TICKERS option prepended
+window.populateSel_al_tk = function(){};  // handled inline
+(function initTkSel(){
+  const sel = document.getElementById('al-tk');
+  if(!sel) return;
+  sel.innerHTML = '<option value="*">ALL TICKERS</option>' + (BB._secOpt||BB.secs.map(s=>`<option value="${s.ticker}">${s.ticker} — ${s.full_name||''}</option>`).join(''));
+})();
+})();
+</script>
