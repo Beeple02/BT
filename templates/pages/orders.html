@@ -1,0 +1,1252 @@
+<!-- F4: ORDERS -->
+<style>
+/* ─── page background matches terminal exactly ─── */
+.op-root{display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg)}
+
+/* ─── ticket shell ─── */
+.op-ticket{flex-shrink:0;background:var(--bg2);border-bottom:2px solid var(--bdr2)}
+
+/* ─── ticket inner: two columns ─── */
+.op-ticket-inner{display:flex;align-items:stretch;min-height:0}
+
+/* ── LEFT: the order form ── */
+.op-form{flex:1;display:flex;flex-direction:column;border-right:1px solid var(--bdr)}
+
+/* form section header */
+.op-sh{padding:4px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);
+  font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3)}
+
+/* the actual inputs row */
+.op-fields{display:flex;align-items:stretch;flex-wrap:nowrap;background:var(--bg2)}
+
+/* individual field cell */
+.op-f{display:flex;flex-direction:column;justify-content:center;padding:6px 10px;
+  border-right:1px solid var(--bdr);flex-shrink:0}
+.op-f label{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:4px;white-space:nowrap}
+.op-f input,.op-f select{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);
+  font-family:var(--font);font-size:12px;font-weight:700;padding:3px 7px;outline:none}
+.op-f input:focus,.op-f select:focus{border-color:var(--org);color:var(--org)}
+.op-f select option{background:var(--bg2);color:var(--txt)}
+
+/* BUY / SELL toggle — spans full height of the field row */
+.op-sides{display:flex;flex-direction:column;flex-shrink:0}
+.op-side{flex:1;width:58px;font-size:10px;font-weight:900;letter-spacing:2px;
+  border:none;cursor:pointer;background:var(--bg3);color:var(--txt3);
+  border-right:1px solid var(--bdr);font-family:var(--font);transition:all .1s}
+.op-side:hover{color:var(--txt)}
+.op-side.s-buy {background:rgba(0,200,83,.1);color:var(--up);border-bottom:2px solid var(--up)}
+.op-side.s-sell{background:rgba(244,67,54,.1);color:var(--dn);border-bottom:2px solid var(--dn)}
+
+/* type-specific params row */
+.op-params{display:flex;align-items:stretch;overflow-x:auto;background:var(--bg);
+  border-top:1px solid var(--bdr);min-height:38px}
+.op-params::-webkit-scrollbar{height:2px}
+.op-params::-webkit-scrollbar-thumb{background:var(--bdr2)}
+.op-pc{display:flex;flex-direction:column;justify-content:center;padding:4px 10px;
+  border-right:1px solid var(--bdr);flex-shrink:0}
+.op-pc label{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:3px;white-space:nowrap}
+.op-pc input,.op-pc select{background:var(--bg2);border:1px solid var(--bdr2);color:var(--txt);
+  font-family:var(--font);font-size:11px;padding:2px 6px;outline:none}
+.op-pc input:focus,.op-pc select:focus{border-color:var(--org)}
+.op-pc select option{background:var(--bg2)}
+.op-pval{font-size:11px;font-weight:700;color:var(--org)}
+.op-pnote{font-size:9px;color:var(--txt3);line-height:1.5;max-width:260px}
+.op-psep{width:1px;background:var(--bdr);margin:5px 0;flex-shrink:0}
+
+/* ── RIGHT: market context panel ── */
+.op-market{width:280px;flex-shrink:0;display:flex;flex-direction:column;background:var(--bg)}
+
+.op-quote-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.op-qc{display:flex;flex-direction:column;padding:7px 10px;border-right:1px solid var(--bdr);border-bottom:1px solid var(--bdr)}
+.op-qc:nth-child(even){border-right:none}
+.op-qc:nth-last-child(-n+2){border-bottom:none}
+.op-qc-l{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:3px}
+.op-qc-v{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+
+.op-acct{display:flex;border-top:1px solid var(--bdr2);background:var(--bg3)}
+.op-ac{flex:1;padding:5px 8px;border-right:1px solid var(--bdr)}
+.op-ac:last-child{border-right:none}
+.op-ac-l{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:2px}
+.op-ac-v{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ─── summary / submit bar ─── */
+.op-bar{display:flex;align-items:center;height:34px;background:var(--bg3);
+  border-top:1px solid var(--bdr2);gap:0;flex-shrink:0}
+.op-bv{display:flex;align-items:baseline;gap:4px;padding:0 12px;border-right:1px solid var(--bdr)}
+.op-bv-l{font-size:8px;color:var(--txt3);letter-spacing:1.5px}
+.op-bv-v{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.op-warn{font-size:9px;color:var(--dn);padding:0 10px;letter-spacing:.3px}
+
+/* tools group */
+.op-tools{display:flex;align-items:center;gap:3px;padding:0 8px;border-right:1px solid var(--bdr);position:relative}
+
+/* submit */
+.op-sub{height:34px;min-width:195px;padding:0 18px;font-size:10px;font-weight:900;
+  letter-spacing:2px;border:none;cursor:pointer;font-family:var(--font);
+  transition:filter .1s;white-space:nowrap;margin-left:auto}
+.op-sub:hover{filter:brightness(1.1)}
+.op-sub:active{filter:brightness(.9)}
+.op-sub.buy {background:var(--up);color:#000}
+.op-sub.sell{background:var(--dn);color:#fff}
+.op-sub.algo{background:var(--org);color:#000}
+.op-sub.watch{background:var(--sel);color:#fff}
+.op-sub:disabled{background:var(--bg4)!important;color:var(--txt3)!important;cursor:not-allowed;filter:none!important}
+
+/* ─── tools flyout ─── */
+.op-fly{display:none;position:absolute;bottom:34px;left:0;width:480px;
+  background:var(--bg2);border:1px solid var(--bdr2);border-bottom:none;z-index:300}
+.op-fly.show{display:block}
+.op-fly-hdr{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);
+  font-size:9px;font-weight:700;letter-spacing:2px;color:var(--txt2)}
+.op-fly-body{padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.op-fly-sec{background:var(--bg3);border:1px solid var(--bdr);padding:8px}
+.op-fly-stitle{font-size:8px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px;font-weight:700}
+.op-fly-r{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.op-fly-r label{font-size:9px;color:var(--txt3);width:105px;flex-shrink:0}
+.op-fly-r input,.op-fly-r select{flex:1;background:var(--bg);border:1px solid var(--bdr2);
+  color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none;min-width:0}
+.op-fly-r input:focus,.op-fly-r select:focus{border-color:var(--org)}
+.op-fly-result{margin-top:5px;padding:6px;background:var(--bg);border:1px solid var(--bdr);
+  font-size:10px;color:var(--txt);line-height:1.7;min-height:40px}
+.op-fly-btn{width:100%;margin-top:4px;padding:3px;font-size:9px;font-weight:700;letter-spacing:1px;
+  background:transparent;border:1px solid var(--bdr2);color:var(--txt2);cursor:pointer;font-family:var(--font)}
+.op-fly-btn:hover{border-color:var(--org);color:var(--org)}
+
+/* ─── confirmation modal ─── */
+.op-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;
+  display:none;align-items:center;justify-content:center}
+.op-modal-bg.show{display:flex}
+.op-modal{background:var(--bg2);border:1px solid var(--bdr2);width:360px}
+.op-modal-hdr{display:flex;justify-content:space-between;align-items:center;
+  padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--bdr)}
+.op-modal-hdr span:first-child{font-size:10px;font-weight:700;letter-spacing:2px;color:var(--wht)}
+.op-modal-hdr span:last-child{font-size:13px;font-weight:900;letter-spacing:3px}
+.op-modal-body{padding:10px 12px}
+.op-mr{display:flex;justify-content:space-between;padding:3px 0;
+  border-bottom:1px solid rgba(46,46,46,.5);font-size:10px}
+.op-mr:last-child{border:none}
+.op-mk{color:var(--txt3)}.op-mv{font-weight:700;color:var(--wht)}
+.op-modal-warn{padding:5px 12px;background:rgba(244,67,54,.06);
+  border-top:1px solid rgba(244,67,54,.2);color:var(--dn);font-size:9px;display:none}
+.op-modal-btns{display:flex;border-top:1px solid var(--bdr)}
+.op-mc{flex:1;padding:8px;font-size:10px;font-weight:700;letter-spacing:1px;
+  background:var(--bg3);border:none;color:var(--txt2);cursor:pointer;
+  border-right:1px solid var(--bdr);font-family:var(--font)}
+.op-mc:hover{background:var(--bg4);color:var(--wht)}
+.op-mok{flex:2;padding:8px;font-size:10px;font-weight:900;letter-spacing:2px;
+  border:none;cursor:pointer;font-family:var(--font)}
+.op-mok.buy{background:var(--up);color:#000}.op-mok.sell{background:var(--dn);color:#fff}
+.op-mok.algo{background:var(--org);color:#000}.op-mok.watch{background:var(--sel);color:#fff}
+
+/* ─── blotter ─── */
+.op-blot{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.op-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.op-tab{padding:4px 14px;font-size:9px;font-weight:700;letter-spacing:1.5px;cursor:pointer;
+  color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:2px solid transparent;white-space:nowrap}
+.op-tab:hover{color:var(--txt);background:var(--bg2)}
+.op-tab.act{color:var(--wht);border-bottom-color:var(--org);background:var(--bg2)}
+.op-tab .ct{color:var(--org)}
+.op-view{flex:1;overflow:hidden;display:none;flex-direction:column}
+.op-view.act{display:flex}
+
+/* job rows */
+.jr{display:flex;align-items:center;padding:4px 8px;
+  border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;gap:8px}
+.jr:hover{background:rgba(255,255,255,.012)}
+.jbadge{padding:1px 5px;font-size:8px;font-weight:700;letter-spacing:1px;flex-shrink:0}
+.jb-run{background:var(--org);color:#000}
+.jb-watch{background:var(--sel);color:#fff}
+.jb-done{background:var(--bg4);color:var(--txt3)}
+.jbar{flex:1;height:3px;background:var(--bdr);min-width:40px}
+.jbar-f{height:100%;background:var(--org);transition:width .5s}
+.jkill{padding:1px 7px;font-size:9px;background:rgba(244,67,54,.08);
+  border:1px solid rgba(244,67,54,.25);color:var(--dn);cursor:pointer;font-family:var(--font)}
+.jkill:hover{background:rgba(244,67,54,.2)}
+.cx-btn{padding:1px 7px;font-size:9px;background:rgba(244,67,54,.08);
+  border:1px solid rgba(244,67,54,.25);color:var(--dn);cursor:pointer;font-family:var(--font)}
+.cx-btn:hover{background:rgba(244,67,54,.2)}
+</style>
+
+<!-- MODAL -->
+<div class="op-modal-bg" id="opm-bg">
+  <div class="op-modal">
+    <div class="op-modal-hdr">
+      <span id="opm-title">CONFIRM ORDER</span>
+      <span id="opm-side"></span>
+    </div>
+    <div class="op-modal-body" id="opm-body"></div>
+    <div class="op-modal-warn" id="opm-warn"></div>
+    <div class="op-modal-btns">
+      <button class="op-mc" onclick="opmClose()">✕ CANCEL</button>
+      <button class="op-mok buy" id="opm-ok" onclick="opExec()">▲ CONFIRM BUY</button>
+    </div>
+  </div>
+</div>
+
+<!-- ROOT -->
+<div class="op-root">
+
+<!-- ══════════ TICKET ══════════ -->
+<div class="op-ticket">
+  <div class="op-ticket-inner">
+
+    <!-- ── LEFT: ORDER FORM ── -->
+    <div class="op-form">
+      <div class="op-sh">ORDER ENTRY</div>
+
+      <div class="op-fields">
+        <!-- BUY / SELL -->
+        <div class="op-sides">
+          <button class="op-side s-buy"  id="op-buy"  onclick="opSide('buy')">BUY</button>
+          <button class="op-side"        id="op-sell" onclick="opSide('sell')">SELL</button>
+        </div>
+
+        <!-- Ticker -->
+        <div class="op-f" style="min-width:170px;background:var(--bg3)">
+          <label>SECURITY</label>
+          <select id="op-tk" onchange="opTickerChg()"
+            style="background:transparent;border:none;color:var(--wht);font-family:var(--font);font-size:13px;font-weight:700;outline:none;cursor:pointer;max-width:150px">
+            <option value="">SELECT…</option>
+          </select>
+        </div>
+
+        <!-- Qty -->
+        <div class="op-f" style="min-width:80px">
+          <label>QUANTITY</label>
+          <input id="op-qty" type="number" value="100" min="1" step="1" oninput="opPrev()" style="width:70px">
+        </div>
+
+        <!-- Order type -->
+        <div class="op-f" style="min-width:185px">
+          <label>ORDER TYPE</label>
+          <select id="op-type" onchange="opTypeChg()"
+            style="background:var(--bg);border:1px solid var(--bdr2);color:var(--org);font-family:var(--font);font-size:11px;font-weight:700;padding:3px 6px;outline:none;cursor:pointer">
+            <optgroup label="── BASIC ──">
+              <option value="limit">LMT · Limit</option>
+              <option value="market">MKT · Market</option>
+            </optgroup>
+            <optgroup label="── CONDITIONAL ──">
+              <option value="stop_limit">STP LMT · Stop-Limit</option>
+              <option value="trailing">TRAIL · Trailing Stop</option>
+              <option value="bracket">BRACKET · Entry+TP+SL</option>
+              <option value="oco">OCO · One-Cancels-Other</option>
+              <option value="mid_price">MID · Mid-Price</option>
+              <option value="aon">AON · All or None</option>
+              <option value="fok">FOK · Fill or Kill</option>
+              <option value="ioc">IOC · Immed. or Cancel</option>
+            </optgroup>
+            <optgroup label="── EXECUTION ALGOS ──">
+              <option value="twap">TWAP · Time-Weighted</option>
+              <option value="vwap">VWAP · Vol-Weighted</option>
+              <option value="accumulate">ACCUM · Accumulate/Dist</option>
+              <option value="iceberg">ICEBERG · Reserve Size</option>
+              <option value="participation">%VOL · Participation Rate</option>
+              <option value="arrival">ARRIVAL · Arrival Price</option>
+              <option value="scale">SCALE · Scale Trader</option>
+              <option value="beta_hedge">BETA HEDGE · Systematic</option>
+              <option value="basket">BASKET · Multi-Ticker</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- TIF -->
+        <div class="op-f" style="min-width:68px">
+          <label>TIF</label>
+          <select id="op-tif" style="width:60px">
+            <option>DAY</option><option>GTC</option><option>GTD</option><option>OPG</option>
+          </select>
+        </div>
+
+        <!-- Limit price -->
+        <div class="op-f" id="op-lp-cell" style="min-width:115px">
+          <label id="op-lp-lbl">LMT PRICE</label>
+          <input id="op-lp" type="number" value="0" step="0.0001" oninput="opPrev()" style="width:95px">
+        </div>
+      </div><!-- /op-fields -->
+
+      <!-- Dynamic params row -->
+      <div class="op-params" id="op-params"><!-- injected --></div>
+    </div><!-- /op-form -->
+
+    <!-- ── RIGHT: MARKET CONTEXT ── -->
+    <div class="op-market">
+      <div class="op-sh">LIVE MARKET</div>
+      <div class="op-quote-grid">
+        <div class="op-qc"><div class="op-qc-l">BID</div><div class="op-qc-v up"  id="opq-bid">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">ASK</div><div class="op-qc-v dn"  id="opq-ask">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">MID</div><div class="op-qc-v wht" id="opq-mid">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">SPREAD %</div><div class="op-qc-v yel" id="opq-spr">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">LAST</div><div class="op-qc-v"    id="opq-last">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">EST. IMPACT</div><div class="op-qc-v" id="opq-slip">—</div></div>
+      </div>
+      <div class="op-acct">
+        <div class="op-ac"><div class="op-ac-l">AVAILABLE</div><div class="op-ac-v up"  id="opa-av">—</div></div>
+        <div class="op-ac"><div class="op-ac-l">POSITION</div><div class="op-ac-v"      id="opa-pos">0</div></div>
+        <div class="op-ac"><div class="op-ac-l">P&L</div><div class="op-ac-v dim"        id="opa-pnl">—</div></div>
+      </div>
+    </div><!-- /op-market -->
+
+  </div><!-- /ticket-inner -->
+
+  <!-- ── ORDER SUMMARY + SUBMIT BAR ── -->
+  <div class="op-bar">
+    <!-- Tools -->
+    <div class="op-tools" id="op-tools-wrap">
+      <button class="btn btn-xs" id="tb-siz" onclick="opTool('siz')">⚖ SIZER</button>
+      <button class="btn btn-xs" id="tb-liq" onclick="opTool('liq')">📊 LIQUIDITY</button>
+      <button class="btn btn-xs" id="tb-sim" onclick="opTool('sim')">⚡ FILL SIM</button>
+      <button class="btn btn-xs" onclick="opCancelAll()" style="color:var(--dn);border-color:rgba(244,67,54,.3)">CANCEL ALL</button>
+      <div class="op-fly" id="op-fly">
+        <div class="op-fly-hdr"><span id="op-fly-title">TOOLS</span><span style="cursor:pointer" onclick="opCloseTool()">✕</span></div>
+        <div class="op-fly-body" id="op-fly-body"></div>
+      </div>
+    </div>
+
+    <div style="width:1px;background:var(--bdr);align-self:stretch"></div>
+
+    <!-- Summary values -->
+    <div class="op-bv"><span class="op-bv-l">VALUE</span><span class="op-bv-v wht" id="opb-val">—</span></div>
+    <div class="op-bv"><span class="op-bv-l">COMM</span><span class="op-bv-v yel" id="opb-com">—</span></div>
+    <div class="op-bv"><span class="op-bv-l">TOTAL</span><span class="op-bv-v wht" id="opb-tot">—</span></div>
+    <div class="op-bv" id="opb-slice-wrap" style="display:none"><span class="op-bv-l">SLICE</span><span class="op-bv-v org" id="opb-slice">—</span></div>
+    <span class="op-warn" id="op-warn"></span>
+
+    <button class="op-sub buy" id="op-sub" onclick="opModal()" disabled>▲ TRANSMIT BUY LMT</button>
+  </div>
+
+</div><!-- /ticket -->
+
+<!-- ══════════ BLOTTER ══════════ -->
+<div class="op-blot">
+  <div class="op-tabs">
+    <span class="op-tab act" data-v="open"  onclick="opBTab(this)">OPEN ORDERS <span class="ct" id="ct-open"></span></span>
+    <span class="op-tab"     data-v="algos" onclick="opBTab(this)">ACTIVE ALGOS &amp; WATCHERS <span class="ct" id="ct-algos"></span></span>
+    <span class="op-tab"     data-v="fills" onclick="opBTab(this)">RECENT FILLS</span>
+    <span class="op-tab"     data-v="log"   onclick="opBTab(this)">ACTIVITY LOG</span>
+  </div>
+
+  <div class="op-view act" id="bv-open"><div class="scroll">
+    <table class="dt"><thead><tr>
+      <th>ORDER ID</th><th>TICKER</th><th>SIDE</th><th>TYPE</th>
+      <th class="r">QTY</th><th class="r">PRICE</th><th>EXPIRY</th><th>STATUS</th><th></th>
+    </tr></thead><tbody id="op-open-body"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody></table>
+  </div></div>
+
+  <div class="op-view" id="bv-algos">
+    <div class="scroll" id="op-jobs"><div class="loading" style="padding:14px">No active algos or watchers.</div></div>
+  </div>
+
+  <div class="op-view" id="bv-fills"><div class="scroll">
+    <table class="dt"><thead><tr>
+      <th>TIME</th><th>TICKER</th><th>SIDE</th>
+      <th class="r">QTY</th><th class="r">PRICE</th><th class="r">VALUE</th><th class="r">COMM</th>
+    </tr></thead><tbody id="op-fills-body"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
+  </div></div>
+
+  <div class="op-view" id="bv-log">
+    <div class="scroll" id="op-log" style="padding:4px;font-size:10px">
+      <div style="padding:2px 8px;color:var(--txt3)">Session started.</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /root -->
+
+<script>
+(function(){
+'use strict';
+const CR=0.005;
+let _side='buy',_quote=null,_lastPx=null,_funds=null,_ohlcv=null,_jobs=[],_tool=null;
+let _qT,_jT,_oT;
+
+window.PAGE_ord_onShow=function(){
+  populateSel('op-tk');
+  loadFunds();loadOpenOrders();loadFills();opTypeChg();
+  clearInterval(_qT);clearInterval(_jT);clearInterval(_oT);
+  _qT=setInterval(()=>{if(g('op-tk').value)refreshQ();},4000);
+  _jT=setInterval(tickJobs,5000);
+  _oT=setInterval(loadOpenOrders,12000);
+  lg('Order terminal ready.','info');
+};
+
+const g=id=>document.getElementById(id);
+const nv=id=>{const e=g(id);return e?+e.value||0:0;};
+const sv=id=>{const e=g(id);return e?e.value:'';};
+const midOf=q=>q&&q.best_bid&&q.best_ask?(q.best_bid+q.best_ask)/2:null;
+const px4=n=>+((+n).toFixed(4));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+// Uncached fetch for live order/account state — avoids stale 404 cache
+const apiLive=async path=>{
+  try{const r=await fetch(path);return{ok:r.ok,s:r.status,d:await r.json()};}
+  catch(e){return{ok:false,s:0,d:{detail:e.message}};}
+};
+
+// ── side ───────────────────────────────────────────────────────
+window.opSide=function(s){
+  _side=s;
+  g('op-buy').className ='op-side'+(s==='buy' ?' s-buy':'');
+  g('op-sell').className='op-side'+(s==='sell'?' s-sell':'');
+  refreshSub();opPrev();
+};
+
+// ── ticker ─────────────────────────────────────────────────────
+window.opTickerChg=function(){
+  const tk=g('op-tk').value;
+  if(!tk){_quote=null;_lastPx=null;g('op-sub').disabled=true;return;}
+  _ohlcv=null;refreshQ();refreshPos(tk);g('op-sub').disabled=false;
+};
+
+async function refreshQ(){
+  const tk=g('op-tk').value;if(!tk)return;
+  // Get live last price separately for accurate watcher triggers
+  const[liqR,mktR]=await Promise.all([
+    api(`/api/liquidity/${tk}`),
+    api(`/api/market_price/${tk}`)
+  ]);
+  if(liqR.ok){
+    _quote=liqR.d;
+    const bid=liqR.d.best_bid,ask=liqR.d.best_ask,m=midOf(liqR.d);
+    const set=(id,v)=>{const e=g(id);if(e)e.textContent=v;};
+    set('opq-bid',bid!=null?f(bid,4):'—');
+    set('opq-ask',ask!=null?f(ask,4):'—');
+    set('opq-mid',m!=null?f(m,4):'—');
+    set('opq-spr',liqR.d.spread_pct!=null?liqR.d.spread_pct.toFixed(3)+'%':'—');
+    // auto-fill lp
+    const lpE=g('op-lp');if(lpE&&m&&+lpE.value===0)lpE.value=m.toFixed(4);
+    // slippage
+    const sl=_side==='buy'?(liqR.d.slippage_buy||[]):(liqR.d.slippage_sell||[]);
+    const qty=nv('op-qty');
+    if(sl.length&&qty){
+      const cl=sl.reduce((p,c)=>Math.abs(c.qty-qty)<Math.abs(p.qty-qty)?c:p);
+      const e=g('opq-slip');
+      if(e){e.textContent=cl.slippage_pct!=null?cl.slippage_pct.toFixed(3)+'%':'—';e.style.color=cl.slippage_pct>0.5?'var(--dn)':'var(--yel)';}
+    }
+    const ml=g('p-mid-live');if(ml&&m)ml.textContent='$'+f(m,4);
+  }
+  // Last trade price from market_price endpoint
+  if(mktR.ok&&mktR.d){
+    const last=mktR.d.price||mktR.d.market_price||mktR.d.last_price||midOf(_quote);
+    if(last!=null){
+      _lastPx=last;
+      const e=g('opq-last');
+      if(e){
+        e.textContent=f(last,4);
+        const sec=(BB.secs||[]).find(s=>s.ticker===tk);
+        e.style.color=sec&&sec.change_pct<0?'var(--dn)':'var(--up)';
+      }
+    }
+  }
+  calcTrail();opPrev();
+}
+
+async function refreshPos(tk){
+  const r=await api('/api/portfolio');if(!r.ok)return;
+  const h=(r.d.holdings||[]).find(h=>h.ticker===tk);
+  g('opa-pos').textContent=h?h.quantity.toLocaleString():'0';
+  if(h){const p=h.unrealized_pnl||0;g('opa-pnl').textContent='$'+f(p,0);g('opa-pnl').style.color=p>=0?'var(--up)':'var(--dn)';}
+  else{g('opa-pnl').textContent='—';g('opa-pnl').style.color='var(--txt3)';}
+}
+
+async function loadFunds(){
+  const r=await apiLive('/api/funds');if(!r.ok)return;
+  _funds=r.d;g('opa-av').textContent='$'+fk(r.d.available||0);
+}
+
+// ── type ───────────────────────────────────────────────────────
+window.opTypeChg=function(){
+  const t=g('op-type').value;
+  buildParams(t);
+  g('op-lp-cell').style.opacity=(t==='market')?.4:1;
+  refreshSub();opPrev();
+};
+
+function isAlgo(t){return['twap','vwap','accumulate','iceberg','participation','arrival','scale'].includes(t);}
+function isWatch(t){return['stop_limit','trailing','bracket','oco','mid_price','aon'].includes(t);}
+function tLbl(t){
+  return{limit:'LMT',market:'MKT',stop_limit:'STP LMT',trailing:'TRAIL STOP',bracket:'BRACKET',
+    oco:'OCO',mid_price:'MID-PRICE',fok:'FOK',ioc:'IOC',aon:'AON',twap:'TWAP',vwap:'VWAP',
+    accumulate:'ACCUM/DIST',iceberg:'ICEBERG',participation:'%VOL',arrival:'ARRIVAL',
+    scale:'SCALE',beta_hedge:'BETA HEDGE',basket:'BASKET'}[t]||t.toUpperCase();
+}
+
+function refreshSub(){
+  const t=g('op-type').value,tk=g('op-tk').value,sb=g('op-sub');
+  sb.disabled=!tk;
+  const cls=isAlgo(t)?'algo':isWatch(t)?'watch':_side;
+  sb.className='op-sub '+cls;
+  const arrow=_side==='buy'?'▲':'▼';
+  if(isAlgo(t))  sb.textContent=`▶ START ${tLbl(t)}`;
+  else if(isWatch(t)) sb.textContent=`⏳ WATCH ${tLbl(t)}`;
+  else sb.textContent=`${arrow} TRANSMIT ${_side.toUpperCase()} ${tLbl(t)}`;
+}
+
+// ── params ─────────────────────────────────────────────────────
+function buildParams(t){
+  const w=g('op-params');w.innerHTML='';
+  const lp=midOf(_quote)||0,qty=nv('op-qty')||100;
+  const P=(id,lbl,type,val,opts={})=>{
+    const d=document.createElement('div');d.className='op-pc';
+    if(opts.w)d.style.minWidth=opts.w;
+    let h='';
+    if(type==='static') h=`<div class="op-pval" id="${id}">${val}</div>`;
+    else if(type==='note') h=`<div class="op-pnote">${val}</div>`;
+    else if(type==='select') h=`<select id="${id}" onchange="opPrev()">${(opts.opts||[]).map(o=>`<option value="${o.v}"${o.v==val?' selected':''}>${o.l}</option>`).join('')}</select>`;
+    else h=`<input type="${type}" id="${id}" value="${val}" step="${opts.step||'any'}" oninput="opPrev()" placeholder="${opts.ph||''}" style="width:${opts.iw||'72px'}">`;
+    d.innerHTML=`<label>${lbl}</label>${h}`;w.appendChild(d);
+  };
+  const Sep=()=>{const d=document.createElement('div');d.className='op-psep';w.appendChild(d);};
+
+  if(t==='limit'){P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});P('_n','','note','Rests in book at limit price until filled or cancelled.');}
+  else if(t==='market'){P('op-exp','EXPIRY HRS','number','1',{iw:'50px'});P('_n','','note','Executes immediately at best available price.');}
+  else if(t==='stop_limit'){
+    P('op-stop','STOP TRIGGER','number',lp?((_side==='buy'?lp*1.02:lp*0.98).toFixed(4)):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-exp','EXPIRY HRS','number','48',{iw:'50px'});
+    P('p-sl-status','STATUS','static','Waiting for last price feed…');
+    P('_n','','note','Uses /market_price for last trade · fires limit when trigger crossed.');
+  }
+  else if(t==='trailing'){
+    P('op-trail-type','TRAIL BY','select','pct',{opts:[{v:'pct',l:'PERCENT %'},{v:'amt',l:'AMOUNT $'}]});
+    P('op-trail-val','TRAIL VALUE','number','3.00',{step:'0.01',iw:'70px'});
+    Sep();P('p-trail-stop','CURRENT STOP','static','—');P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+  }
+  else if(t==='bracket'){
+    P('op-tp','TAKE PROFIT','number',lp?(_side==='buy'?lp*1.05:lp*0.95).toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-sl','STOP LOSS','number',lp?(_side==='buy'?lp*0.97:lp*1.03).toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-exp','EXPIRY HRS','number','48',{iw:'50px'});
+    P('_n','','note','Entry @ LMT · TP+SL placed on fill · first fill cancels other.');
+  }
+  else if(t==='oco'){
+    P('op-oco1','LEG 1 LMT','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-oco2','LEG 2 LMT','number',lp?(_side==='buy'?lp*0.97:lp*1.03).toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('_n','','note','When one leg fills the other is auto-cancelled. Polls every 5s.');
+  }
+  else if(t==='aon'){
+    P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+    P('_n','','note','Checks book depth — only fires if full qty available at limit price.');
+  }
+  else if(t==='mid_price'){
+    P('p-mid-live','LIVE MID','static',lp?'$'+f(lp,4):'—');
+    P('op-mid-off','OFFSET $','number','0',{step:'0.0001',iw:'70px'});
+    P('op-mid-int','REFRESH S','number','15',{step:'1',iw:'50px'});
+    P('op-exp','EXPIRY HRS','number','2',{iw:'50px'});
+  }
+  else if(t==='fok'){P('op-exp','EXPIRY HRS','number','1',{iw:'50px'});P('_n','','note','Must fill entire qty immediately or order is cancelled.');}
+  else if(t==='ioc'){P('op-ioc-wait','CANCEL AFTER S','number','5',{step:'1',iw:'50px'});P('_n','','note','Partial fills accepted · remainder cancelled after timeout.');}
+  else if(t==='twap'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-twap-dur','DURATION MIN','number','60',{step:'5',iw:'55px'});
+    P('op-twap-sl','SLICES','number','6',{step:'1',iw:'42px'});
+    P('op-twap-rand','RANDOMISE','select','yes',{opts:[{v:'yes',l:'YES ±20%'},{v:'no',l:'NO'}]});
+    Sep();P('p-slice-sz','SLICE SIZE','static',Math.ceil(qty/6)+' sh');
+  }
+  else if(t==='vwap'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-vwap-dur','DURATION MIN','number','60',{step:'5',iw:'55px'});
+    P('op-vwap-sl','SLICES','number','8',{step:'1',iw:'42px'});
+    P('op-vwap-urg','URGENCY','select','neutral',{opts:[{v:'passive',l:'PASSIVE'},{v:'neutral',l:'NEUTRAL'},{v:'aggressive',l:'AGGRESSIVE'}]});
+    Sep();P('_n','','note','Best-efforts VWAP · weights slices by historical volume.');
+  }
+  else if(t==='accumulate'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-acc-dur','DURATION MIN','number','90',{step:'5',iw:'55px'});
+    P('op-acc-minw','MIN WAIT S','number','20',{step:'5',iw:'50px'});
+    P('op-acc-maxw','MAX WAIT S','number','120',{step:'10',iw:'55px'});
+    P('op-acc-var','SIZE VAR %','number','40',{step:'5',iw:'50px'});
+    Sep();P('_n','','note','Random size + timing · hides accumulation from market.');
+  }
+  else if(t==='iceberg'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-ice-show','DISPLAY SIZE','number',Math.max(1,Math.ceil(qty/5)),{step:'1',iw:'60px'});
+    P('p-ice-hidden','HIDDEN QTY','static',Math.max(0,qty-Math.ceil(qty/5))+' sh');
+    Sep();P('op-exp','EXPIRY HRS','number','4',{iw:'50px'});
+  }
+  else if(t==='participation'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-part-pct','TARGET % VOL','number','10',{step:'1',iw:'50px'});
+    P('op-part-dur','DURATION MIN','number','60',{step:'5',iw:'55px'});
+    Sep();P('_n','','note','Sizes slices to represent target % of estimated intraday volume.');
+  }
+  else if(t==='arrival'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-arr-urg','URGENCY','select','neutral',{opts:[{v:'passive',l:'PASSIVE'},{v:'neutral',l:'NEUTRAL'},{v:'aggressive',l:'AGGRESSIVE'}]});
+    P('op-arr-dur','MAX DUR MIN','number','30',{step:'5',iw:'55px'});
+    Sep();P('_n','','note','Targets arrival price · urgency controls speed vs impact tradeoff.');
+  }
+  else if(t==='scale'){
+    P('op-scale-start','START PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    P('op-scale-step','STEP $','number','0.10',{step:'0.01',iw:'70px'});
+    P('op-scale-lvl','LEVELS','number','5',{step:'1',iw:'42px'});
+    P('op-scale-mult','SIZE MULT','number','1.0',{step:'0.1',iw:'55px'});
+    Sep();P('p-scale-tot','TOTAL QTY','static','—');P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+  }
+  else if(t==='beta_hedge'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-beta','POSITION BETA','number','1.0',{step:'0.01',iw:'65px'});
+    P('op-htk','HEDGE TICKER','select','',{opts:[{v:'',l:'SELECT…'},...(BB.secs||[]).map(s=>({v:s.ticker,l:s.ticker}))],w:'110px'});
+    P('op-hbeta','HEDGE BETA','number','1.0',{step:'0.01',iw:'65px'});
+    Sep();P('p-hedge-qty','HEDGE QTY','static','—');
+  }
+  else if(t==='basket'){
+    P('_n','','note','Enter comma-separated tickers below, one order per line.');
+    P('op-basket-tks','TICKERS (comma)','text','',{iw:'160px',ph:'RTG,NER,…'});
+    P('op-basket-qty','QTY EACH','number','100',{step:'1',iw:'60px'});
+    P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+  }
+  opPrev();
+}
+
+// ── preview ────────────────────────────────────────────────────
+window.opPrev=function(){
+  const t=g('op-type').value,qty=nv('op-qty');
+  const lp=getLp(t)||midOf(_quote)||0;
+  const val=qty*lp,comm=val*CR,tot=_side==='buy'?val+comm:val-comm;
+  const fmt=v=>v?'$'+f(v,2):'—';
+  g('opb-val').textContent=fmt(val);
+  g('opb-com').textContent=comm?'$'+f(comm,2):'—';
+  g('opb-tot').textContent=fmt(tot);
+  const w=g('op-warn');w.textContent='';
+  if(_funds&&_side==='buy'&&tot>0&&tot>(_funds.available||0))w.textContent='⚠ INSUFFICIENT FUNDS';
+  const slEl=g('op-twap-sl')||g('op-vwap-sl');
+  const sw=g('opb-slice-wrap');
+  if(slEl){sw.style.display='flex';g('opb-slice').textContent=Math.ceil(qty/(+slEl.value||1))+' sh/sl';}
+  else sw.style.display='none';
+  calcTrail();
+  const ih=g('p-ice-hidden');if(ih)ih.textContent=Math.max(0,qty-(nv('op-ice-show')||1))+' sh';
+  const st=g('p-scale-tot');if(st){let t2=0;const lv=nv('op-scale-lvl')||5,mu=nv('op-scale-mult')||1;for(let i=0;i<lv;i++)t2+=Math.round(qty*Math.pow(mu,i));st.textContent=t2.toLocaleString();}
+  const ss=g('p-slice-sz');if(ss)ss.textContent=Math.ceil(qty/(nv('op-twap-sl')||6))+' sh';
+  const hq=g('p-hedge-qty');if(hq)hq.textContent=Math.round(qty*(nv('op-beta')||1)/(nv('op-hbeta')||1)).toLocaleString()+' sh';
+};
+
+function getLp(t){const ae=g('op-lp-a');if(ae)return+ae.value||0;if(t==='market')return midOf(_quote)||0;return nv('op-lp');}
+function calcTrail(){const e=g('p-trail-stop');if(!e||!_quote)return;const last=_lastPx||midOf(_quote);if(!last)return;const tv=nv('op-trail-val')||3,tt=sv('op-trail-type')||'pct';const stop=tt==='pct'?(_side==='sell'?last*(1-tv/100):last*(1+tv/100)):(_side==='sell'?last-tv:last+tv);e.textContent='$'+f(stop,4);}
+
+// ── modal ──────────────────────────────────────────────────────
+window.opModal=function(){
+  const tk=g('op-tk').value;if(!tk){lg('Select a ticker.','warn');return;}
+  const qty=nv('op-qty');if(!qty){lg('Enter quantity.','warn');return;}
+  const t=g('op-type').value,lp=getLp(t),val=qty*lp,comm=val*CR;
+  const rows=[['SECURITY',tk,'color:var(--org);font-size:13px'],['ACTION',_side.toUpperCase(),_side==='buy'?'color:var(--up)':'color:var(--dn)'],['ORDER TYPE',tLbl(t),''],['QUANTITY',qty.toLocaleString(),'']];
+  if(lp)rows.push(['LIMIT PRICE','$'+f(lp,4),'']);
+  if(val)rows.push(['EST. VALUE','$'+f(val,2),'']);
+  if(comm)rows.push(['COMMISSION','$'+f(comm,2)+' (0.5%)','color:var(--yel)']);
+  if(t==='stop_limit')rows.push(['TRIGGER','$'+f(nv('op-stop'),4),'color:var(--yel)']);
+  if(t==='trailing')rows.push(['TRAIL VAL',nv('op-trail-val')+(sv('op-trail-type')==='pct'?'%':'$'),'']);
+  if(t==='bracket'){rows.push(['TAKE PROFIT','$'+f(nv('op-tp'),4),'color:var(--up)']);rows.push(['STOP LOSS','$'+f(nv('op-sl'),4),'color:var(--dn)']);}
+  if(t==='oco'){rows.push(['LEG 1','$'+f(nv('op-oco1'),4),'']);rows.push(['LEG 2','$'+f(nv('op-oco2'),4),'']);}
+  if(t==='twap'||t==='vwap'){rows.push(['SLICES',nv('op-twap-sl')||nv('op-vwap-sl'),''],['DURATION',(nv('op-twap-dur')||nv('op-vwap-dur'))+'min','']);}
+  if(t==='iceberg')rows.push(['DISPLAY SIZE',nv('op-ice-show')+' sh','']);
+  if(t==='scale'){rows.push(['LEVELS',nv('op-scale-lvl'),''],['STEP','$'+f(nv('op-scale-step'),4),'']);}
+  if(t==='arrival')rows.push(['URGENCY',sv('op-arr-urg').toUpperCase(),'']);
+  if(t==='beta_hedge'){rows.push(['HEDGE',sv('op-htk'),''],['HEDGE QTY',Math.round(qty*(nv('op-beta')||1)/(nv('op-hbeta')||1)).toLocaleString(),'']);}
+  g('opm-body').innerHTML=rows.map(r=>`<div class="op-mr"><span class="op-mk">${r[0]}</span><span class="op-mv" style="${r[2]||''}">${r[1]}</span></div>`).join('');
+  const sl=g('opm-side');sl.textContent=_side.toUpperCase();sl.style.color=_side==='buy'?'var(--up)':'var(--dn)';
+  g('opm-title').textContent=isAlgo(t)?'CONFIRM ALGO':isWatch(t)?'CONFIRM WATCHER':'CONFIRM ORDER';
+  const ok=g('opm-ok');ok.className='op-mok '+(isAlgo(t)?'algo':isWatch(t)?'watch':_side);
+  ok.textContent=isAlgo(t)?'▶ START ALGO':isWatch(t)?'⏳ ACTIVATE':(_side==='buy'?'▲ CONFIRM BUY':'▼ CONFIRM SELL');
+  const we=g('opm-warn');
+  if(_funds&&_side==='buy'&&val+comm>(_funds.available||0)){we.style.display='block';we.textContent='⚠ Estimated total exceeds available balance.';}
+  else we.style.display='none';
+  g('opm-bg').classList.add('show');
+};
+window.opmClose=()=>g('opm-bg').classList.remove('show');
+
+// ── execute ────────────────────────────────────────────────────
+window.opExec=async function(){
+  opmClose();
+  const tk=g('op-tk').value,qty=nv('op-qty'),t=g('op-type').value;
+  const lp=getLp(t),exp=Math.max(1,Math.round(nv('op-exp')||24));
+
+  if(t==='limit'){
+    lg(`Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
+    r.ok?lg(`✓ LMT placed · ${r.d.order_id?.slice(0,10)}…`,'ok'):lg(`✗ ${r.d.detail}`,'err');
+    doRefresh();return;
+  }
+  if(t==='market'){
+    lg(`Placing ${_side.toUpperCase()} MKT ${qty}×${tk}…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_market`,{ticker:tk,quantity:qty,expiry_hours:exp});
+    r.ok?lg(`✓ MKT placed`,'ok'):lg(`✗ ${r.d.detail}`,'err');
+    doRefresh();return;
+  }
+  if(t==='fok'){
+    lg(`FOK ${_side.toUpperCase()} ${qty}×${tk} @ $${f(lp,4)}…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:1});
+    if(!r.ok){lg(`✗ FOK place failed: ${r.d.detail}`,'err');return;}
+    const oid=r.d.order_id;
+    lg(`FOK placed · checking fill in 1s…`,'info');
+    await sleep(1000);
+    // Use apiLive — never cached, always fresh
+    const chk=await apiLive('/api/orders_open');
+    const orders=Array.isArray(chk.d)?chk.d:[];
+    const still=orders.find(o=>o.order_id===oid);
+    if(still){
+      await cxOid(oid);
+      lg(`✗ FOK: not filled — cancelled`,'warn');
+    }else{
+      lg(`✓ FOK: filled immediately`,'ok');
+    }
+    doRefresh();return;
+  }
+  if(t==='ioc'){
+    const wait=Math.max(1,nv('op-ioc-wait')||5);
+    lg(`IOC ${_side.toUpperCase()} ${qty}×${tk} · cancel after ${wait}s…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:1});
+    if(!r.ok){lg(`✗ IOC place failed: ${r.d.detail}`,'err');return;}
+    const oid=r.d.order_id;
+    lg(`IOC placed · waiting ${wait}s…`,'info');
+    await sleep(wait*1000);
+    const chk=await apiLive('/api/orders_open');
+    const orders=Array.isArray(chk.d)?chk.d:[];
+    const still=orders.find(o=>o.order_id===oid);
+    if(still){
+      await cxOid(oid);
+      lg(`IOC: remainder cancelled after ${wait}s`,'warn');
+    }else{
+      lg(`✓ IOC: fully filled within ${wait}s`,'ok');
+    }
+    doRefresh();return;
+  }
+  if(t==='aon'){
+    // Check book depth before placing
+    lg(`AON check: need ${qty} available at $${f(lp,4)}…`,'info');
+    const r=await apiLive(`/api/liquidity/${tk}`);
+    if(r.ok){
+      const book=_side==='buy'?(r.d.asks||[]).filter(a=>a.price<=lp):(r.d.bids||[]).filter(b=>b.price>=lp);
+      const avail=book.reduce((s,l)=>s+l.quantity,0);
+      if(avail<qty){lg(`✗ AON: only ${avail} available at limit (need ${qty}) — not placed`,'warn');return;}
+    }
+    const r2=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
+    r2.ok?lg(`✓ AON placed — full qty available`,'ok'):lg(`✗ AON failed: ${r2.d.detail}`,'err');
+    doRefresh();return;
+  }
+  if(t==='scale'){
+    const start=nv('op-scale-start'),step=nv('op-scale-step')||0.10,lvl=nv('op-scale-lvl')||5,mult=nv('op-scale-mult')||1;
+    lg(`Scale: ${lvl} levels step $${f(step,4)} mult×${mult}`,'info');
+    for(let i=0;i<lvl;i++){
+      const px=_side==='buy'?start-i*step:start+i*step,sz=Math.max(1,Math.round(qty*Math.pow(mult,i)));
+      const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:sz,limit_price:px4(px),expiry_hours:exp});
+      lg(`  L${i+1}: ${sz}×${tk} @ $${f(px,4)} ${r.ok?'✓':'✗ '+r.d.detail}`,r.ok?'ok':'err');
+      if(!r.ok)break; // stop if rate limited
+      await sleep(300); // small gap to avoid rate limiting
+    }
+    doRefresh();return;
+  }
+  if(t==='beta_hedge'){
+    const bp=nv('op-beta')||1,hb=nv('op-hbeta')||1,htk=sv('op-htk');
+    if(!htk){lg('Select hedge ticker.','warn');return;}
+    const hQty=Math.round(qty*bp/hb);
+    lg(`Beta Hedge: ${qty}×${tk} (β=${bp}) → hedge ${hQty}×${htk} (β=${hb})`,'info');
+    const r1=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
+    if(!r1.ok){lg(`✗ Leg1 failed: ${r1.d.detail}`,'err');return;}
+    lg(`✓ Leg1 ${tk} placed`,'ok');
+    const hq=await api(`/api/liquidity/${htk}`),hLp=midOf(hq.d)||lp;
+    const hSide=_side==='buy'?'sell':'buy';
+    const r2=await apiPost(`/api/orders/${hSide}_limit`,{ticker:htk,quantity:hQty,limit_price:px4(hLp),expiry_hours:exp});
+    r2.ok?lg(`✓ Hedge ${hSide.toUpperCase()} ${hQty}×${htk} @ $${f(hLp,4)}`,'ok'):lg(`✗ Hedge failed: ${r2.d.detail}`,'err');
+    doRefresh();return;
+  }
+  if(t==='basket'){
+    const tks=(sv('op-basket-tks')||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const bqty=nv('op-basket-qty')||qty;
+    if(!tks.length){lg('Enter tickers for basket.','warn');return;}
+    lg(`Basket: ${tks.length} tickers × ${bqty} each`,'info');
+    for(const btk of tks){
+      const bq=await api(`/api/liquidity/${btk}`);
+      const bLp=midOf(bq.d)||0;
+      if(!bLp){lg(`✗ ${btk}: no price — skipped`,'warn');continue;}
+      const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:btk,quantity:bqty,limit_price:px4(bLp),expiry_hours:exp});
+      lg(`  ${btk}: ${r.ok?'✓':'✗ '+r.d.detail}`,r.ok?'ok':'err');
+      await sleep(200);
+    }
+    doRefresh();return;
+  }
+  spawnJob(t,tk,qty,lp,exp);
+};
+
+// ── order helpers ──────────────────────────────────────────────
+async function cxOid(id){
+  try{await fetch(`/api/orders_open/${id}`,{method:'DELETE'});}catch(e){}
+}
+async function fireLmt(side,tk,qty,px,exph){
+  const expHrs=Math.max(1,Math.round(exph||24));
+  const r=await apiPost(`/api/orders/${side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(px),expiry_hours:expHrs});
+  if(r.ok){setTimeout(doRefresh,1500);return r.d;}
+  lg(`✗ Limit ${qty}×${tk}@${px4(px)} failed (${r.s}): ${r.d.detail}`,'err');return null;
+}
+async function fireMkt(side,tk,qty){
+  const r=await apiPost(`/api/orders/${side}_market`,{ticker:tk,quantity:qty,expiry_hours:1});
+  if(r.ok){lg(`✓ MKT fired ${qty}×${tk}`,'ok');setTimeout(doRefresh,1500);return r.d;}
+  lg(`✗ MKT failed: ${r.d.detail}`,'err');return null;
+}
+// Always-fresh open orders check
+async function getOpenOrders(){
+  const r=await apiLive('/api/orders_open');
+  if(!r.ok)return[];
+  return Array.isArray(r.d)?r.d:[];
+}
+
+// ── spawn job ──────────────────────────────────────────────────
+function spawnJob(t,tk,qty,lp,exp){
+  let j;
+  const base={id:'J'+Date.now(),status:'watching',placed:0,total:qty,startMs:Date.now(),info:'',tick:null};
+
+  if(t==='stop_limit'){
+    const stop=nv('op-stop');
+    j={...base,label:'STP LMT',tk,qty,side:_side,info:`Trigger:$${f(stop,4)}`};
+    j.tick=async()=>{
+      // Use real last trade price, not mid
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||mktR.d.last_price||null):null;
+      if(last==null){j.info=`Waiting for price feed…`;renderJobs();return;}
+      const hit=j.side==='buy'?last>=stop:last<=stop;
+      j.info=`Last $${f(last,4)} vs trigger $${f(stop,4)} — ${hit?'⚡ FIRING':'watching'}`;
+      const sEl=g('p-sl-status');if(sEl)sEl.textContent=j.info;
+      renderJobs();
+      if(hit){
+        const r=await fireLmt(j.side,tk,qty,getLp('stop_limit'),exp);
+        if(r)lg(`✓ Stop-Limit fired @ $${f(lp,4)}`,'ok');
+        killJob(j.id);
+      }
+    };
+    lg(`⏳ Stop-Limit WATCH: ${_side.toUpperCase()} ${qty}×${tk} trigger $${f(stop,4)}`,'info');
+  }
+  else if(t==='trailing'){
+    const tt=sv('op-trail-type'),tv=nv('op-trail-val')||3;let peak=null;
+    j={...base,label:'TRAIL',tk,qty,side:_side};
+    j.tick=async()=>{
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
+      if(last==null)return;
+      if(j.side==='sell'){
+        if(!peak||last>peak)peak=last;
+        const stop=tt==='pct'?peak*(1-tv/100):peak-tv;
+        j.info=`Peak $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        if(last<=stop){await fireMkt(j.side,tk,qty);killJob(j.id);lg(`✓ Trailing Stop triggered`,'ok');}
+      }else{
+        if(!peak||last<peak)peak=last;
+        const stop=tt==='pct'?peak*(1+tv/100):peak+tv;
+        j.info=`Floor $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        if(last>=stop){await fireMkt(j.side,tk,qty);killJob(j.id);lg(`✓ Trailing Stop triggered`,'ok');}
+      }
+      renderJobs();
+    };
+    lg(`⏳ Trailing Stop: ${_side.toUpperCase()} ${qty}×${tk} trail ${tv}${tt==='pct'?'%':'$'}`,'info');
+  }
+  else if(t==='bracket'){
+    const tp=nv('op-tp'),sl2=nv('op-sl');
+    j={...base,label:'BRACKET',tk,qty,side:_side,status:'running'};
+    (async()=>{
+      lg(`Bracket: entry $${f(lp,4)} | TP $${f(tp,4)} | SL $${f(sl2,4)}`,'info');
+      const entR=await fireLmt(j.side,tk,qty,lp,exp);
+      if(!entR?.order_id){lg('✗ Bracket entry failed','err');return;}
+      lg(`✓ Entry placed ${entR.order_id.slice(0,10)}…`,'ok');
+      // Wait for fill — poll until entry order disappears from open orders
+      lg('Bracket: waiting for entry fill…','info');
+      let filled=false;
+      for(let i=0;i<120&&!filled;i++){ // up to 10min
+        await sleep(5000);
+        const open=await getOpenOrders();
+        if(!open.find(o=>o.order_id===entR.order_id)){filled=true;}
+      }
+      if(!filled){lg('Bracket: entry not filled after timeout — cancelling','warn');await cxOid(entR.order_id);return;}
+      lg('Bracket: entry filled → placing TP+SL','ok');
+      const opp=j.side==='buy'?'sell':'buy';
+      const[tpR,slR]=await Promise.all([
+        apiPost(`/api/orders/${opp}_limit`,{ticker:tk,quantity:qty,limit_price:px4(tp),expiry_hours:exp}),
+        apiPost(`/api/orders/${opp}_limit`,{ticker:tk,quantity:qty,limit_price:px4(sl2),expiry_hours:exp})
+      ]);
+      tpR.ok?lg(`✓ TP @ $${f(tp,4)}`,'ok'):lg('✗ TP failed: '+tpR.d.detail,'err');
+      slR.ok?lg(`✓ SL @ $${f(sl2,4)}`,'ok'):lg('✗ SL failed: '+slR.d.detail,'err');
+      if(tpR.ok&&slR.ok){
+        const tpId=tpR.d.order_id,slId=slR.d.order_id;
+        j.status='watching';j.info='Monitoring TP and SL';
+        j.tick=async()=>{
+          const open=await getOpenOrders();
+          const ids=open.map(o=>o.order_id);
+          if(!ids.includes(tpId)&&ids.includes(slId)){await cxOid(slId);lg('Bracket: TP filled → SL cancelled','ok');killJob(j.id);}
+          else if(!ids.includes(slId)&&ids.includes(tpId)){await cxOid(tpId);lg('Bracket: SL hit → TP cancelled','ok');killJob(j.id);}
+          else if(!ids.includes(tpId)&&!ids.includes(slId)){lg('Bracket: both resolved','ok');killJob(j.id);}
+          else j.info=`TP:${ids.includes(tpId)?'open':'filled'} SL:${ids.includes(slId)?'open':'filled'}`;
+          renderJobs();
+        };
+        _jobs.push(j);renderJobs();
+      }
+    })();return;
+  }
+  else if(t==='oco'){
+    const lp1=nv('op-oco1'),lp2=nv('op-oco2');
+    (async()=>{
+      const[r1,r2]=await Promise.all([
+        apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp1),expiry_hours:exp}),
+        apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp2),expiry_hours:exp})
+      ]);
+      r1.ok?lg(`✓ OCO Leg1 @ $${f(lp1,4)}`,'ok'):lg('✗ OCO Leg1 failed: '+r1.d.detail,'err');
+      r2.ok?lg(`✓ OCO Leg2 @ $${f(lp2,4)}`,'ok'):lg('✗ OCO Leg2 failed: '+r2.d.detail,'err');
+      if(r1.ok&&r2.ok){
+        const id1=r1.d.order_id,id2=r2.d.order_id;
+        const jj={...base,id:'J'+Date.now(),label:'OCO',tk,qty,side:_side,total:qty,status:'watching',info:'Watching legs'};
+        jj.tick=async()=>{
+          const open=await getOpenOrders(); // always fresh
+          const ids=open.map(o=>o.order_id);
+          const has1=ids.includes(id1),has2=ids.includes(id2);
+          if(!has1&&has2){await cxOid(id2);lg('OCO: Leg1 filled → Leg2 cancelled','ok');killJob(jj.id);}
+          else if(!has2&&has1){await cxOid(id1);lg('OCO: Leg2 filled → Leg1 cancelled','ok');killJob(jj.id);}
+          else if(!has1&&!has2){lg('OCO: both resolved','ok');killJob(jj.id);}
+          else jj.info=`Leg1:${has1?'open':'gone'} Leg2:${has2?'open':'gone'}`;
+          renderJobs();
+        };
+        _jobs.push(jj);renderJobs();
+      }
+    })();return;
+  }
+  else if(t==='mid_price'){
+    const off=nv('op-mid-off'),intS=Math.max(5,nv('op-mid-int')||15);
+    j={...base,label:'MID-PRICE',tk,qty,side:_side,status:'running',nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el<j.nextAt)return;
+      const r=await api(`/api/liquidity/${tk}`);if(!r.ok)return;
+      const m=midOf(r.d);if(!m)return;
+      const px=m+off;j.info=`Mid $${f(m,4)} + offset = $${f(px,4)}`;
+      await fireLmt(j.side,tk,qty,px,exp);
+      killJob(j.id);
+    };
+    j.nextAt=0;lg(`Mid-Price: ${_side.toUpperCase()} ${qty}×${tk} @ mid${off>=0?'+':''}${off}`,'info');
+  }
+  else if(t==='twap'){
+    const durMin=nv('op-twap-dur')||60,slices=Math.max(1,nv('op-twap-sl')||6),rand=sv('op-twap-rand')==='yes';
+    const intMs=Math.round(durMin*60*1000/slices);
+    j={...base,label:'TWAP',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el>durMin*60*1000+30000){lg(`TWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if(j.remaining<=0){lg(`✓ TWAP complete — ${qty} placed`,'ok');killJob(j.id);return;}
+      if(el<j.nextAt)return;
+      const base2=Math.ceil(qty/slices);
+      const sz=Math.min(j.remaining,rand?Math.max(1,Math.round(base2*(0.8+Math.random()*0.4))):base2);
+      const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+      const r=await fireLmt(j.side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+      j.info=`${j.placed}/${qty} placed · ${j.slicesDone}/${slices} slices`;
+      j.nextAt=j.slicesDone*intMs;renderJobs();
+    };
+    j.nextAt=0;lg(`▶ TWAP: ${qty}×${tk} over ${durMin}min in ${slices} slices`,'info');
+  }
+  else if(t==='vwap'){
+    const durMin=nv('op-vwap-dur')||60,slices=Math.max(1,nv('op-vwap-sl')||8),urg=sv('op-vwap-urg');
+    j={...base,label:'VWAP',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,weights:null,nextAt:0};
+    (async()=>{
+      if(!_ohlcv){const r=await api(`/api/analytics/ohlcv/${tk}?days=30`);_ohlcv=r.ok&&r.d.ohlcv?r.d.ohlcv:null;}
+      let weights=Array(slices).fill(1/slices);
+      if(_ohlcv?.length>1){
+        const vols=_ohlcv.map(c=>c.volume||0),totV=vols.reduce((s,v)=>s+v,0);
+        if(totV>0){const norm=vols.map(v=>v/totV),perSl=Math.ceil(norm.length/slices);weights=Array.from({length:slices},(_,i)=>{const ch=norm.slice(i*perSl,(i+1)*perSl);return ch.reduce((s,v)=>s+v,0)||1/slices;});const ws=weights.reduce((s,v)=>s+v,0);weights=weights.map(w=>w/ws);}
+      }
+      if(urg==='aggressive')weights=weights.map((_,i)=>Math.pow(1.5,slices-i)).map((v,_,a)=>v/a.reduce((s,x)=>s+x,0));
+      else if(urg==='passive')weights=weights.map((_,i)=>Math.pow(1.5,i)).map((v,_,a)=>v/a.reduce((s,x)=>s+x,0));
+      j.weights=weights;
+      const intMs=Math.round(durMin*60*1000/slices);
+      j.tick=async()=>{
+        const el=Date.now()-j.startMs;
+        if(el>durMin*60*1000+30000){lg(`VWAP: expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+        if(j.remaining<=0){lg(`✓ VWAP complete`,'ok');killJob(j.id);return;}
+        if(el<j.nextAt)return;
+        const wi=j.slicesDone<slices?j.weights[j.slicesDone]:1/slices,sz=Math.max(1,Math.min(j.remaining,Math.round(qty*wi)));
+        const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+        const r=await fireLmt(j.side,tk,sz,lp,expHrs);
+        if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+        j.info=`${j.placed}/${qty} · ${j.slicesDone}/${slices} (${urg})`;
+        j.nextAt=j.slicesDone*intMs;renderJobs();
+      };
+      j.nextAt=0;lg(`▶ VWAP (${urg}): ${qty}×${tk} over ${durMin}min`,'info');
+    })();
+  }
+  else if(t==='accumulate'){
+    const durMin=nv('op-acc-dur')||90,minW=nv('op-acc-minw')||20,maxW=nv('op-acc-maxw')||120,v=(nv('op-acc-var')||40)/100;
+    const totMs=durMin*60*1000;
+    j={...base,label:'ACCUM',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(j.remaining<=0){lg(`✓ Accumulate complete`,'ok');killJob(j.id);return;}
+      if(el>totMs+15000){lg(`Accumulate: expired — ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if(el<j.nextAt)return;
+      const left=Math.max(1,totMs-el),avgInt=(minW+maxW)/2*1000,est=Math.max(1,Math.ceil(left/avgInt));
+      // random size with proper variance: base ± variance%
+      const base3=Math.ceil(j.remaining/est);
+      const randFactor=1+(Math.random()*2-1)*v;
+      const sz=Math.max(1,Math.min(j.remaining,Math.round(base3*randFactor)));
+      const expHrs=Math.max(1,Math.ceil((totMs-el)/3600000)+1);
+      const r=await fireLmt(j.side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+      j.info=`${j.placed}/${qty} placed · last slice: ${sz} sh`;
+      j.nextAt=el+(minW+(maxW-minW)*Math.random())*1000;
+      renderJobs();
+    };
+    j.nextAt=0;lg(`▶ Accum/Dist: ${qty}×${tk} over ${durMin}min (±${Math.round(v*100)}% variance)`,'info');
+  }
+  else if(t==='iceberg'){
+    const show=Math.max(1,nv('op-ice-show')||1);
+    j={...base,label:'ICEBERG',tk,qty,side:_side,status:'running',remaining:qty,placed:0,lastOid:null};
+    const fireSlice=async()=>{
+      if(j.remaining<=0){lg(`✓ Iceberg complete`,'ok');killJob(j.id);return;}
+      const sz=Math.min(show,j.remaining);
+      lg(`Iceberg: placing ${sz} visible of ${j.remaining} remaining`,'info');
+      const r=await fireLmt(j.side,tk,sz,lp,exp);
+      if(r?.order_id){j.lastOid=r.order_id;j.info=`Waiting for fill (${j.placed}/${qty} done)`;}
+      renderJobs();
+    };
+    j.tick=async()=>{
+      if(!j.lastOid){await fireSlice();return;}
+      const open=await getOpenOrders(); // fresh, not cached
+      const alive=open.find(o=>o.order_id===j.lastOid);
+      if(!alive){
+        // slice filled or expired — place next
+        const filled=Math.min(show,j.remaining);
+        j.placed+=filled;j.remaining-=filled;
+        j.info=`${j.placed}/${qty} placed`;j.lastOid=null;
+        if(j.remaining>0)await fireSlice();
+        else{lg(`✓ Iceberg complete`,'ok');killJob(j.id);}
+        renderJobs();
+      }
+    };
+    _jobs.push(j);renderJobs();j.tick();return;
+  }
+  else if(t==='participation'){
+    const pct=nv('op-part-pct')||10,durMin=nv('op-part-dur')||60;
+    j={...base,label:'%VOL',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,nextAt:0};
+    (async()=>{
+      if(!_ohlcv){const r=await api(`/api/analytics/ohlcv/${tk}?days=20`);_ohlcv=r.ok&&r.d.ohlcv?r.d.ohlcv:null;}
+      const avgVol=_ohlcv?.length?_ohlcv.reduce((s,c)=>s+(c.volume||0),0)/_ohlcv.length:10000;
+      const intMs=30000,volPerInt=avgVol/480,sliceQty=Math.max(1,Math.round(volPerInt*pct/100));
+      j.totalSlices=Math.ceil(qty/sliceQty);j.info=`Avg vol ${fk(Math.round(avgVol))} · slice ${sliceQty} sh`;
+      j.tick=async()=>{
+        const el=Date.now()-j.startMs;
+        if(j.remaining<=0){lg(`✓ %VOL complete`,'ok');killJob(j.id);return;}
+        if(el>durMin*60*1000+15000){lg('%VOL: expired','warn');killJob(j.id);return;}
+        if(el<j.nextAt)return;
+        const sz=Math.min(sliceQty,j.remaining);
+        const r=await fireLmt(j.side,tk,sz,lp,1);
+        if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+        j.info=`${j.placed}/${qty} · ${pct}% of ~${Math.round(volPerInt)}/interval`;j.nextAt=el+intMs;renderJobs();
+      };
+      j.nextAt=0;lg(`▶ %VOL (${pct}%): ${qty}×${tk}`,'info');
+    })();
+  }
+  else if(t==='arrival'){
+    const urg=sv('op-arr-urg')||'neutral',maxDur=nv('op-arr-dur')||30;
+    const arrPx=_lastPx||midOf(_quote)||lp;
+    const cfg={passive:{intMs:120000,slices:4},neutral:{intMs:60000,slices:6},aggressive:{intMs:20000,slices:10}}[urg];
+    j={...base,label:'ARRIVAL',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:cfg.slices,nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(j.remaining<=0){lg(`✓ Arrival complete`,'ok');killJob(j.id);return;}
+      if(el>maxDur*60*1000+10000){lg('Arrival: expired','warn');killJob(j.id);return;}
+      if(el<j.nextAt)return;
+      const curM=_lastPx||midOf(_quote)||arrPx,drift=((curM-arrPx)/arrPx*100).toFixed(3);
+      const adjPx=urg==='aggressive'?curM:arrPx+(curM-arrPx)*0.3;
+      const sz=Math.max(1,Math.min(j.remaining,Math.ceil(qty/cfg.slices)));
+      const expHrs=Math.max(1,Math.ceil((maxDur*60*1000-el)/3600000)+1);
+      const r=await fireLmt(j.side,tk,sz,adjPx,expHrs);
+      if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+      j.info=`${j.placed}/${qty} · drift ${drift}% vs $${f(arrPx,4)}`;j.nextAt=el+cfg.intMs;renderJobs();
+    };
+    j.nextAt=0;lg(`▶ Arrival (${urg}): ${qty}×${tk} arrival px $${f(arrPx,4)}`,'info');
+  }
+
+  if(!j)return;
+  _jobs.push(j);renderJobs();
+}
+
+// ── job management ─────────────────────────────────────────────
+function killJob(id){const j=_jobs.find(j=>j.id===id);if(j){j.status='done';j.tick=null;}renderJobs();}
+window.stopJob=id=>{killJob(id);lg('Job stopped.','warn');};
+function tickJobs(){_jobs.filter(j=>j.status!=='done'&&j.tick).forEach(j=>{try{j.tick();}catch(e){console.error('Job tick:',e);}});}
+
+function renderJobs(){
+  const alive=_jobs.filter(j=>j.status!=='done');
+  g('ct-algos').textContent=alive.length?'('+alive.length+')':'';
+  const w=g('op-jobs');
+  if(!_jobs.length){w.innerHTML='<div class="loading" style="padding:14px">No active algos or watchers.</div>';return;}
+  w.innerHTML=_jobs.slice().reverse().map(j=>{
+    const done=j.status==='done',pct=j.total>0?Math.round(j.placed/j.total*100):0;
+    const bc=done?'jb-done':j.status==='running'?'jb-run':'jb-watch';
+    return`<div class="jr">
+      <span class="dim" style="min-width:58px">${new Date(j.startMs).toLocaleTimeString('en-GB',{hour12:false})}</span>
+      <span style="color:${j.side==='buy'?'var(--up)':'var(--dn)'};font-weight:700;min-width:34px">${j.side.toUpperCase()}</span>
+      <span class="org" style="font-weight:700;min-width:48px">${j.tk}</span>
+      <span style="min-width:76px;color:var(--txt)">${j.label}</span>
+      <span class="jbadge ${bc}">${done?'DONE':j.status.toUpperCase()}</span>
+      ${j.total>0?`<div class="jbar"><div class="jbar-f" style="width:${pct}%"></div></div><span class="dim" style="min-width:30px;font-size:9px">${pct}%</span>`:''}
+      <span class="dim" style="flex:1;padding-left:8px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.info||''}</span>
+      ${!done?`<button class="jkill" onclick="stopJob('${j.id}')">■ STOP</button>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ── open orders ────────────────────────────────────────────────
+async function loadOpenOrders(){
+  const r=await apiLive('/api/orders_open'),tb=g('op-open-body');
+  const orders=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!orders.length){tb.innerHTML='<tr><td colspan="9" class="loading">No open orders</td></tr>';g('ct-open').textContent='';return;}
+  g('ct-open').textContent='('+orders.length+')';
+  tb.innerHTML=orders.map(o=>`<tr>
+    <td class="dim" style="font-size:9px">${(o.order_id||'').slice(0,12)}…</td>
+    <td class="wht" style="font-weight:700">${o.ticker||'—'}</td>
+    <td style="color:${o.order_type==='buy'?'var(--up)':'var(--dn)'};font-weight:700">${(o.order_type||'').toUpperCase()}</td>
+    <td class="dim">${(o.sub_type||'LIMIT').toUpperCase()}</td>
+    <td class="r wht">${o.quantity!=null?o.quantity.toLocaleString():'—'}</td>
+    <td class="r yel">${o.price!=null?'$'+f(o.price,4):'MKT'}</td>
+    <td class="dim" style="font-size:9px">${o.expiry?new Date(o.expiry).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}):'—'}</td>
+    <td class="dim" style="font-size:9px">${o.status||'—'}</td>
+    <td><button class="cx-btn" onclick="opCx('${o.order_id}')">✕</button></td>
+  </tr>`).join('');
+}
+window.opCx=async function(id){
+  const r=await fetch(`/api/orders_open/${id}`,{method:'DELETE'}),d=await r.json();
+  r.ok?lg(`Order ${id.slice(0,10)}… cancelled`,'warn'):lg(`Cancel failed: ${d.detail}`,'err');
+  setTimeout(loadOpenOrders,700);
+};
+window.opCancelAll=async function(){
+  const r=await apiLive('/api/orders_open');
+  const orders=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!orders.length){lg('No open orders.','info');return;}
+  await Promise.all(orders.map(o=>fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'})));
+  lg(`Cancelled ${orders.length} order(s).`,'warn');setTimeout(loadOpenOrders,700);
+};
+
+// ── fills ──────────────────────────────────────────────────────
+async function loadFills(){
+  const r=await apiLive('/api/transactions?type=Trade&limit=60'),tb=g('op-fills-body');
+  const data=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!data.length){tb.innerHTML='<tr><td colspan="7" class="loading">No recent fills</td></tr>';return;}
+  tb.innerHTML=data.slice(0,50).map(tx=>`<tr>
+    <td class="dim" style="font-size:9px">${tx.timestamp?new Date(tx.timestamp).toLocaleTimeString('en-GB',{hour12:false}):'—'}</td>
+    <td class="wht" style="font-weight:700">${tx.ticker||'—'}</td>
+    <td style="color:${(tx.amount||0)>0?'var(--up)':'var(--dn)'};font-weight:700">${(tx.amount||0)>0?'BUY':'SELL'}</td>
+    <td class="r">${tx.quantity!=null?tx.quantity.toLocaleString():'—'}</td>
+    <td class="r yel">${tx.price!=null?'$'+f(tx.price,4):'—'}</td>
+    <td class="r wht">${tx.amount!=null?'$'+f(Math.abs(tx.amount),2):'—'}</td>
+    <td class="r dn">${tx.commission!=null?'$'+f(tx.commission,2):'—'}</td>
+  </tr>`).join('');
+}
+
+// ── log ────────────────────────────────────────────────────────
+function lg(msg,type='info'){
+  const el=g('op-log');if(!el)return;
+  const c={info:'var(--txt3)',ok:'var(--up)',warn:'var(--yel)',err:'var(--dn)'}[type];
+  const d=document.createElement('div');
+  d.style.cssText=`padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.3);color:${c}`;
+  d.innerHTML=`<span class="dim">${new Date().toLocaleTimeString('en-GB',{hour12:false})}</span>  ${msg}`;
+  el.prepend(d);while(el.children.length>200)el.removeChild(el.lastChild);
+}
+
+// ── blotter tabs ───────────────────────────────────────────────
+window.opBTab=function(el){
+  document.querySelectorAll('.op-tab').forEach(t=>t.classList.remove('act'));
+  ['open','algos','fills','log'].forEach(v=>{const e=g('bv-'+v);if(e)e.style.display='none';});
+  el.classList.add('act');
+  const v=g('bv-'+el.dataset.v);if(v)v.style.display='flex';
+  if(el.dataset.v==='fills')loadFills();
+  if(el.dataset.v==='open')loadOpenOrders();
+};
+
+// ── analytics tools ────────────────────────────────────────────
+window.opTool=function(id){
+  const fly=g('op-fly');
+  if(_tool===id&&fly.classList.contains('show')){opCloseTool();return;}
+  _tool=id;
+  ['siz','liq','sim'].forEach(k=>g('tb-'+k).classList.remove('on'));
+  g('tb-'+id).classList.add('on');
+  if(id==='siz')renderSizer();
+  else if(id==='liq')renderLiq();
+  else renderSim();
+  fly.classList.add('show');
+};
+window.opCloseTool=function(){
+  g('op-fly').classList.remove('show');
+  ['siz','liq','sim'].forEach(k=>g('tb-'+k).classList.remove('on'));
+  _tool=null;
+};
+
+function renderSizer(){
+  g('op-fly-title').textContent='⚖ POSITION SIZER';
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">RISK-BASED QUANTITY CALCULATOR</div>
+    <div class="op-fly-r"><label>Portfolio Value ($)</label><input id="ps-pv" type="number" value="${_funds?Math.round(_funds.available):10000}" step="100"></div>
+    <div class="op-fly-r"><label>Risk Per Trade (%)</label><input id="ps-rp" type="number" value="2" step="0.1"></div>
+    <div class="op-fly-r"><label>Entry Price ($)</label><input id="ps-ep" type="number" value="${midOf(_quote)?(midOf(_quote)).toFixed(4):0}" step="0.0001"></div>
+    <div class="op-fly-r"><label>Stop Price ($)</label><input id="ps-sp" type="number" value="${_quote?.best_bid?(_quote.best_bid*0.97).toFixed(4):0}" step="0.0001"></div>
+    <button class="op-fly-btn" onclick="calcSizer()">▶ CALCULATE</button>
+    <div class="op-fly-result" id="ps-res">Enter values above.</div>
+  </div>`;
+}
+window.calcSizer=function(){
+  const pv=+g('ps-pv').value,rp=+g('ps-rp').value,ep=+g('ps-ep').value,sp=+g('ps-sp').value;
+  if(!ep||!sp||ep===sp){g('ps-res').textContent='Invalid prices.';return;}
+  const riskAmt=pv*rp/100,riskPerSh=Math.abs(ep-sp),qty=Math.floor(riskAmt/riskPerSh),posVal=qty*ep;
+  g('ps-res').innerHTML=`<span class="org" style="font-weight:700">OPTIMAL QTY: ${qty.toLocaleString()} sh</span><br>
+    Risk/share: $${f(riskPerSh,4)} · Max risk: $${f(riskAmt,2)}<br>Position value: $${f(posVal,2)}<br>
+    Commission est.: $${f(posVal*CR,2)}<br>
+    <button onclick="g('op-qty').value=${qty};opPrev();opCloseTool()" class="btn btn-xs on" style="margin-top:4px">APPLY ${qty} SH →</button>`;
+};
+
+function renderLiq(){
+  g('op-fly-title').textContent='📊 LIQUIDITY CHECKER';
+  const tk=g('op-tk').value;
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">ORDER SIZE vs MARKET DEPTH${tk?' — '+tk:''}</div>
+    <div class="op-fly-result" id="lq-res"><span class="dim">Loading…</span></div>
+  </div>`;
+  if(!tk){g('lq-res').textContent='Select a ticker first.';return;}
+  (async()=>{
+    const[lr,or]=await Promise.all([api(`/api/liquidity/${tk}`),api(`/api/analytics/ohlcv/${tk}?days=20`)]);
+    if(!lr.ok){g('lq-res').textContent='Unavailable.';return;}
+    const d=lr.d,qty=nv('op-qty');
+    const avgVol=or.ok&&or.d.ohlcv?or.d.ohlcv.reduce((s,c)=>s+(c.volume||0),0)/or.d.ohlcv.length:null;
+    const depth=(_side==='buy'?d.total_ask_qty:d.total_bid_qty)||0;
+    const pct=depth?((qty/depth)*100).toFixed(1):'?';
+    const big=+pct>20,dtU=avgVol&&qty?Math.ceil(qty/avgVol):null;
+    const sl=(_side==='buy'?d.slippage_buy:d.slippage_sell)||[];
+    const cl=sl.length?sl.reduce((p,c)=>Math.abs(c.qty-qty)<Math.abs(p.qty-qty)?c:p,sl[0]):null;
+    g('lq-res').innerHTML=`<span style="font-weight:700;color:${big?'var(--dn)':'var(--up)'}">${big?'⚠ LARGE ORDER':'✓ NORMAL SIZE'}</span><br>
+      Order ${qty.toLocaleString()} sh = <span style="color:${big?'var(--dn)':'var(--yel)'}">${pct}% of visible book</span><br>
+      ${avgVol?`Avg daily vol: ${fk(Math.round(avgVol))} · Days to unwind: <span style="color:${dtU>5?'var(--dn)':'var(--txt)'};font-weight:700">${dtU}</span><br>`:''}
+      ${cl?`Est. slippage: <span class="${cl.slippage_pct>0.5?'dn':'yel'}" style="font-weight:700">${cl.slippage_pct!=null?cl.slippage_pct.toFixed(3)+'%':'—'}</span><br>`:''}
+      <span class="dim">Spread: ${d.spread_pct!=null?d.spread_pct.toFixed(3)+'%':'—'} · Imbalance: ${d.imbalance_pct!=null?d.imbalance_pct.toFixed(1)+'%':'—'}</span>`;
+  })();
+}
+
+function renderSim(){
+  g('op-fly-title').textContent='⚡ FILL SIMULATOR';
+  const tk=g('op-tk').value;
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">HOW MUCH FILLS AT YOUR LIMIT RIGHT NOW?</div>
+    <div class="op-fly-r"><label>Limit Price ($)</label><input id="fs-px" type="number" value="${nv('op-lp')||midOf(_quote)||0}" step="0.0001"></div>
+    <div class="op-fly-r"><label>Qty</label><input id="fs-qty" type="number" value="${nv('op-qty')||100}" step="1"></div>
+    <div class="op-fly-r"><label>Side</label><select id="fs-side"><option value="buy" ${_side==='buy'?'selected':''}>BUY</option><option value="sell" ${_side==='sell'?'selected':''}>SELL</option></select></div>
+    <button class="op-fly-btn" onclick="runSim('${tk}')">▶ SIMULATE vs LIVE BOOK</button>
+    <div class="op-fly-result" id="fs-res"><span class="dim">Click simulate.</span></div>
+  </div>`;
+}
+window.runSim=async function(tk){
+  if(!tk){g('fs-res').textContent='Select a ticker first.';return;}
+  g('fs-res').textContent='Fetching live book…';
+  const r=await api(`/api/liquidity/${tk}`);if(!r.ok){g('fs-res').textContent='Unavailable.';return;}
+  const d=r.d,px=+g('fs-px').value,qty=+g('fs-qty').value,side=g('fs-side').value;
+  const book=side==='buy'?[...(d.asks||[])].sort((a,b)=>a.price-b.price):[...(d.bids||[])].sort((a,b)=>b.price-a.price);
+  const eligible=book.filter(l=>side==='buy'?l.price<=px:l.price>=px);
+  let filled=0,cost=0;
+  for(const l of eligible){const t=Math.min(l.quantity,qty-filled);cost+=t*l.price;filled+=t;if(filled>=qty)break;}
+  const pct=((filled/qty)*100).toFixed(1),avgPx=filled?cost/filled:0;
+  const col=filled>=qty?'var(--up)':filled>0?'var(--yel)':'var(--dn)';
+  g('fs-res').innerHTML=`<span style="font-weight:700;color:${col}">FILL: ${filled.toLocaleString()} / ${qty.toLocaleString()} (${pct}%)</span><br>
+    ${filled<qty?`<span class="dn">Unfilled: ${(qty-filled).toLocaleString()} sh</span><br>`:''}
+    ${filled?`Avg fill px: $${f(avgPx,4)} · Cost: $${f(cost,2)}<br>`:'No eligible liquidity at this price.<br>'}
+    <span class="dim">Eligible levels: ${eligible.length} · Total qty: ${eligible.reduce((s,l)=>s+l.quantity,0).toLocaleString()}</span>`;
+};
+
+function doRefresh(){setTimeout(()=>{loadOpenOrders();loadFunds();const tk=g('op-tk').value;if(tk)refreshPos(tk);},1200);}
+
+})();
+</script>
