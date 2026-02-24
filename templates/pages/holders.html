@@ -1,0 +1,232 @@
+<!-- F11: HOLDER INTELLIGENCE — Exchange-wide shareholder analysis -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<div class="scards" style="grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--bdr)">
+  <div class="sc"><div class="sc-l">MOST CONCENTRATED</div><div class="sc-v org" id="hi-conc">—</div></div>
+  <div class="sc"><div class="sc-l">MOST DISTRIBUTED</div><div class="sc-v up" id="hi-dist">—</div></div>
+  <div class="sc"><div class="sc-l">MOST WHALES</div><div class="sc-v" id="hi-whal">—</div></div>
+  <div class="sc"><div class="sc-l">AVG HHI</div><div class="sc-v yel" id="hi-hhi">—</div></div>
+  <div class="sc"><div class="sc-l">AVG HOLDERS</div><div class="sc-v" id="hi-avgh">—</div></div>
+  <div class="sc"><div class="sc-l">SUBSTANTIAL HOLDERS</div><div class="sc-v org" id="hi-sub10" title="Holders with ≥10% in any security">—</div></div>
+  <div class="sc"><div class="sc-l">CROSS-HOLDINGS</div><div class="sc-v cyn" id="hi-cross" title="Whales holding 2+ securities">—</div></div>
+</div>
+
+<div class="frow">
+  <button class="btn on" onclick="loadHolders()">↻ REFRESH</button>
+  <span id="hi-updated" style="font-size:9px;color:var(--txt3);align-self:flex-end;padding-bottom:3px"></span>
+</div>
+
+<div class="wrow" style="flex:1">
+
+  <!-- Concentration table -->
+  <div class="win resizable" style="flex:1;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION RANKING</span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--txt3)">HHI &lt;1500 = distributed · &gt;2500 = highly concentrated · ★ = substantial holder (≥10%)</div>
+    </div>
+    <div class="scroll">
+      <table class="dt">
+        <thead><tr>
+          <th>TICKER</th><th>NAME</th>
+          <th class="r">HOLDERS</th><th class="r">HHI</th>
+          <th class="r">TOP 1</th><th class="r">TOP 3</th><th class="r">TOP 5</th><th class="r">TOP 10</th>
+          <th class="r">WHALES</th><th class="r">GINI</th><th class="r">SUBSTANTIAL</th>
+        </tr></thead>
+        <tbody id="hi-tbody"><tr><td colspan="11" class="loading">LOADING…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="wcol resizable" style="width:360px">
+    <!-- Substantial holder alerts -->
+    <div class="win" style="height:140px;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SUBSTANTIAL HOLDER ALERTS ≥10%</span></div></div>
+      <div class="scroll" id="hi-sub10-list" style="padding:4px"></div>
+    </div>
+    <!-- Whale network -->
+    <div class="win" style="flex:1;border-bottom:0;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">WHALE NETWORK — CROSS-HOLDINGS</span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">≥5% position</div>
+      </div>
+      <div class="scroll" id="hi-whales"><div class="loading">LOADING…</div></div>
+    </div>
+    <!-- HHI bar chart -->
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">HHI BY SECURITY</span></div></div>
+      <div class="chart-wrap"><canvas id="hi-hhi-c"></canvas></div>
+    </div>
+    <!-- Ownership history -->
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">5</span><span class="wtitle">OWNERSHIP CHANGES — SESSION</span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">diffs since page load</div>
+      </div>
+      <div class="scroll" id="hi-ownhist" style="padding:4px">
+        <div style="padding:8px;font-size:9px;color:var(--txt3)">Monitoring… refresh to detect changes</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function(){
+let _hhi_c=null;
+
+// ── Ownership snapshot tracking ──────────────────────────────
+let _holdSnaps = {};   // ticker → {ts, holders: {userId→qty}}
+let _holdLog   = [];   // array of change events
+
+function takeOwnershipSnapshot(ticker, holders, totalShares) {
+  const curr = {};
+  holders.forEach(h => { if(h.user_id) curr[h.user_id] = h.quantity || 0; });
+  const prev = _holdSnaps[ticker];
+  if(prev) {
+    const allUsers = new Set([...Object.keys(prev.holders), ...Object.keys(curr)]);
+    allUsers.forEach(uid => {
+      const pq = prev.holders[uid] || 0;
+      const cq = curr[uid] || 0;
+      const delta = cq - pq;
+      if(delta === 0 || Math.abs(delta) < 5) return;
+      const pct = totalShares ? (Math.abs(delta)/totalShares*100).toFixed(2) : '?';
+      _holdLog.unshift({
+        ticker, uid: '…'+uid.slice(-8),
+        delta, pct, dir: delta>0?'acq':'red',
+        ts: new Date().toLocaleTimeString('en-GB'),
+      });
+    });
+    if(_holdLog.length > 80) _holdLog = _holdLog.slice(0,80);
+    renderOwnershipHistory();
+  }
+  _holdSnaps[ticker] = { ts: Date.now(), holders: curr };
+}
+
+function renderOwnershipHistory() {
+  const el = document.getElementById('hi-ownhist');
+  if(!el) return;
+  if(!_holdLog.length) {
+    el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No changes detected this session</div>';
+    return;
+  }
+  el.innerHTML = _holdLog.map(ev => `
+    <div style="display:flex;align-items:center;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(46,46,46,.4);font-size:9px;cursor:pointer"
+         onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${ev.ticker}'),200)">
+      <span style="color:${ev.dir==='acq'?'var(--up)':'var(--dn)'};font-size:11px">${ev.dir==='acq'?'▲':'▼'}</span>
+      <span style="color:var(--org);font-weight:700;min-width:32px">${ev.ticker}</span>
+      <span style="color:var(--txt3)">${ev.uid}</span>
+      <span style="color:${ev.dir==='acq'?'var(--up)':'var(--dn)'};font-weight:700;margin-left:auto">
+        ${ev.dir==='acq'?'+':''}${ev.delta.toLocaleString()} sh
+      </span>
+      <span style="color:var(--txt3);min-width:34px;text-align:right">${ev.pct}%</span>
+      <span style="color:var(--txt3);min-width:44px;text-align:right">${ev.ts}</span>
+    </div>`).join('');
+}
+
+window.PAGE_hold_onShow = function(){ loadHolders(); };
+
+window.loadHolders = async function(){
+  document.getElementById('hi-tbody').innerHTML='<tr><td colspan="11" class="loading">LOADING…</td></tr>';
+  document.getElementById('hi-whales').innerHTML='<div class="loading">LOADING…</div>';
+  const r=await api('/api/holder_intel');
+  if(!r.ok){ document.getElementById('hi-tbody').innerHTML=`<tr><td colspan="11"><div class="err-banner">${r.d.detail||'Error'}</div></td></tr>`; return; }
+  const d=r.d, sm=d.summary||{};
+  document.getElementById('hi-conc').textContent = sm.most_concentrated||'—';
+  document.getElementById('hi-dist').textContent = sm.most_distributed||'—';
+  document.getElementById('hi-whal').textContent = sm.most_whales||'—';
+  document.getElementById('hi-hhi').textContent  = sm.avg_hhi||'—';
+  document.getElementById('hi-avgh').textContent = sm.avg_holders||'—';
+  document.getElementById('hi-updated').textContent = 'Updated '+new Date().toLocaleTimeString('en-GB');
+
+  const allWhales=d.whales||[];
+  const substantial=[];
+  const crossHolders=allWhales.filter(w=>w.num_positions>=2);
+  document.getElementById('hi-cross').textContent=crossHolders.length;
+  allWhales.forEach(w=>{
+    (w.positions||[]).forEach(p=>{ if(p.pct>=10) substantial.push({user:w.user_id,ticker:p.ticker,pct:p.pct}); });
+  });
+  document.getElementById('hi-sub10').textContent=substantial.length;
+
+  const subList=document.getElementById('hi-sub10-list');
+  subList.innerHTML=substantial.length?substantial.sort((a,b)=>b.pct-a.pct).map(s=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:2px 4px;border-bottom:1px solid rgba(46,46,46,.4)">
+      <span style="color:var(--org);font-weight:700;font-size:10px">★ SUBSTANTIAL</span>
+      <span class="wht" style="font-weight:700">${s.ticker}</span>
+      <span style="font-size:9px;color:var(--txt3)">…${s.user.slice(-8)}</span>
+      <span style="margin-left:auto;color:${s.pct>=25?'var(--dn)':s.pct>=10?'var(--org)':'var(--yel)'};font-weight:700">${s.pct}%</span>
+      <span style="font-size:8px;color:var(--txt3)">${s.pct>=25?'DOMINANT':s.pct>=15?'SUBSTANTIAL':'THRESHOLD'}</span>
+    </div>`).join('')
+  :'<div style="padding:8px;font-size:9px;color:var(--txt3)">No substantial holders (≥10%) detected</div>';
+
+  const sorted=[...d.securities].sort((a,b)=>b.hhi-a.hhi);
+  const tb=document.getElementById('hi-tbody'); tb.innerHTML='';
+  // Take ownership snapshots for diff tracking
+  if(r.d && r.d.securities) {
+    // Fetch holders for each ticker to track changes
+    // We'll use the data already returned by holder_intel
+    // and supplement with a separate shareholders call
+    (async() => {
+      for(const sec of (r.d.securities||[])) {
+        const sh = await api('/api/shareholders?ticker='+sec.ticker);
+        if(sh.ok && Array.isArray(sh.d)) {
+          takeOwnershipSnapshot(sec.ticker, sh.d, sec.total_shares||0);
+        }
+      }
+    })();
+  }
+
+  sorted.forEach(s=>{
+    const hClass=s.hhi>2500?'dn':s.hhi>1500?'yel':'up';
+    const subForTicker=substantial.filter(x=>x.ticker===s.ticker);
+    const subStr=subForTicker.length?`<span style="color:var(--org)">★${subForTicker.length}</span>`:'—';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><strong class="wht">${s.ticker}</strong></td>
+      <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis">${s.name}</td>
+      <td class="r">${(s.num_holders||0).toLocaleString()}</td>
+      <td class="r ${hClass}" style="font-weight:700">${s.hhi}</td>
+      <td class="r">${s.top1_pct}%</td>
+      <td class="r">${s.top3_pct}%</td>
+      <td class="r">${s.top5_pct}%</td>
+      <td class="r">${s.top10_pct}%</td>
+      <td class="r ${s.whale_count>0?'org':''}">${s.whale_count}</td>
+      <td class="r dim">${s.hhi&&s.hhi>0?((s.hhi/10000)**0.5).toFixed(3):'—'}</td>
+      <td class="r">${subStr}</td>`;
+    tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
+    tb.appendChild(tr);
+  });
+
+  const whales=d.whales||[];
+  document.getElementById('hi-whales').innerHTML=whales.length?whales.slice(0,15).map(w=>{
+    const isCross=w.num_positions>=2;
+    return `<div style="padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+        <span class="${isCross?'cyn':'org'}" style="font-size:10px;font-weight:700">
+          ${isCross?'⬡ MULTI-HOLD':'◉'} …${w.user_id.slice(-10)}
+        </span>
+        <span style="display:flex;gap:6px;align-items:center">
+          ${isCross?`<span style="font-size:8px;color:var(--cyn);border:1px solid var(--cyn);padding:0 3px">CROSS ${w.num_positions}x</span>`:''}
+          <span class="dim" style="font-size:9px">${w.num_positions} position${w.num_positions>1?'s':''}</span>
+        </span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px">
+        ${(w.positions||[]).map(p=>`<span style="font-size:9px;padding:1px 5px;border:1px solid ${p.pct>=10?'var(--org)':'var(--bdr2)'};color:${p.pct>=10?'var(--org)':'var(--cyn)'}">
+          ${p.ticker} <span class="dim">${p.pct}%</span>${p.pct>=10?' ★':''}</span>`).join('')}
+      </div>
+    </div>`;
+  }).join(''):'<div class="loading">NO WHALES DETECTED (≥5%)</div>';
+
+  _hhi_c=dc(_hhi_c);
+  const chartData=[...d.securities].sort((a,b)=>b.hhi-a.hhi);
+  _hhi_c=new Chart(document.getElementById('hi-hhi-c'),{type:'bar',
+    data:{labels:chartData.map(s=>s.ticker),datasets:[{
+      data:chartData.map(s=>s.hhi),
+      backgroundColor:chartData.map(s=>s.hhi>2500?'rgba(244,67,54,.7)':s.hhi>1500?'rgba(255,214,0,.7)':'rgba(0,200,83,.7)'),
+      borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>[` HHI: ${c.parsed.x}`,` Class: ${c.parsed.x>2500?'HIGH':c.parsed.x>1500?'MODERATE':'LOW'}`]}}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444'},min:0},y:{grid:{display:false},ticks:{color:'#888',font:{size:9}}}}}});
+};
+})();
+</script>
