@@ -1,0 +1,447 @@
+<!-- F14: SMART FEED — Auto-generated market intelligence -->
+<style>
+.nf-root{display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg)}
+.nf-bar{display:flex;align-items:center;gap:8px;padding:4px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.nf-bar-title{font-size:9px;font-weight:700;letter-spacing:2px;color:var(--txt2)}
+.nf-status{font-size:9px;color:var(--txt3);margin-left:auto}
+.nf-live{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--up);margin-right:5px;animation:nf-pulse 2s infinite}
+@keyframes nf-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.nf-body{display:flex;flex:1;overflow:hidden;min-height:0}
+
+/* Feed column */
+.nf-feed{flex:1;overflow-y:auto;padding:6px}
+.nf-feed::-webkit-scrollbar{width:4px}
+.nf-feed::-webkit-scrollbar-thumb{background:var(--bdr2)}
+
+/* Individual card */
+.nf-card{display:flex;gap:10px;padding:8px 10px;margin-bottom:4px;
+  background:var(--bg2);border:1px solid var(--bdr);border-left:3px solid var(--bdr2);
+  cursor:pointer;transition:border-color .1s,background .1s}
+.nf-card:hover{background:var(--bg3);border-color:var(--bdr2)}
+.nf-card.cat-whale  {border-left-color:var(--org)}
+.nf-card.cat-volume {border-left-color:var(--cyn)}
+.nf-card.cat-spread {border-left-color:var(--yel)}
+.nf-card.cat-move   {border-left-color:var(--up)}
+.nf-card.cat-move.neg{border-left-color:var(--dn)}
+.nf-card.cat-order  {border-left-color:var(--sel)}
+.nf-card.cat-concentration{border-left-color:var(--mag)}
+.nf-card.cat-cross  {border-left-color:#00bcd4}
+.nf-card.cat-alert  {border-left-color:var(--dn)}
+
+.nf-icon{font-size:16px;flex-shrink:0;width:22px;text-align:center;margin-top:1px}
+.nf-content{flex:1;min-width:0}
+.nf-headline{font-size:11px;font-weight:700;color:var(--wht);line-height:1.4;margin-bottom:3px}
+.nf-detail{font-size:9px;color:var(--txt3);line-height:1.5}
+.nf-meta{display:flex;align-items:center;gap:8px;margin-top:4px}
+.nf-tag{font-size:8px;font-weight:700;letter-spacing:1px;padding:1px 5px;border:1px solid var(--bdr2);color:var(--txt3)}
+.nf-tag.whale  {border-color:var(--org);color:var(--org)}
+.nf-tag.volume {border-color:var(--cyn);color:var(--cyn)}
+.nf-tag.spread {border-color:var(--yel);color:var(--yel)}
+.nf-tag.move   {border-color:var(--up);color:var(--up)}
+.nf-tag.move.neg{border-color:var(--dn);color:var(--dn)}
+.nf-tag.order  {border-color:var(--sel);color:var(--sel)}
+.nf-tag.alert  {border-color:var(--dn);color:var(--dn)}
+.nf-time{font-size:8px;color:var(--txt3);margin-left:auto}
+
+/* Sidebar */
+.nf-side{width:240px;flex-shrink:0;border-left:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden}
+.nf-side-sec{border-bottom:1px solid var(--bdr);flex-shrink:0}
+.nf-side-hdr{padding:5px 10px;background:var(--bg3);font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-bottom:1px solid var(--bdr)}
+.nf-side-body{padding:6px;overflow-y:auto;flex:1}
+.nf-side-body::-webkit-scrollbar{width:3px}
+.nf-side-body::-webkit-scrollbar-thumb{background:var(--bdr2)}
+
+/* Score cards */
+.nf-ticker-row{display:flex;align-items:center;gap:6px;padding:3px 4px;border-bottom:1px solid rgba(46,46,46,.4);cursor:pointer}
+.nf-ticker-row:hover{background:rgba(255,255,255,.025)}
+.nf-tr-tk{font-size:10px;font-weight:700;color:var(--org);width:36px;flex-shrink:0}
+.nf-tr-bar{flex:1;height:3px;background:var(--bdr)}
+.nf-tr-bar-f{height:100%;background:var(--org)}
+.nf-tr-ct{font-size:9px;color:var(--txt3);width:18px;text-align:right}
+
+/* Filter buttons */
+.nf-filters{display:flex;flex-wrap:wrap;gap:3px;padding:4px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.nf-flt{font-size:8px;font-weight:700;letter-spacing:1px;padding:2px 7px;border:1px solid var(--bdr2);background:transparent;color:var(--txt3);cursor:pointer;font-family:var(--font)}
+.nf-flt:hover{border-color:var(--txt2);color:var(--txt2)}
+.nf-flt.on{background:var(--org);color:#000;border-color:var(--org)}
+
+.nf-empty{padding:30px;text-align:center;color:var(--txt3);font-size:10px}
+</style>
+
+<div class="nf-root">
+
+<!-- top bar -->
+<div class="nf-bar">
+  <span class="nf-live"></span>
+  <span class="nf-bar-title">MARKET INTELLIGENCE FEED</span>
+  <div class="nf-filters" style="border:none;background:transparent;padding:0;margin:0">
+    <button class="nf-flt on" data-cat="all"           onclick="nfFilter(this,'all')">ALL</button>
+    <button class="nf-flt"    data-cat="whale"         onclick="nfFilter(this,'whale')">🐋 WHALE</button>
+    <button class="nf-flt"    data-cat="volume"        onclick="nfFilter(this,'volume')">📊 VOLUME</button>
+    <button class="nf-flt"    data-cat="move"          onclick="nfFilter(this,'move')">📈 MOVE</button>
+    <button class="nf-flt"    data-cat="spread"        onclick="nfFilter(this,'spread')">↔ SPREAD</button>
+    <button class="nf-flt"    data-cat="order"         onclick="nfFilter(this,'order')">📋 ORDER BOOK</button>
+    <button class="nf-flt"    data-cat="concentration" onclick="nfFilter(this,'concentration')">🔒 CONCENTRATION</button>
+  </div>
+  <span class="nf-status" id="nf-status">Initializing…</span>
+  <button class="btn btn-xs" onclick="nfRefresh()" style="margin-left:8px">↻ REFRESH</button>
+</div>
+
+<div class="nf-body">
+
+  <!-- main feed -->
+  <div class="nf-feed" id="nf-feed">
+    <div class="nf-empty">Generating intelligence feed…</div>
+  </div>
+
+  <!-- sidebar -->
+  <div class="nf-side">
+    <div class="nf-side-sec" style="flex-shrink:0">
+      <div class="nf-side-hdr">MOST ACTIVE TICKERS</div>
+      <div class="nf-side-body" id="nf-activity" style="max-height:180px"></div>
+    </div>
+    <div class="nf-side-sec" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="nf-side-hdr">OWNERSHIP CHANGES (SESSION)</div>
+      <div class="nf-side-body" id="nf-ownership"></div>
+    </div>
+    <div class="nf-side-sec" style="flex-shrink:0">
+      <div class="nf-side-hdr">LAST REFRESH</div>
+      <div style="padding:6px 10px;font-size:9px;color:var(--txt3)" id="nf-refresh-time">—</div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+let _items = [];       // all generated items
+let _filter = 'all';   // current filter
+let _snapshots = {};   // ticker → {ts, holders:{userId→qty}}  — ownership history
+let _refreshT = null;
+
+window.PAGE_nf_onShow = function(){
+  nfRefresh();
+  clearInterval(_refreshT);
+  _refreshT = setInterval(nfRefresh, 60000); // auto-refresh every 60s
+};
+
+// ── Main refresh ──────────────────────────────────────────────
+window.nfRefresh = async function(){
+  document.getElementById('nf-status').textContent = 'Fetching data…';
+  _items = [];
+
+  // Parallel fetch all data sources
+  const [secsR, obR, txR] = await Promise.all([
+    api('/api/securities'),
+    api('/api/orderbook'),
+    api('/api/transactions?type=Trade&limit=100'),
+  ]);
+
+  const secs = secsR.ok && Array.isArray(secsR.d) ? secsR.d : [];
+  const allOb = obR.ok  && Array.isArray(obR.d)   ? obR.d  : [];
+  const txs   = txR.ok  && Array.isArray(txR.d)   ? txR.d  : [];
+
+  // Fetch shareholders for each ticker (use parallel but cap at 5 at a time)
+  const shMap = {};
+  for(let i=0; i<secs.length; i+=5){
+    const batch = secs.slice(i, i+5);
+    const results = await Promise.all(batch.map(s=>api(`/api/liquidity/${s.ticker}`)));
+    batch.forEach((s, idx) => {
+      if(results[idx].ok) shMap[s.ticker] = results[idx].d;
+    });
+  }
+
+  // Also fetch shareholders
+  const shRaw = {};
+  for(let i=0; i<secs.length; i+=5){
+    const batch = secs.slice(i, i+5);
+    const results = await Promise.all(batch.map(s=>api(`/api/shareholders?ticker=${s.ticker}`)));
+    batch.forEach((s, idx) => {
+      if(results[idx].ok && Array.isArray(results[idx].d)) shRaw[s.ticker] = results[idx].d;
+    });
+  }
+
+  // ── Generate intelligence items ───────────────────────────
+  const now = Date.now();
+
+  // 1. PRICE MOVES — significant moves
+  secs.forEach(s => {
+    const chg = s.change_pct || 0;
+    if(Math.abs(chg) >= 2) {
+      const big = Math.abs(chg) >= 5;
+      _items.push({
+        cat: 'move', neg: chg < 0,
+        icon: chg > 0 ? '📈' : '📉',
+        headline: `${s.ticker} ${chg > 0 ? 'up' : 'down'} ${Math.abs(chg).toFixed(2)}% — ${big ? 'major move' : 'notable move'}`,
+        detail: `${s.full_name} · Current price $${f(s.market_price,4)} · ${big ? 'Exceeds ±5% threshold' : 'Exceeds ±2% threshold'}`,
+        ticker: s.ticker, ts: now, priority: Math.abs(chg),
+        tags: [big ? 'MAJOR MOVE' : 'NOTABLE MOVE'],
+      });
+    }
+  });
+
+  // 2. VOLUME SPIKES — from recent transactions
+  const volByTicker = {};
+  txs.forEach(tx => {
+    if(!tx.ticker) return;
+    if(!volByTicker[tx.ticker]) volByTicker[tx.ticker] = {count:0, vol:0};
+    volByTicker[tx.ticker].count++;
+    volByTicker[tx.ticker].vol += Math.abs(tx.quantity || 0);
+  });
+  Object.entries(volByTicker).forEach(([tk, v]) => {
+    if(v.count >= 3) {
+      _items.push({
+        cat: 'volume', icon: '📊',
+        headline: `${tk} — ${v.count} trades · ${v.vol.toLocaleString()} shares in recent session`,
+        detail: `High activity detected · Average trade size: ${Math.round(v.vol/v.count).toLocaleString()} shares`,
+        ticker: tk, ts: now, priority: v.count,
+        tags: [v.count >= 8 ? 'HIGH ACTIVITY' : 'ELEVATED ACTIVITY'],
+      });
+    }
+  });
+
+  // 3. WHALE ACTIVITY — holders ≥5% per ticker
+  Object.entries(shRaw).forEach(([tk, holders]) => {
+    if(!Array.isArray(holders)) return;
+    const sec = secs.find(s => s.ticker === tk);
+    const totalSh = sec ? sec.total_shares : holders.reduce((s,h)=>s+(h.quantity||0), 0);
+    if(!totalSh) return;
+    holders.forEach(h => {
+      const pct = (h.quantity / totalSh) * 100;
+      if(pct >= 10) {
+        _items.push({
+          cat: 'whale', icon: '🐋',
+          headline: `Substantial holder on ${tk} — …${(h.user_id||'').slice(-8)} holds ${pct.toFixed(1)}%`,
+          detail: `${h.quantity?.toLocaleString()} shares of ${tk} · ${pct >= 25 ? 'DOMINANT — majority influence' : pct >= 15 ? 'SUBSTANTIAL — significant influence' : 'At 10% disclosure threshold'}`,
+          ticker: tk, ts: now, priority: pct,
+          tags: [pct >= 25 ? 'DOMINANT' : 'SUBSTANTIAL ≥10%'],
+        });
+      } else if(pct >= 5) {
+        _items.push({
+          cat: 'whale', icon: '🐟',
+          headline: `Whale on ${tk} — …${(h.user_id||'').slice(-8)} holds ${pct.toFixed(1)}%`,
+          detail: `${h.quantity?.toLocaleString()} shares · Approaching substantial holder threshold (10%)`,
+          ticker: tk, ts: now, priority: pct,
+          tags: ['WHALE ≥5%'],
+        });
+      }
+    });
+  });
+
+  // 4. SPREAD ALERTS — wide spreads from liquidity/orderbook data
+  Object.entries(shMap).forEach(([tk, liq]) => {
+    if(!liq) return;
+    const spr = liq.spread_pct;
+    if(spr != null && spr > 2) {
+      _items.push({
+        cat: 'spread', icon: '↔',
+        headline: `${tk} spread widened to ${spr.toFixed(2)}% — ${spr > 5 ? 'extremely thin market' : 'reduced liquidity'}`,
+        detail: `Bid $${f(liq.best_bid,4)} · Ask $${f(liq.best_ask,4)} · Mid $${f(liq.mid,4)} · Wide spread increases execution cost`,
+        ticker: tk, ts: now, priority: spr,
+        tags: [spr > 5 ? 'ILLIQUID' : 'WIDE SPREAD'],
+      });
+    }
+    // Imbalance alerts
+    const imb = liq.imbalance_pct;
+    if(imb != null && Math.abs(imb) > 40) {
+      const side = imb > 0 ? 'buy' : 'sell';
+      _items.push({
+        cat: 'order', icon: imb > 0 ? '🟢' : '🔴',
+        headline: `${tk} order book imbalance — ${Math.abs(imb).toFixed(0)}% ${side}-side pressure`,
+        detail: `${imb > 0 ? 'More bids than asks — potential upward price pressure' : 'More asks than bids — potential downward price pressure'} · Imbalance: ${imb.toFixed(1)}%`,
+        ticker: tk, ts: now, priority: Math.abs(imb),
+        tags: [imb > 0 ? 'BUY PRESSURE' : 'SELL PRESSURE'],
+      });
+    }
+    // Large walls
+    const asks = liq.asks || [];
+    const bids = liq.bids || [];
+    const bigAsk = asks.find(a => a.quantity > 500);
+    const bigBid = bids.find(b => b.quantity > 500);
+    if(bigAsk) {
+      _items.push({
+        cat: 'order', icon: '🧱',
+        headline: `${tk} — large sell wall at $${f(bigAsk.price,4)} (${bigAsk.quantity.toLocaleString()} shares)`,
+        detail: `Significant resistance level detected · Could cap price movement`,
+        ticker: tk, ts: now, priority: bigAsk.quantity / 100,
+        tags: ['SELL WALL'],
+      });
+    }
+    if(bigBid) {
+      _items.push({
+        cat: 'order', icon: '🛡',
+        headline: `${tk} — strong bid support at $${f(bigBid.price,4)} (${bigBid.quantity.toLocaleString()} shares)`,
+        detail: `Large buy order providing floor support · May limit downside`,
+        ticker: tk, ts: now, priority: bigBid.quantity / 100,
+        tags: ['BID SUPPORT'],
+      });
+    }
+  });
+
+  // 5. OWNERSHIP CHANGES (session diff)
+  updateOwnershipDiff(shRaw, secs);
+
+  // 6. CONCENTRATION ALERTS — from shareholders
+  Object.entries(shRaw).forEach(([tk, holders]) => {
+    if(!Array.isArray(holders) || holders.length === 0) return;
+    const total = holders.reduce((s,h)=>s+(h.quantity||0),0);
+    if(!total) return;
+    const top1pct = ((holders[0]?.quantity||0) / total * 100);
+    if(top1pct >= 50) {
+      _items.push({
+        cat: 'concentration', icon: '🔒',
+        headline: `${tk} — top holder controls ${top1pct.toFixed(1)}% of supply`,
+        detail: `Single entity holds majority. ${holders.length} total holders. Highly concentrated ownership increases volatility risk.`,
+        ticker: tk, ts: now, priority: top1pct,
+        tags: ['MAJORITY CONTROL'],
+      });
+    }
+  });
+
+  // Sort by priority descending, dedup similar items
+  _items.sort((a,b) => b.priority - a.priority);
+
+  // Update activity sidebar
+  updateActivitySidebar(volByTicker, secs);
+
+  renderFeed();
+  const ct = _items.length;
+  document.getElementById('nf-status').textContent = `${ct} signal${ct!==1?'s':''} · auto-refresh 60s`;
+  document.getElementById('nf-refresh-time').textContent = new Date().toLocaleTimeString('en-GB') + ' — ' + ct + ' signals generated';
+};
+
+// ── Ownership session diff ────────────────────────────────────
+function updateOwnershipDiff(shRaw, secs) {
+  const ts = Date.now();
+  const changes = [];
+
+  Object.entries(shRaw).forEach(([tk, holders]) => {
+    if(!Array.isArray(holders)) return;
+    const sec = secs.find(s=>s.ticker===tk);
+    const total = sec ? sec.total_shares : holders.reduce((s,h)=>s+(h.quantity||0),0);
+    const prev = _snapshots[tk];
+    const curr = {};
+    holders.forEach(h => { if(h.user_id) curr[h.user_id] = h.quantity || 0; });
+
+    if(prev) {
+      // Diff
+      const allUsers = new Set([...Object.keys(prev.holders), ...Object.keys(curr)]);
+      allUsers.forEach(uid => {
+        const pq = prev.holders[uid] || 0;
+        const cq = curr[uid] || 0;
+        const delta = cq - pq;
+        if(delta === 0 || Math.abs(delta) < 5) return;
+        const pct = total ? (Math.abs(delta)/total*100) : 0;
+        if(pct < 0.5) return; // ignore tiny changes
+        changes.push({
+          tk, uid: '…'+uid.slice(-8),
+          delta, pct: pct.toFixed(1),
+          dir: delta > 0 ? 'buy' : 'sell',
+          ts: new Date().toLocaleTimeString('en-GB'),
+        });
+        // Add to feed
+        _items.push({
+          cat: 'whale', neg: delta < 0,
+          icon: delta > 0 ? '📥' : '📤',
+          headline: `${tk} ownership change — …${uid.slice(-8)} ${delta > 0 ? 'acquired' : 'reduced'} ${Math.abs(delta).toLocaleString()} shares (${pct}%)`,
+          detail: `Session change: ${delta > 0 ? '+' : ''}${delta.toLocaleString()} shares · Previous: ${pq.toLocaleString()} → Now: ${cq.toLocaleString()}`,
+          ticker: tk, ts: Date.now(), priority: pct * 2,
+          tags: [delta > 0 ? 'ACCUMULATION' : 'DISTRIBUTION'],
+        });
+      });
+    }
+    // Update snapshot
+    _snapshots[tk] = { ts, holders: curr };
+  });
+
+  // Render ownership sidebar
+  const el = document.getElementById('nf-ownership');
+  if(!el) return;
+  // Build historical log from previous + current changes
+  if(!window._ownershipLog) window._ownershipLog = [];
+  changes.forEach(c => window._ownershipLog.unshift(c));
+  if(window._ownershipLog.length > 50) window._ownershipLog = window._ownershipLog.slice(0,50);
+
+  if(!window._ownershipLog.length) {
+    el.innerHTML = '<div style="padding:8px;font-size:9px;color:var(--txt3)">Monitoring… changes will appear here</div>';
+    return;
+  }
+  el.innerHTML = window._ownershipLog.map(c => `
+    <div style="padding:3px 4px;border-bottom:1px solid rgba(46,46,46,.4);font-size:9px">
+      <span style="color:${c.dir==='buy'?'var(--up)':'var(--dn)'};font-weight:700;margin-right:5px">${c.dir==='buy'?'▲':'▼'}</span>
+      <span style="color:var(--org);font-weight:700">${c.tk}</span>
+      <span style="color:var(--txt3);margin:0 5px">${c.uid}</span>
+      <span style="color:${c.dir==='buy'?'var(--up)':'var(--dn)'}">
+        ${c.dir==='buy'?'+':''}${c.delta > 0 ? c.delta : -c.delta} sh
+      </span>
+      <span style="color:var(--txt3);float:right">${c.ts}</span>
+    </div>`).join('');
+}
+
+// ── Activity sidebar ──────────────────────────────────────────
+function updateActivitySidebar(volByTicker, secs) {
+  const el = document.getElementById('nf-activity');
+  if(!el) return;
+  const sorted = Object.entries(volByTicker).sort((a,b)=>b[1].count-a[1].count).slice(0,10);
+  const maxCt = sorted[0]?.[1]?.count || 1;
+  if(!sorted.length) { el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>'; return; }
+  el.innerHTML = sorted.map(([tk, v]) => {
+    const s = secs.find(x=>x.ticker===tk);
+    const chg = s?.change_pct || 0;
+    return `<div class="nf-ticker-row" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${tk}'),200)">
+      <span class="nf-tr-tk">${tk}</span>
+      <div class="nf-tr-bar"><div class="nf-tr-bar-f" style="width:${(v.count/maxCt*100).toFixed(0)}%;background:${gcI(chg)}"></div></div>
+      <span style="font-size:9px;color:${gcI(chg)};font-weight:${gcIW(chg)};min-width:45px;text-align:right">${fp(chg)}</span>
+      <span class="nf-tr-ct">${v.count}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Render feed ───────────────────────────────────────────────
+function renderFeed() {
+  const el = document.getElementById('nf-feed');
+  const visible = _filter === 'all' ? _items : _items.filter(i => i.cat === _filter);
+  if(!visible.length) {
+    el.innerHTML = `<div class="nf-empty">No signals matching filter "${_filter}"</div>`;
+    return;
+  }
+  el.innerHTML = visible.map((item, idx) => {
+    const catCls = item.cat + (item.neg ? ' neg' : '');
+    const tagCls = item.cat + (item.neg ? ' neg' : '');
+    const timeAgo = Math.round((Date.now() - item.ts) / 1000);
+    const timeStr = timeAgo < 5 ? 'just now' : timeAgo < 60 ? timeAgo+'s ago' : Math.round(timeAgo/60)+'m ago';
+    return `<div class="nf-card cat-${catCls}" onclick="nfCardClick('${item.ticker}')">
+      <div class="nf-icon">${item.icon}</div>
+      <div class="nf-content">
+        <div class="nf-headline">${item.headline}</div>
+        <div class="nf-detail">${item.detail}</div>
+        <div class="nf-meta">
+          ${(item.tags||[]).map(t=>`<span class="nf-tag ${tagCls}">${t}</span>`).join('')}
+          <span class="nf-time">${timeStr}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Filter ────────────────────────────────────────────────────
+window.nfFilter = function(el, cat) {
+  document.querySelectorAll('.nf-flt').forEach(b=>b.classList.remove('on'));
+  el.classList.add('on');
+  _filter = cat;
+  renderFeed();
+};
+
+// ── Card click — navigate to ticker ──────────────────────────
+window.nfCardClick = function(ticker) {
+  if(!ticker) return;
+  sw('tkr');
+  setTimeout(()=>{ if(window.PAGE_tkr_load) PAGE_tkr_load(ticker); }, 250);
+};
+
+})();
+</script>
