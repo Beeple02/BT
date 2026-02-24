@@ -1,0 +1,199 @@
+<!-- F9: EXCHANGE ANALYTICS — Full institutional market intelligence -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- Exchange KPI cards -->
+<div class="scards" style="grid-template-columns:repeat(9,1fr);border-bottom:1px solid var(--bdr)">
+  <div class="sc"><div class="sc-l">TOTAL MKT CAP</div><div class="sc-v" id="ex-mcap">—</div></div>
+  <div class="sc"><div class="sc-l">TOTAL VOLUME</div><div class="sc-v" id="ex-vol">—</div></div>
+  <div class="sc"><div class="sc-l">SECURITIES</div><div class="sc-v" id="ex-nsec">—</div></div>
+  <div class="sc"><div class="sc-l">VOL INDEX (NER-VIX)</div><div class="sc-v yel" id="ex-vix">—</div></div>
+  <div class="sc"><div class="sc-l">AVG SHARPE</div><div class="sc-v" id="ex-sh">—</div></div>
+  <div class="sc"><div class="sc-l">CAP CONC (HHI)</div><div class="sc-v" id="ex-hhi">—</div></div>
+  <div class="sc"><div class="sc-l">EW INDEX RET</div><div class="sc-v" id="ex-ew">—</div></div>
+  <div class="sc"><div class="sc-l">AVG CORR</div><div class="sc-v" id="ex-corr" title="Average pairwise correlation">—</div></div>
+  <div class="sc"><div class="sc-l">BREADTH SCORE</div><div class="sc-v" id="ex-breadth">—</div></div>
+</div>
+
+<div class="frow">
+  <div class="ff"><label>PERIOD</label>
+    <select id="ex-rng" onchange="loadExch()">
+      <option value="1">1D</option><option value="7" selected>7D</option>
+      <option value="30">30D</option><option value="90">90D</option>
+    </select>
+  </div>
+  <div class="ff"><label>SORT BY</label>
+    <select id="ex-sort" onchange="renderExchRows()">
+      <option value="mcap">MARKET CAP</option>
+      <option value="volume">VOLUME</option>
+      <option value="chg_pct">% CHANGE</option>
+      <option value="volatility">VOLATILITY</option>
+      <option value="sharpe">SHARPE</option>
+      <option value="max_dd">MAX DRAWDOWN</option>
+    </select>
+  </div>
+  <button class="btn on" onclick="loadExch()">↻ REFRESH</button>
+  <span id="ex-updated" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
+</div>
+
+<div class="wrow" style="flex:1">
+
+  <!-- Securities table -->
+  <div class="win resizable" style="flex:1;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CAPITAL FLOW &amp; PERFORMANCE</span></div>
+      <div class="wbar-r"><span class="wsub" id="ex-tbl-sub">All securities</span></div>
+    </div>
+    <div class="scroll">
+      <table class="dt">
+        <thead><tr>
+          <th>TICKER</th><th>NAME</th>
+          <th class="r">LAST</th><th class="r">CHG%</th>
+          <th class="r">MKT CAP</th><th class="r">VOLUME</th>
+          <th class="r">VOL SHR</th><th class="r">CAP SHR</th>
+          <th class="r">VOL%pa</th><th class="r">SHARPE</th><th class="r">MAX DD</th>
+          <th class="r">MOMENTUM</th>
+        </tr></thead>
+        <tbody id="ex-tbody"><tr><td colspan="12" class="loading">LOADING…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Right: charts -->
+  <div class="wcol resizable" style="width:310px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CAPITAL DISTRIBUTION</span></div></div>
+      <div class="chart-wrap"><canvas id="ex-cap-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">CORRELATION CONVERGENCE INDEX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">High = diversification collapsing</div></div>
+      <div id="ex-corr-detail" style="padding:8px;font-size:10px;flex:1"></div>
+    </div>
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">MOMENTUM BREAKDOWN</span></div></div>
+      <div class="chart-wrap"><canvas id="ex-mom-c"></canvas></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function(){
+let _data=null, _corrData=null;
+let _cCap=null, _cMom=null;
+const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
+
+window.PAGE_exch_onShow = function(){ if(!_data) loadExch(); };
+
+window.loadExch = async function(){
+  const days=document.getElementById('ex-rng').value;
+  document.getElementById('ex-tbody').innerHTML='<tr><td colspan="12" class="loading">LOADING…</td></tr>';
+  const [r, corrR]=await Promise.all([
+    api(`/api/exchange_analytics?days=${days}`),
+    api(`/api/correlation_matrix?days=${days}`)
+  ]);
+  if(!r.ok){ document.getElementById('ex-tbody').innerHTML=`<tr><td colspan="12"><div class="err-banner">${r.d.detail||'Error'}</div></td></tr>`; return; }
+  _data=r.d; _corrData=corrR.ok?corrR.d:null;
+  const ex=_data.exchange;
+  document.getElementById('ex-mcap').textContent=fk(ex.total_market_cap);
+  document.getElementById('ex-vol').textContent=fk(ex.total_volume);
+  document.getElementById('ex-nsec').textContent=ex.num_securities;
+  document.getElementById('ex-vix').textContent=ex.volatility_index+'%';
+  const shEl=document.getElementById('ex-sh');
+  shEl.textContent=f(ex.avg_sharpe,2); shEl.style.color=gc(ex.avg_sharpe);
+  const hhiEl=document.getElementById('ex-hhi');
+  hhiEl.textContent=ex.concentration_hhi;
+  hhiEl.style.color=ex.concentration_hhi>2500?'var(--dn)':ex.concentration_hhi>1500?'var(--yel)':'var(--up)';
+  const ewEl=document.getElementById('ex-ew');
+  ewEl.textContent=(ex.avg_return>=0?'+':'')+ex.avg_return+'%';
+  ewEl.style.color=gc(ex.avg_return);
+
+  if(_corrData){
+    const ac=_corrData.avg_corr;
+    const corrEl=document.getElementById('ex-corr');
+    corrEl.textContent=ac!=null?ac.toFixed(3):'—';
+    corrEl.style.color=ac>0.7?'var(--dn)':ac>0.4?'var(--yel)':'var(--up)';
+  }
+
+  const tickers=_data.tickers||[];
+  const above=tickers.filter(t=>t.chg_pct>0).length;
+  const breadthPct=tickers.length?Math.round(above/tickers.length*100):0;
+  const breadthEl=document.getElementById('ex-breadth');
+  breadthEl.textContent=breadthPct+'%';
+  breadthEl.style.color=breadthPct>60?'var(--up)':breadthPct<40?'var(--dn)':'var(--yel)';
+
+  document.getElementById('ex-updated').textContent='Updated '+new Date().toLocaleTimeString('en-GB');
+
+  const corrDetail=document.getElementById('ex-corr-detail');
+  if(_corrData && _corrData.tickers && _corrData.tickers.length>0){
+    const ac=_corrData.avg_corr??0;
+    const risk=ac>0.7?'CRITICAL — diversification collapsed':
+               ac>0.5?'ELEVATED — above normal':
+               ac>0.3?'MODERATE — some clustering':'LOW — healthy';
+    const riskColor=ac>0.7?'var(--dn)':ac>0.5?'var(--org)':ac>0.3?'var(--yel)':'var(--up)';
+    corrDetail.innerHTML=`
+      <div class="rm"><span class="k">AVG PAIRWISE CORR</span><span class="v" style="color:${riskColor};font-weight:700">${ac.toFixed(4)}</span></div>
+      <div class="rm"><span class="k">SECURITIES</span><span class="v dim">${_corrData.tickers.length}</span></div>
+      <div class="rm"><span class="k">REGIME</span><span class="v" style="color:${riskColor};font-size:9px">${risk}</span></div>
+      <div style="font-size:9px;color:var(--txt3);margin-top:6px;line-height:1.5">Above 0.7 = all assets fall together. Leading indicator of market stress.</div>`;
+  } else {
+    corrDetail.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">Correlation data unavailable — need price history for 2+ securities</div>';
+  }
+
+  renderExchRows();
+  renderExchCharts();
+};
+
+window.renderExchRows = function(){
+  if(!_data) return;
+  const srt=document.getElementById('ex-sort').value;
+  const sorted=[..._data.tickers].sort((a,b)=>{
+    const dir=(srt==='chg_pct'||srt==='sharpe')?-1:srt==='max_dd'?1:-1;
+    return (a[srt]<b[srt]?1:-1)*dir;
+  });
+  const tb=document.getElementById('ex-tbody'); tb.innerHTML='';
+  sorted.forEach(s=>{
+    const mom=s.chg_pct>2?'▲▲ STRONG':s.chg_pct>0.5?'▲ RISING':s.chg_pct<-2?'▼▼ WEAK':s.chg_pct<-0.5?'▼ FALLING':'◆ FLAT';
+    const momColor=s.chg_pct>0.5?'var(--up)':s.chg_pct<-0.5?'var(--dn)':'var(--txt3)';
+    const tr=document.createElement('tr');
+    tr.className=s.chg_pct>0.5?'up-row':s.chg_pct<-0.5?'dn-row':'';
+    tr.innerHTML=`
+      <td><strong class="wht">${s.ticker}</strong></td>
+      <td class="dim" style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${s.name}</td>
+      <td class="r wht">${f(s.last)}</td>
+      <td class="r ${s.chg_pct>=0?'up':'dn'}">${fp(s.chg_pct)}</td>
+      <td class="r">${fk(s.mcap)}</td>
+      <td class="r">${fk(s.volume)}</td>
+      <td class="r dim">${s.vol_share_pct}%</td>
+      <td class="r dim">${s.mcap_share_pct}%</td>
+      <td class="r yel">${s.volatility}%</td>
+      <td class="r ${s.sharpe>=0?'up':'dn'}">${f(s.sharpe,2)}</td>
+      <td class="r dn">-${s.max_dd}%</td>
+      <td class="r" style="color:${momColor};font-size:9px">${mom}</td>`;
+    tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
+    tb.appendChild(tr);
+  });
+  document.getElementById('ex-tbl-sub').textContent=`${sorted.length} securities`;
+};
+
+function renderExchCharts(){
+  const top10=[..._data.tickers].sort((a,b)=>b.mcap-a.mcap).slice(0,10);
+  _cCap=dc(_cCap);
+  _cCap=new Chart(document.getElementById('ex-cap-c'),{type:'bar',
+    data:{labels:top10.map(s=>s.ticker),datasets:[{data:top10.map(s=>s.mcap),backgroundColor:COLS.slice(0,10),borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` ${fk(c.parsed.x)}`}}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',callback:v=>fk(v)}},y:{grid:{display:false},ticks:{color:'#888'}}}}});
+
+  const mData=[..._data.tickers].sort((a,b)=>b.chg_pct-a.chg_pct);
+  _cMom=dc(_cMom);
+  _cMom=new Chart(document.getElementById('ex-mom-c'),{type:'bar',
+    data:{labels:mData.map(s=>s.ticker),datasets:[{data:mData.map(s=>s.chg_pct),
+      backgroundColor:mData.map(s=>s.chg_pct>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'),borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` ${c.parsed.y?.toFixed(2)}%`}}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',font:{size:8}}},
+              y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v+'%'}}}}});
+}
+})();
+</script>
