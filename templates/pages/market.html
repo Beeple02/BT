@@ -1,0 +1,320 @@
+<!-- F1: MARKET — Institutional Market Monitor -->
+<style>
+.breadth-bar{height:6px;background:var(--bdr);border-radius:0;overflow:hidden;display:flex}
+.breadth-up{background:var(--up);height:100%}
+.breadth-dn{background:var(--dn);height:100%}
+.breadth-flat{background:var(--txt3);height:100%}
+.flow-row{display:flex;padding:2px 8px;align-items:center;gap:8px;border-bottom:1px solid rgba(46,46,46,.5);font-size:11px}
+</style>
+
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- Row 1: Breadth KPIs -->
+<div class="sstrip" id="mkt-kpis" style="flex-shrink:0;flex-wrap:wrap">
+  <div class="ss"><div class="ss-l">ADV/DEC</div><div class="ss-v" id="mk-adr">—</div></div>
+  <div class="ss"><div class="ss-l">ADVANCING</div><div class="ss-v up" id="mk-adv">—</div></div>
+  <div class="ss"><div class="ss-l">DECLINING</div><div class="ss-v dn" id="mk-dec">—</div></div>
+  <div class="ss"><div class="ss-l">AVG RETURN</div><div class="ss-v" id="mk-avg">—</div></div>
+  <div class="ss"><div class="ss-l">EW INDEX</div><div class="ss-v" id="mk-ewi">—</div></div>
+  <div class="ss"><div class="ss-l">VOL DISP</div><div class="ss-v yel" id="mk-vd">—</div></div>
+  <div class="ss"><div class="ss-l">GLOBAL IMBAL</div><div class="ss-v" id="mk-imb">—</div></div>
+  <div class="ss"><div class="ss-l">TOT DEPTH</div><div class="ss-v" id="mk-dep">—</div></div>
+</div>
+<!-- Breadth bar -->
+<div style="flex-shrink:0;padding:4px 8px;background:var(--bg3);border-bottom:1px solid var(--bdr)">
+  <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--txt3);margin-bottom:3px">
+    <span id="mk-bup">UP 0</span><span>MARKET BREADTH</span><span id="mk-bdn">DN 0</span>
+  </div>
+  <div class="breadth-bar"><div class="breadth-up" id="mk-bar-up"></div><div class="breadth-flat" id="mk-bar-flat"></div><div class="breadth-dn" id="mk-bar-dn"></div></div>
+</div>
+
+<!-- Main grid -->
+<div class="wrow" style="flex:1">
+
+  <!-- LEFT: Securities table -->
+  <div class="win" style="width:460px;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SECURITIES</span></div>
+      <div class="wbar-r">
+        <input id="mkt-q" placeholder="FILTER…" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:1px 5px;width:90px;outline:none" oninput="mktFilter(this.value)">
+        <select id="mkt-range" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:1px;outline:none" onchange="loadBreadth()">
+          <option value="1">1D</option><option value="7" selected>7D</option><option value="30">30D</option>
+        </select>
+        <span class="wbtn" onclick="loadBreadth()">↻</span>
+      </div>
+    </div>
+    <div class="scroll" id="mkt-seclist"><div class="loading">LOADING…</div></div>
+  </div>
+
+  <!-- MIDDLE: Chart + OB -->
+  <div class="wcol">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">2</span><span class="wtitle" id="mkt-ct">SELECT SECURITY</span><span class="wsub" id="mkt-cpx"></span></div>
+        <div class="wbar-r" id="mkt-cmeta">
+          <span class="wbtn on" id="mkt-line-btn" onclick="mktSetChart('line')">LINE</span>
+          <span class="wbtn" id="mkt-ob-btn" onclick="mktSetChart('ob')">OB</span>
+        </div>
+      </div>
+      <div id="mkt-chart-area" style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div class="chart-wrap" id="mkt-chart-wrap"><canvas id="mkt-c"></canvas></div>
+        <div id="mkt-ob-wrap" style="display:none;flex:1;overflow-y:auto" id="mkt-ob"></div>
+      </div>
+    </div>
+
+    <!-- Volume flow panel -->
+    <div class="win" style="height:130px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">VOLUME FLOW — TOP MOVERS</span></div></div>
+      <div class="scroll" id="mkt-flow"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Global OB stats + Momentum Matrix -->
+  <div class="wcol" style="width:220px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">DEPTH RANK</span></div></div>
+      <div class="scroll" id="mkt-depth-rank"></div>
+    </div>
+    <!-- Momentum Acceleration Matrix -->
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">MOMENTUM MATRIX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Last candle vs 5-bar avg</div></div>
+      <div class="scroll" id="mkt-mom-matrix"><div class="loading">—</div></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function(){
+let _secs=[], _breadth=null, _ob_global=null, _chart=null, _chartMode='line', _selTicker=null;
+
+window.PAGE_mkt_onShow = function() {
+  _secs = BB.secs;
+  loadBreadth();
+  loadGlobalOB();
+  loadMomentumMatrix();
+};
+
+window.loadBreadth = async function() {
+  const days = document.getElementById('mkt-range')?.value || 7;
+  document.getElementById('mkt-seclist').innerHTML='<div class="loading">LOADING…</div>';
+  const r = await api(`/api/market_breadth?days=${days}`);
+  if(!r.ok){ document.getElementById('mkt-seclist').innerHTML=`<div class="alert err">${r.d.detail||'Error'}</div>`; return; }
+  _breadth = r.d;
+  const s = _breadth.summary;
+
+  // KPIs
+  set('mk-adr', f(s.adv_dec_ratio), s.adv_dec_ratio>=1?'up':'dn');
+  set('mk-adv', s.advancing, 'up');
+  set('mk-dec', s.declining, 'dn');
+  set('mk-avg', fp(s.avg_return), s.avg_return>=0?'up':'dn');
+  set('mk-ewi', fp(s.ew_index_return), s.ew_index_return>=0?'up':'dn');
+  set('mk-vd',  s.vol_dispersion+'%', 'yel');
+  document.getElementById('mk-bup').textContent=`UP ${s.advancing}`;
+  document.getElementById('mk-bdn').textContent=`DN ${s.declining}`;
+  const tot=s.total||1;
+  document.getElementById('mk-bar-up').style.width=(s.advancing/tot*100)+'%';
+  document.getElementById('mk-bar-flat').style.width=(s.unchanged/tot*100)+'%';
+  document.getElementById('mk-bar-dn').style.width=(s.declining/tot*100)+'%';
+
+  renderSecTable(_breadth.securities);
+  renderFlowPanel(_breadth.securities);
+};
+
+function set(id, val, cls='') {
+  const el=document.getElementById(id); if(!el) return;
+  el.textContent=val;
+  el.className='ss-v'+(cls?' '+cls:'');
+}
+
+function renderSecTable(secs) {
+  const el=document.getElementById('mkt-seclist');
+  el.innerHTML=`<table class="dt" id="mkt-tbl"><thead><tr>
+    <th data-col="ticker">TICKER</th>
+    <th data-col="name" style="max-width:100px">NAME</th>
+    <th class="r" data-col="last_price">PRICE</th>
+    <th class="r" data-col="chg_pct">CHG%</th>
+    <th class="r" data-col="volatility">VOL</th>
+    <th class="r" data-col="sharpe">SHRP</th>
+    <th class="r" data-col="market_cap">MCAP</th>
+    <th class="r" data-col="hi52">PRD HI%</th>
+    <th class="r" data-col="vol_spike">VOL SPIKE</th>
+    <th class="c" data-col="frozen">ST</th>
+  </tr></thead><tbody id="mkt-tbody"></tbody></table>`;
+  document.querySelectorAll('#mkt-tbl th').forEach(th=>{
+    th.addEventListener('click',()=>sortMktTable(th.dataset.col));
+  });
+  fillMktRows(secs);
+}
+
+let _mktSort={col:null,dir:1};
+function sortMktTable(col) {
+  if(_mktSort.col===col) _mktSort.dir*=-1; else{_mktSort.col=col;_mktSort.dir=1;}
+  document.querySelectorAll('#mkt-tbl th').forEach(th=>th.classList.remove('sort-a','sort-d'));
+  const th=document.querySelector(`#mkt-tbl th[data-col="${col}"]`);
+  if(th) th.classList.add(_mktSort.dir>0?'sort-a':'sort-d');
+  const sorted=[..._breadth.securities].sort((a,b)=>{
+    const av=a[col]??'',bv=b[col]??'';
+    return typeof av==='number'?(av-bv)*_mktSort.dir:String(av).localeCompare(String(bv))*_mktSort.dir;
+  });
+  fillMktRows(sorted);
+}
+
+function fillMktRows(secs) {
+  const tb=document.getElementById('mkt-tbody'); if(!tb) return;
+  tb.innerHTML='';
+  secs.forEach(s=>{
+    const sec=BB.secs.find(x=>x.ticker===s.ticker)||{};
+    const prdHiPct=s.prd_hi_pct!=null?s.prd_hi_pct:null;
+    const volSpike=s.vol_spike!=null?s.vol_spike:null;
+    const tr=document.createElement('tr');
+    tr.className=s.chg_pct>2?'up-row':s.chg_pct<-2?'dn-row':'';
+    tr.innerHTML=`
+      <td><strong class="wht">${s.ticker}</strong></td>
+      <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis">${s.name}</td>
+      <td class="r wht">${f(s.last_price)}</td>
+      <td class="r" style="color:${gcI(s.chg_pct)};font-weight:${gcIW(s.chg_pct)}">${fp(s.chg_pct)}</td>
+      <td class="r yel">${s.volatility?s.volatility.toFixed(1)+'%':'—'}</td>
+      <td class="r ${(s.sharpe||0)>=0?'up':'dn'}">${f(s.sharpe,2)}</td>
+      <td class="r dim">${fk(s.market_cap)}</td>
+      <td class="r ${prdHiPct!=null?(prdHiPct>-5?'up':prdHiPct>-15?'yel':'dn'):'dim'}">${prdHiPct!=null?prdHiPct.toFixed(1)+'%':'—'}</td>
+      <td class="r ${volSpike!=null?(volSpike>2?'org':volSpike>1.5?'yel':'dim'):'dim'}">${volSpike!=null?volSpike.toFixed(1)+'x':'—'}</td>
+      <td class="c">${sec.frozen?'<span class="badge b-cyn">FRZ</span>':'<span class="badge b-up">LIV</span>'}</td>`;
+    tr.addEventListener('click',()=>selectMktTicker(s.ticker,tr));
+    tb.appendChild(tr);
+  });
+}
+
+window.mktFilter = function(q){
+  if(!_breadth) return;
+  fillMktRows(_breadth.securities.filter(s=>s.ticker.toLowerCase().includes(q.toLowerCase())||s.name.toLowerCase().includes(q.toLowerCase())));
+};
+
+function renderFlowPanel(secs) {
+  const sorted=[...secs].sort((a,b)=>Math.abs(b.chg_pct)-Math.abs(a.chg_pct)).slice(0,8);
+  const maxVol=Math.max(...sorted.map(s=>s.volume),1);
+  document.getElementById('mkt-flow').innerHTML=sorted.map(s=>`
+    <div class="flow-row">
+      <span style="width:52px;font-weight:700;color:var(--wht)">${s.ticker}</span>
+      <span style="width:56px;text-align:right;color:${gcI(s.chg_pct)};font-weight:${gcIW(s.chg_pct)}">${fp(s.chg_pct)}</span>
+      <div style="flex:1;padding:0 8px"><div style="height:5px;background:var(--bdr);position:relative">
+        <div style="position:absolute;top:0;bottom:0;left:0;width:${(s.volume/maxVol*100).toFixed(1)}%;background:${gcI(s.chg_pct)};opacity:.7"></div>
+      </div></div>
+      <span class="dim" style="width:50px;text-align:right">${fk(s.volume)}</span>
+    </div>`).join('');
+}
+
+async function loadGlobalOB() {
+  const r=await api('/api/market_orderbook');
+  if(!r.ok) return;
+  _ob_global=r.d;
+  set('mk-imb', (r.d.global.global_imbalance>0?'+':'')+r.d.global.global_imbalance+'%',
+      r.d.global.global_imbalance>=0?'up':'dn');
+  set('mk-dep', fk(r.d.global.total_depth));
+
+  const el=document.getElementById('mkt-depth-rank');
+  el.innerHTML=r.d.books.map(b=>`
+    <div style="padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.5);font-size:11px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="wht" style="font-weight:700">${b.ticker}</span>
+        <span class="${b.imbalance>=0?'up':'dn'}" style="font-size:10px">${b.imbalance>0?'+':''}${b.imbalance}%</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--txt3);margin-top:1px">
+        <span>BID ${fk(b.bid_qty)}</span><span>ASK ${fk(b.ask_qty)}</span>
+      </div>
+      <div style="height:3px;background:var(--bdr);margin-top:2px;display:flex">
+        <div style="height:100%;background:var(--up);width:${(b.bid_qty/(b.total_depth||1)*100).toFixed(1)}%"></div>
+        <div style="height:100%;background:var(--dn);flex:1"></div>
+      </div>
+    </div>`).join('');
+}
+
+async function selectMktTicker(ticker, row) {
+  document.querySelectorAll('#mkt-tbody tr').forEach(r=>r.classList.remove('sel'));
+  if(row) row.classList.add('sel');
+  _selTicker=ticker;
+  document.getElementById('mkt-ct').textContent=ticker;
+  const sec=BB.secs.find(s=>s.ticker===ticker);
+  if(sec) document.getElementById('mkt-cpx').textContent=' '+f(sec.market_price);
+  if(_chartMode==='line') await loadMktChart(ticker);
+  else await loadMktOB(ticker);
+}
+
+async function loadMktChart(ticker) {
+  const r=await api(`/api/analytics/price_history/${ticker}?days=30`);
+  _chart=dc(_chart);
+  if(r.ok&&r.d.length){
+    const pts=r.d,chg=(pts[pts.length-1].price-pts[0].price)/pts[0].price*100;
+    document.getElementById('mkt-cmeta').innerHTML=`
+      <span style="color:${gcI(chg)};font-weight:${gcIW(chg)}">${fp(chg)} 30D</span>
+      <span class="wbtn on" id="mkt-line-btn" onclick="mktSetChart('line')">LINE</span>
+      <span class="wbtn" id="mkt-ob-btn" onclick="mktSetChart('ob')">OB</span>`;
+    _chart=mkLine(document.getElementById('mkt-c'),
+      pts.map(p=>p.timestamp.slice(5,10)),
+      [{data:pts.map(p=>p.price),borderColor:'#aa7700',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(170,119,0,.06)',tension:.2}]);
+  }
+}
+
+async function loadMktOB(ticker) {
+  const r=await api(`/api/orderbook?ticker=${ticker}`);
+  if(r.ok) renderOB('mkt-ob-inner',r.d);
+}
+
+window.mktSetChart = function(mode) {
+  _chartMode=mode;
+  const cw=document.getElementById('mkt-chart-wrap');
+  const ow=document.getElementById('mkt-ob-wrap');
+  if(mode==='line'){ cw.style.display='flex';if(ow)ow.style.display='none'; if(_selTicker)loadMktChart(_selTicker); }
+  else { cw.style.display='none';
+    // build OB container inside wrap
+    const ow2=document.getElementById('mkt-ob-wrap')||document.createElement('div');
+    ow2.id='mkt-ob-wrap';ow2.style.cssText='flex:1;overflow-y:auto;display:flex;flex-direction:column';
+    ow2.innerHTML='<div id="mkt-ob-inner"></div>';
+    if(!document.getElementById('mkt-ob-wrap')) document.getElementById('mkt-chart-area').appendChild(ow2);
+    else { ow2.style.display='flex'; }
+    if(_selTicker) loadMktOB(_selTicker);
+  }
+  document.querySelectorAll('#mkt-cmeta .wbtn').forEach(b=>b.classList.remove('on'));
+  const btn=document.getElementById(`mkt-${mode==='line'?'line':'ob'}-btn`);
+  if(btn) btn.classList.add('on');
+};
+
+async function loadMomentumMatrix(){
+  // Fetch short OHLCV for all tickers to compute last candle vs 5-bar avg acceleration
+  const el=document.getElementById('mkt-mom-matrix');
+  el.innerHTML='<div class="loading">LOADING…</div>';
+  const results=await Promise.all(BB.secs.map(async s=>{
+    const r=await api(`/api/analytics/ohlcv/${s.ticker}?days=14`);
+    if(!r.ok||!r.d.candles?.length) return null;
+    const cs=r.d.candles;
+    if(cs.length<6) return null;
+    const closes=cs.map(c=>c.close);
+    const lastChg=(closes[closes.length-1]-closes[closes.length-2])/closes[closes.length-2]*100;
+    const prior5chgs=[];
+    for(let i=closes.length-6;i<closes.length-1;i++){
+      prior5chgs.push((closes[i+1]-closes[i])/closes[i]*100);
+    }
+    const avg5=prior5chgs.reduce((s,v)=>s+v,0)/prior5chgs.length;
+    const burst=lastChg-avg5; // acceleration: positive = speeding up
+    return {ticker:s.ticker,lastChg,avg5,burst};
+  }));
+  const valid=results.filter(Boolean).sort((a,b)=>b.burst-a.burst);
+  if(!valid.length){el.innerHTML='<div class="loading">NO DATA</div>';return;}
+  const maxBurst=Math.max(...valid.map(r=>Math.abs(r.burst)),0.01);
+  el.innerHTML=valid.slice(0,15).map(r=>{
+    const w=Math.min(Math.abs(r.burst)/maxBurst*80,80);
+    const color=r.burst>0.1?'var(--up)':r.burst<-0.1?'var(--dn)':'var(--txt3)';
+    const icon=r.burst>0.1?'▲▲':r.burst<-0.1?'▼▼':'◆';
+    return `<div style="padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;cursor:pointer;display:flex;align-items:center;gap:5px" onclick="selectMktTicker('${r.ticker}')">
+      <span class="wht" style="font-weight:700;width:35px">${r.ticker}</span>
+      <div style="flex:1;height:3px;background:rgba(50,50,50,.5);position:relative">
+        <div style="position:absolute;${r.burst>0?'left':'right'}:0;top:0;bottom:0;width:${w}%;background:${color};opacity:.8"></div>
+      </div>
+      <span style="color:${color};font-size:9px;font-weight:700;width:40px;text-align:right">${icon} ${r.burst>=0?'+':''}${r.burst.toFixed(2)}%</span>
+    </div>`;
+  }).join('');
+}
+
+})();
+</script>
