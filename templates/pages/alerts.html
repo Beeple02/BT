@@ -68,6 +68,7 @@
       <button class="btn btn-xs" onclick="alClearFired()">CLEAR FIRED</button>
       <button class="btn btn-xs" onclick="alClearAll()">CLEAR ALL</button>
       <button class="btn btn-xs on" onclick="alCheckNow()">CHECK NOW</button>
+  <button class="btn on" onclick="alToggleAudio(this)" style="margin-left:4px">🔔 AUDIO ON</button>
     </span>
   </div>
 </div>
@@ -141,7 +142,7 @@
       <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">SUMMARY</span></div></div>
       <div style="padding:8px;font-size:11px" id="al-summary"><div class="loading">—</div></div>
     </div>
-    <div class="win" style="height:160px;border-top:0">
+    <div class="win" style="flex:1;min-min-height:40px;border-top:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">BY TICKER</span></div></div>
       <div class="scroll" id="al-by-ticker"><div class="loading">—</div></div>
     </div>
@@ -267,6 +268,12 @@ window.alClearAll = function(){
 };
 
 window.alCheckNow = function(){ checkAlerts(); };
+window._audioEnabled = true;
+window.alToggleAudio = function(el){
+  window._audioEnabled = !window._audioEnabled;
+  el.textContent = window._audioEnabled ? '🔔 AUDIO ON' : '🔕 AUDIO OFF';
+  el.classList.toggle('on', window._audioEnabled);
+};
 
 function saveRules(){ localStorage.setItem('al_rules', JSON.stringify(_rules)); }
 function saveLog(){   localStorage.setItem('al_log',   JSON.stringify(_log)); }
@@ -344,6 +351,7 @@ function renderSummary(){
 
 // ── Alert engine ──────────────────────────────────────────────────────────────
 async function checkAlerts(){
+  window._firedThisCycle = [];
   if(!_rules.length) return;
   const now = new Date().toLocaleTimeString('en-GB');
   document.getElementById('al-last').textContent = 'Last check: '+now;
@@ -422,6 +430,7 @@ async function checkAlerts(){
       }
 
       if(triggered){
+        if(!window._firedThisCycle) window._firedThisCycle=[];
         // Check if this exact rule+ticker hasn't fired in last 5 min
         const key = `${rule.id}_${ticker}`;
         const lastFire = _log.find(e=>e.key===key);
@@ -438,20 +447,67 @@ async function checkAlerts(){
           };
           _log.unshift(entry); // prepend
           if(_log.length > 200) _log = _log.slice(0,200); // cap log
+          _firedThisCycle.push({ticker, cond: entry.cond, val: actualVal, pri: rule.pri});
         }
       }
     });
   });
 
   if(anyFired){ saveLog(); renderLog(); renderSummary(); flashAlertBadge(); }
+  // Per-alert audio + toast
+  _firedThisCycle.forEach(({ticker, cond, val, pri})=>{
+    pingAudio(pri);
+    showToast(ticker, cond, val, pri);
+  });
 }
 
 function flashAlertBadge(){
-  // Flash the F13 tab to draw attention
   const fk = document.querySelector('[data-p="al"]');
   if(!fk) return;
   fk.style.background = 'rgba(255,140,0,.3)';
   setTimeout(()=>fk.style.background='', 2000);
+}
+
+function pingAudio(pri='medium'){
+  if(!window._audioEnabled) return;
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const freqs = {low:[440,330], medium:[660,880], high:[880,1100,880]};
+    const seq = freqs[pri]||freqs.medium;
+    let t = ctx.currentTime;
+    seq.forEach(freq => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.18, t+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t+0.18);
+      osc.start(t); osc.stop(t+0.2);
+      t += 0.12;
+    });
+  } catch(e) {}
+}
+
+function showToast(ticker, cond, val, pri){
+  // Create or reuse toast container
+  let tray = document.getElementById('al-toast-tray');
+  if(!tray){
+    tray = document.createElement('div');
+    tray.id = 'al-toast-tray';
+    tray.style.cssText = 'position:fixed;bottom:32px;right:14px;z-index:9999;display:flex;flex-direction:column-reverse;gap:5px;pointer-events:none';
+    document.body.appendChild(tray);
+  }
+  const priColor = pri==='high'?'var(--dn)':pri==='low'?'var(--txt2)':'var(--org)';
+  const toast = document.createElement('div');
+  toast.style.cssText = `background:#111;border:1px solid ${priColor};border-left:4px solid ${priColor};padding:7px 12px;font-family:var(--font);font-size:10px;min-width:200px;max-width:280px;pointer-events:auto;opacity:0;transition:opacity .2s`;
+  toast.innerHTML = `<div style="font-weight:700;color:${priColor};margin-bottom:3px">⚡ ALERT TRIGGERED</div>
+    <div style="color:var(--wht);font-weight:700;font-size:12px">${ticker}</div>
+    <div style="color:var(--txt3);font-size:9px;margin-top:2px">${cond}${val!=null?' → '+val:''}</div>`;
+  tray.appendChild(toast);
+  requestAnimationFrame(()=>{ toast.style.opacity='1'; });
+  setTimeout(()=>{ toast.style.opacity='0'; setTimeout(()=>toast.remove(), 200); }, 5000);
 }
 
 function startEngine(){
