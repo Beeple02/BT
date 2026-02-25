@@ -36,8 +36,41 @@
     <span id="hm-upd" style="color:var(--txt3)"></span>
   </div>
 </div>
-<div style="padding:0 8px 3px;flex-shrink:0;font-size:9px;color:var(--txt3)"><span id="hm-legend"></span></div>
-<div id="heatmap" style="flex:1;position:relative;overflow:hidden"></div>
+<div style="padding:0 8px 3px;flex-shrink:0;display:flex;align-items:center;gap:12px">
+  <span id="hm-legend" style="font-size:9px;color:var(--txt3)"></span>
+  <div style="display:flex;align-items:center;gap:3px;margin-left:auto;font-size:8px;color:var(--txt3)">
+    <span>BEARISH</span>
+    <div style="width:80px;height:6px;background:linear-gradient(90deg,rgb(230,25,35),rgb(60,15,20),rgb(38,38,38),rgb(10,60,30),rgb(10,180,60))"></div>
+    <span>BULLISH</span>
+    <span style="margin-left:8px;color:var(--txt3)">· click cell to trade</span>
+  </div>
+</div>
+<div style="flex:1;display:flex;overflow:hidden">
+  <div id="heatmap" style="flex:1;position:relative;overflow:hidden"></div>
+  <!-- Sidebar -->
+  <div style="width:168px;flex-shrink:0;border-left:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden;background:var(--bg2)">
+    <!-- Top movers -->
+    <div style="border-bottom:1px solid var(--bdr)">
+      <div class="wbar" style="height:18px"><div class="wbar-l"><span class="wnum" style="font-size:7px">▲</span><span class="wtitle" style="font-size:9px">TOP GAINERS</span></div></div>
+      <div id="hm-top" style="font-size:9px"></div>
+    </div>
+    <div style="border-bottom:1px solid var(--bdr)">
+      <div class="wbar" style="height:18px"><div class="wbar-l"><span class="wnum" style="font-size:7px;background:var(--dn)">▼</span><span class="wtitle" style="font-size:9px">TOP LOSERS</span></div></div>
+      <div id="hm-bot" style="font-size:9px"></div>
+    </div>
+    <!-- Exchange stats -->
+    <div style="flex:1;overflow-y:auto">
+      <div class="wbar" style="height:18px"><div class="wbar-l"><span class="wnum" style="font-size:7px">Σ</span><span class="wtitle" style="font-size:9px">MARKET STATS</span></div></div>
+      <div id="hm-stats" style="padding:4px 6px;font-size:9px"></div>
+    </div>
+    <!-- Auto-refresh toggle -->
+    <div style="padding:4px 6px;border-top:1px solid var(--bdr);display:flex;gap:4px;align-items:center">
+      <span class="live-dot" id="hm-live-dot"></span>
+      <span style="font-size:8px;color:var(--txt3)" id="hm-live-label">LIVE 30s</span>
+      <button class="btn btn-xs" style="margin-left:auto;font-size:7px;padding:1px 4px" onclick="hmToggleLive(this)">PAUSE</button>
+    </div>
+  </div>
+</div>
 </div>
 
 <style>
@@ -45,6 +78,10 @@
 .hm-cell:hover{filter:brightness(1.35);z-index:10}
 .hm-cell .hm-t{font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px rgba(0,0,0,.9);line-height:1.2}
 .hm-cell .hm-v{font-weight:600;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.9);line-height:1.2}
+.hm-pop{position:absolute;z-index:100;background:#111;border:1px solid var(--org);padding:10px 12px;min-width:180px;box-shadow:0 4px 24px rgba(0,0,0,.8);pointer-events:auto}
+.hm-act-b{background:rgba(0,200,83,.2);border:1px solid var(--up);color:var(--up);cursor:pointer;font-family:var(--font);font-size:9px;font-weight:700;padding:3px 8px;flex:1}
+.hm-act-s{background:rgba(244,67,54,.2);border:1px solid var(--dn);color:var(--dn);cursor:pointer;font-family:var(--font);font-size:9px;font-weight:700;padding:3px 8px;flex:1}
+.hm-act-c{background:rgba(0,229,255,.1);border:1px solid var(--cyn);color:var(--cyn);cursor:pointer;font-family:var(--font);font-size:9px;font-weight:700;padding:3px 6px}
 </style>
 
 <script>
@@ -280,9 +317,101 @@ window.loadHM = async function() {
     }
 
     cell.title = `${r.ticker} — ${r.name}\n${label(r)}`;
-    cell.onmousedown = () => { sw('tkr'); setTimeout(() => { if (window.PAGE_tkr_load) PAGE_tkr_load(r.ticker); }, 200); };
+
+    // Click: show action overlay instead of immediately jumping
+    cell.onclick = () => {
+      // Remove any existing popover
+      document.querySelectorAll('.hm-pop').forEach(p=>p.remove());
+      const pop = document.createElement('div');
+      pop.className = 'hm-pop';
+      const livePrice = BB.secs.find(s=>s.ticker===r.ticker)?.market_price;
+      pop.innerHTML = `
+        <div style="font-size:14px;font-weight:700;color:var(--wht);margin-bottom:2px">${r.ticker}</div>
+        <div style="font-size:9px;color:var(--txt3);margin-bottom:6px">${r.name||''}</div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:10px">
+          <span style="color:var(--txt3)">METRIC</span><span style="color:${v>=0?'var(--up)':'var(--dn)'};font-weight:700">${label(r)}</span>
+        </div>
+        ${livePrice!=null?`<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:10px"><span style="color:var(--txt3)">LAST</span><span style="color:var(--wht);font-weight:700">$${f(livePrice,4)}</span></div>`:''}
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <button class="hm-act-b" onclick="hmQuickOrder('${r.ticker}','buy')">▲ BUY</button>
+          <button class="hm-act-s" onclick="hmQuickOrder('${r.ticker}','sell')">▼ SELL</button>
+          <button class="hm-act-c" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${r.ticker}'),200);document.querySelectorAll('.hm-pop').forEach(p=>p.remove())">CHART →</button>
+        </div>`;
+      // Position near cell center
+      const rect = cell.getBoundingClientRect();
+      const hmRect = el.getBoundingClientRect();
+      pop.style.left = Math.min(rect.left - hmRect.left + rect.width/2 - 90, hmRect.width - 190) + 'px';
+      pop.style.top  = Math.min(rect.top  - hmRect.top  + rect.height/2 - 60, hmRect.height - 140) + 'px';
+      el.appendChild(pop);
+      // Click elsewhere to dismiss
+      setTimeout(()=>document.addEventListener('click', function d(e){ if(!pop.contains(e.target)){pop.remove();document.removeEventListener('click',d);} }), 50);
+    };
     el.appendChild(cell);
   });
+  renderHMSidebar(sorted, vals, mode, maxAbs);
 };
+window.hmQuickOrder = function(ticker, side) {
+  document.querySelectorAll('.hm-pop').forEach(p=>p.remove());
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  },300);
+};
+
+function renderHMSidebar(sorted, vals, mode, maxAbs) {
+  const byVal = [...sorted].map((s,i)=>({...s, _v: vals[i]})).filter(s=>s._v!=null);
+  const top = [...byVal].sort((a,b)=>b._v-a._v).slice(0,4);
+  const bot = [...byVal].sort((a,b)=>a._v-b._v).slice(0,4);
+
+  const modeLabel = {
+    chg:'chg%', vol:'vol%pa', sharpe:'Sharpe', max_dd:'DD%',
+    vol_spike:'vol×', spread:'sprd%', liq_depth:'depth',
+    concentration:'HHI', momentum_burst:'burst', rel_volume:'relVol'
+  }[document.getElementById('hm-mode').value] || '';
+
+  function mkItem(s, isTop) {
+    const v = s._v;
+    const color = isTop ? 'var(--up)' : 'var(--dn)';
+    const barW = Math.min(Math.abs(v)/maxAbs*100, 100).toFixed(0);
+    return `<div style="padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);cursor:pointer" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${s.ticker}'),200)">
+      <div style="display:flex;justify-content:space-between">
+        <span style="font-weight:700;color:var(--org)">${s.ticker}</span>
+        <span style="color:${color};font-weight:700">${v>=0?'+':''}${typeof v==='number'?v.toFixed(2):'—'}</span>
+      </div>
+      <div style="height:2px;background:var(--bdr);margin-top:2px">
+        <div style="height:100%;width:${barW}%;background:${color}"></div>
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('hm-top').innerHTML = top.map(s=>mkItem(s,true)).join('');
+  document.getElementById('hm-bot').innerHTML = bot.map(s=>mkItem(s,false)).join('');
+
+  // Market stats
+  const advancing = sorted.filter((s,i)=>vals[i]>0).length;
+  const declining = sorted.filter((s,i)=>vals[i]<0).length;
+  const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+  const maxV = Math.max(...vals), minV = Math.min(...vals);
+  document.getElementById('hm-stats').innerHTML = `
+    <div class="rm"><span class="k">SECURITIES</span><span class="v wht">${sorted.length}</span></div>
+    <div class="rm"><span class="k">ADVANCING</span><span class="v up">${advancing}</span></div>
+    <div class="rm"><span class="k">DECLINING</span><span class="v dn">${declining}</span></div>
+    <div class="rm"><span class="k">BREADTH</span><span class="v" style="color:${advancing>declining?'var(--up)':'var(--dn)'}">${sorted.length?Math.round(advancing/sorted.length*100):0}%</span></div>
+    <div class="rm"><span class="k">AVG ${modeLabel.toUpperCase()}</span><span class="v" style="color:${avg>=0?'var(--up)':'var(--dn)'}">${avg>=0?'+':''}${avg.toFixed(2)}</span></div>
+    <div class="rm"><span class="k">RANGE</span><span class="v dim">${minV.toFixed(2)} → ${maxV.toFixed(2)}</span></div>`;
+}
+
+let _hmLive = true, _hmIv = null;
+window.hmToggleLive = function(btn) {
+  _hmLive = !_hmLive;
+  btn.textContent = _hmLive ? 'PAUSE' : 'RESUME';
+  const dot = document.getElementById('hm-live-dot');
+  const lbl = document.getElementById('hm-live-label');
+  if(dot) dot.style.background = _hmLive ? 'var(--up)' : 'var(--dn)';
+  if(lbl) lbl.textContent = _hmLive ? 'LIVE 30s' : 'PAUSED';
+};
+_hmIv = setInterval(()=>{ if(_hmLive && BB.activePanel==='hm') loadHM(); }, 30000);
 })();
 </script>
