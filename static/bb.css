@@ -101,12 +101,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 /* Error banner */
 .err-banner{padding:8px 10px;background:rgba(244,67,54,.08);border-left:3px solid var(--dn);color:var(--dn);font-size:11px;margin:6px}
 
-/* Lock overlay */
-.lock-over{position:absolute;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;z-index:10}
-.lock-box{border:1px solid var(--bdr2);padding:20px 28px;text-align:center;max-width:320px}
-.lock-box h2{font-size:12px;letter-spacing:2px;color:var(--org);margin-bottom:8px}
-.lock-box p{font-size:10px;color:var(--txt2);line-height:1.7}
-
 /* Flow rows */
 .flow-row{display:flex;align-items:center;padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.5);gap:6px;font-size:11px}
 
@@ -133,3 +127,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 /* Row metric — used in portfolio, backtest detail panels */
 .rm{display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5)}
 .rm .k{color:var(--txt3);font-size:9px;letter-spacing:.5px}.rm .v{font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ── Animations ───────────────────────────────────────────────────── */
+@keyframes tape-flash{0%{background:rgba(255,140,0,.25)}100%{background:transparent}}
+.ti.flash{animation:tape-flash .8s ease-out}
+@keyframes row-flash-up{0%{background:rgba(0,200,83,.25)}100%{background:transparent}}
+@keyframes row-flash-dn{0%{background:rgba(244,67,54,.25)}100%{background:transparent}}
+.flash-up{animation:row-flash-up .9s ease-out}
+.flash-dn{animation:row-flash-dn .9s ease-out}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--up);display:inline-block;animation:pulse-dot 1.4s infinite}
+@keyframes pnl-pulse{0%{box-shadow:0 0 0 0 rgba(255,140,0,.4)}70%{box-shadow:0 0 0 6px rgba(255,140,0,0)}100%{box-shadow:0 0 0 0 rgba(255,140,0,0)}}
+.pnl-updated{animation:pnl-pulse .6s ease-out}
+
+/* ── Quick-action button pair ─────────────────────────────────────── */
+.act-b{font-size:8px;padding:1px 5px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700;line-height:1.4}
+.act-s{font-size:8px;padding:1px 5px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700;line-height:1.4}
+.act-b:hover{background:rgba(0,200,83,.3)}.act-s:hover{background:rgba(244,67,54,.3)}
