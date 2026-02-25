@@ -95,9 +95,20 @@
       <div class="wbar"><div class="wbar-l"><span class="wnum">8</span><span class="wtitle">HOLDER INTEL</span></div></div>
       <div id="tkr-hi" style="padding:5px 8px;font-size:10px">—</div>
     </div>
+    <!-- Recent trades feed for this ticker -->
+    <div class="win" style="flex:1;border-top:0;border-bottom:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">9</span><span class="wtitle">RECENT PRINTS</span><span class="live-dot" style="margin-left:4px" id="tkr-prints-dot"></span><span class="wsub" id="tkr-print-ct"></span></div>
+        <div class="wbar-r">
+          <button style="font-size:8px;padding:1px 5px;background:rgba(0,200,83,.15);border:1px solid var(--up);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" id="tkr-buy-btn" onclick="tkrQuickOrder('buy')">BUY</button>
+          <button style="font-size:8px;padding:1px 5px;background:rgba(244,67,54,.15);border:1px solid var(--dn);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" id="tkr-sell-btn" onclick="tkrQuickOrder('sell')">SELL</button>
+        </div>
+      </div>
+      <div class="scroll" id="tkr-prints"><div class="loading">—</div></div>
+    </div>
     <!-- Shareholders list -->
     <div class="win" style="flex:1;border-top:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">9</span><span class="wtitle">SHAREHOLDERS</span></div></div>
+      <div class="wbar"><div class="wbar-l"><span class="wnum">10</span><span class="wtitle">SHAREHOLDERS</span></div></div>
       <div class="scroll" id="tkr-sh"><div class="loading">—</div></div>
     </div>
   </div>
@@ -137,6 +148,7 @@ window.PAGE_tkr_load = async function(ticker) {
     api(`/api/orderbook?ticker=${ticker}`),
     api(`/api/holder_intel/${ticker}`)
   ]);
+  loadTkrPrints(ticker);
 
   if(!sR.ok) {
     document.getElementById('tkr-px').textContent = 'ERR';
@@ -170,6 +182,7 @@ window.PAGE_tkr_load = async function(ticker) {
   set('ts-mc',  sec.total_shares ? fk(sec.total_shares * last) : '—');
 
   // ── Destroy old charts ─────────────────────────────────────────────────────
+  if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c => c && c.destroy()); _ch = {};
 
   // ── Price chart ────────────────────────────────────────────────────────────
@@ -243,6 +256,8 @@ window.PAGE_tkr_load = async function(ticker) {
     document.getElementById('tkr-spr').textContent = sp ? `SPR ${sp}` : '';
     const bids=obR.d.bids||[], asks=obR.d.asks||[];
     const bq=bids.reduce((s,b)=>s+b.quantity,0), aq=asks.reduce((s,a)=>s+a.quantity,0);
+    // Render depth chart
+    renderDepthChart(bids, asks);
     const imb = (bq-aq)/Math.max(bq+aq,1)*100;
     const wallCount = countWalls(bids,asks);
     const depthConc = bids.length > 0 ? (bids.slice(0,3).reduce((s,b)=>s+b.quantity,0)/Math.max(bq,1)*100).toFixed(1) : '—';
@@ -322,10 +337,105 @@ window.tkrOv = function(key) {
   if(t) PAGE_tkr_load(t);
 };
 
+function renderDepthChart(bids, asks) {
+  const canvas = document.getElementById('tkr-depth');
+  if(!canvas) return;
+  if(window._tkrDepthC) { window._tkrDepthC.destroy(); window._tkrDepthC=null; }
+  // Sort bids desc, asks asc, compute cumulative
+  const sb = [...bids].sort((a,b)=>b.price-a.price);
+  const sa = [...asks].sort((a,b)=>a.price-b.price);
+  let cumB=0, cumA=0;
+  const bidPts = sb.map(b=>({x:b.price, y:(cumB+=b.quantity)}));
+  const askPts = sa.map(a=>({x:a.price, y:(cumA+=a.quantity)}));
+  window._tkrDepthC = new Chart(canvas, {
+    type:'line',
+    data:{datasets:[
+      {label:'BID',data:bidPts,borderColor:'rgba(0,200,83,.8)',backgroundColor:'rgba(0,200,83,.12)',
+       borderWidth:1.5,pointRadius:0,fill:true,stepped:'after',tension:0},
+      {label:'ASK',data:askPts,borderColor:'rgba(244,67,54,.8)',backgroundColor:'rgba(244,67,54,.12)',
+       borderWidth:1.5,pointRadius:0,fill:true,stepped:'before',tension:0},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{
+        label:c=>`${c.dataset.label}: ${c.parsed.y.toLocaleString()} sh @ $${f(c.parsed.x,4)}`
+      }}},
+      scales:{
+        x:{type:'linear',grid:{color:'#1a1a1a'},ticks:{color:'#444',maxTicksLimit:6,callback:v=>f(v,2)}},
+        y:{grid:{color:'#1a1a1a'},ticks:{color:'#444',maxTicksLimit:4,callback:v=>fk(v)}},
+      }
+    }
+  });
+}
+
+// ── Recent prints feed ───────────────────────────────────────────────────────
+let _tkrLastPrintIds = new Set();
+async function loadTkrPrints(ticker) {
+  const el = document.getElementById('tkr-prints'); if(!el) return;
+  const r = await api(`/api/transactions?type=Trade&limit=80`);
+  if(!r.ok || !Array.isArray(r.d)) { el.innerHTML='<div class="loading">—</div>'; return; }
+  const trades = r.d.filter(tx=>tx.ticker===ticker);
+  document.getElementById('tkr-print-ct').textContent = trades.length ? ` — ${trades.length}` : '';
+  if(!trades.length){ el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>'; return; }
+
+  // Track new vs known
+  const newIds = new Set(trades.map(tx=>tx.id||tx.timestamp));
+  const isFirstLoad = _tkrLastPrintIds.size === 0;
+
+  // Compute VWAP
+  const tot=trades.reduce((s,tx)=>s+Math.abs(tx.quantity||0),0);
+  const vwapVal=tot>0?trades.reduce((s,tx)=>s+(tx.price||0)*Math.abs(tx.quantity||0),0)/tot:0;
+  const midPrice = BB.secs.find(s=>s.ticker===ticker)?.market_price;
+
+  // Count buys vs sells for imbalance
+  const buyVol = trades.filter(tx=>(tx.amount||0)<0).reduce((s,tx)=>s+Math.abs(tx.quantity||0),0);
+  const sellVol = trades.filter(tx=>(tx.amount||0)>=0).reduce((s,tx)=>s+Math.abs(tx.quantity||0),0);
+  const imbalPct = tot>0 ? ((buyVol-sellVol)/tot*100) : 0;
+
+  el.innerHTML = trades.map(tx=>{
+    const isBuy=(tx.amount||0)<0;
+    const isNew = !isFirstLoad && !_tkrLastPrintIds.has(tx.id||tx.timestamp);
+    const dt=tx.timestamp?new Date(tx.timestamp):null;
+    const time=dt?dt.toLocaleTimeString('en-GB',{hour12:false}):'—';
+    const qty=Math.abs(tx.quantity||0);
+    const isLarge=qty>=100;
+    const priceDelta = midPrice && tx.price ? ((tx.price-midPrice)/midPrice*100) : null;
+    return `<div class="${isNew?(isBuy?'flash-up':'flash-dn'):''}" style="display:flex;align-items:center;gap:4px;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.3);font-size:9px;${isLarge?'background:rgba(255,140,0,.04)':''}">
+      <span style="color:var(--txt3);width:36px;font-variant-numeric:tabular-nums">${time}</span>
+      <span style="font-weight:700;color:${isBuy?'var(--up)':'var(--dn)'};width:26px">${isBuy?'BID':'ASK'}</span>
+      <span style="color:var(--wht);width:40px;text-align:right;font-variant-numeric:tabular-nums;${isLarge?'font-weight:700':''}">${qty.toLocaleString()}</span>
+      <span style="color:var(--yel);flex:1;text-align:right;font-variant-numeric:tabular-nums">$${f(tx.price||0,4)}</span>
+      <span style="width:36px;text-align:right;font-size:8px;color:${priceDelta!=null?(priceDelta>=0?'var(--up)':'var(--dn)'):'var(--txt3)'}">${priceDelta!=null?(priceDelta>=0?'+':'')+priceDelta.toFixed(2)+'%':''}</span>
+      ${isLarge?'<span style="font-size:7px;color:var(--org);font-weight:700;border:1px solid var(--org);padding:0 2px">BLK</span>':''}
+    </div>`;
+  }).join('')
+  + `<div style="padding:4px 6px;font-size:9px;border-top:1px solid var(--bdr);display:flex;gap:12px;flex-wrap:wrap">
+    <span>VWAP <span style="color:var(--cyn);font-weight:700">$${f(vwapVal,4)}</span></span>
+    <span style="color:${imbalPct>0?'var(--up)':'var(--dn)'}">IMBAL ${imbalPct>=0?'+':''}${imbalPct.toFixed(1)}%</span>
+    <span style="color:var(--txt3)">${trades.length} prints · ${tot.toLocaleString()} sh</span>
+  </div>`;
+
+  _tkrLastPrintIds = newIds;
+}
+
+window.tkrQuickOrder = function(side) {
+  const ticker = document.getElementById('tkr-sel')?.value; if(!ticker) return;
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  },300);
+};
+
 function countWalls(bids, asks) {
   const bq=bids.reduce((s,b)=>s+b.quantity,0), aq=asks.reduce((s,a)=>s+a.quantity,0);
   const avgB=bq/Math.max(bids.length,1), avgA=aq/Math.max(asks.length,1);
   return bids.filter(b=>b.quantity>avgB*3).length + asks.filter(a=>a.quantity>avgA*3).length;
 }
+
+// Auto-refresh prints every 8s when page is active
+setInterval(()=>{
+  if(BB.activePanel==='tkr' && _d?.ticker) loadTkrPrints(_d.ticker);
+}, 8000);
 })();
 </script>
