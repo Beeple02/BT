@@ -101,7 +101,7 @@
       <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SAVED TEMPLATES</span></div></div>
       <div class="scroll" id="scr-tpl-list"><div class="loading">NO TEMPLATES</div></div>
     </div>
-    <div class="win" style="height:180px;border-top:0">
+    <div class="win" style="flex:1;min-min-height:40px;border-top:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RESULT STATS</span></div></div>
       <div style="padding:8px;font-size:11px" id="scr-stats"><div class="loading">—</div></div>
     </div>
@@ -252,6 +252,10 @@ function renderResults(){
       <td>
         <span class="wbtn" onclick="event.stopPropagation();sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${r.ticker}'),200)" title="Chart">📈</span>
         <span class="wbtn" onclick="event.stopPropagation();addToWatchlist('${r.ticker}')" title="Watch">★</span>
+        <button style="font-size:8px;padding:1px 4px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700;margin-left:2px"
+          onclick="event.stopPropagation();scrQuickOrder('${r.ticker}','buy')">B</button>
+        <button style="font-size:8px;padding:1px 4px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700"
+          onclick="event.stopPropagation();scrQuickOrder('${r.ticker}','sell')">S</button>
       </td>`;
     tr.onclick = () => { sw('tkr'); setTimeout(()=>window.PAGE_tkr_load&&PAGE_tkr_load(r.ticker),200); };
     tb.appendChild(tr);
@@ -351,5 +355,13 @@ if(!Object.keys(_templates).length){
   renderTemplateList();
   renderTemplateSelect();
 }
+window.scrQuickOrder = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
+};
 })();
 </script>
