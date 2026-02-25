@@ -62,10 +62,17 @@
       </div>
     </div>
 
-    <!-- Volume flow panel -->
-    <div class="win" style="height:130px">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">VOLUME FLOW — TOP MOVERS</span></div></div>
-      <div class="scroll" id="mkt-flow"></div>
+    <!-- Live print feed + volume flow -->
+    <div class="win" style="height:150px">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">3</span><span class="wtitle">LIVE PRINTS</span><span class="live-dot" style="margin-left:5px"></span><span class="wsub" id="mkt-print-ct"></span></div>
+        <div class="wbar-r" style="gap:6px">
+          <span class="wbtn" id="mkt-feed-pause" onclick="mktToggleFeed()" style="color:var(--up)">⏸ LIVE</span>
+          <span class="wbtn" onclick="mktShowFlow()" id="mkt-flow-btn">MOVERS</span>
+        </div>
+      </div>
+      <div class="scroll" id="mkt-prints" style="font-family:var(--font)"></div>
+      <div class="scroll" id="mkt-flow" style="display:none"></div>
     </div>
   </div>
 
@@ -94,6 +101,7 @@ window.PAGE_mkt_onShow = function() {
   loadBreadth();
   loadGlobalOB();
   loadMomentumMatrix();
+  loadPrintFeed();
 };
 
 window.loadBreadth = async function() {
@@ -140,7 +148,7 @@ function renderSecTable(secs) {
     <th class="r" data-col="market_cap">MCAP</th>
     <th class="r" data-col="hi52">PRD HI%</th>
     <th class="r" data-col="vol_spike">VOL SPIKE</th>
-    <th class="c" data-col="frozen">ST</th>
+    <th class="c" data-col="frozen">ST</th><th>ACT</th>
   </tr></thead><tbody id="mkt-tbody"></tbody></table>`;
   document.querySelectorAll('#mkt-tbl th').forEach(th=>{
     th.addEventListener('click',()=>sortMktTable(th.dataset.col));
@@ -180,7 +188,8 @@ function fillMktRows(secs) {
       <td class="r dim">${fk(s.market_cap)}</td>
       <td class="r ${prdHiPct!=null?(prdHiPct>-5?'up':prdHiPct>-15?'yel':'dn'):'dim'}">${prdHiPct!=null?prdHiPct.toFixed(1)+'%':'—'}</td>
       <td class="r ${volSpike!=null?(volSpike>2?'org':volSpike>1.5?'yel':'dim'):'dim'}">${volSpike!=null?volSpike.toFixed(1)+'x':'—'}</td>
-      <td class="c">${sec.frozen?'<span class="badge b-cyn">FRZ</span>':'<span class="badge b-up">LIV</span>'}</td>`;
+      <td class="c">${sec.frozen?'<span class="badge b-cyn">FRZ</span>':'<span class="badge b-up">LIV</span>'}</td>
+      <td><button style="font-size:8px;padding:1px 3px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();mktQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button style="font-size:8px;padding:1px 3px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();mktQuickOrder('${s.ticker}','sell')">S</button></td>`;
     tr.addEventListener('click',()=>selectMktTicker(s.ticker,tr));
     tb.appendChild(tr);
   });
@@ -315,6 +324,84 @@ async function loadMomentumMatrix(){
     </div>`;
   }).join('');
 }
+
+
+// ── Live print feed ──────────────────────────────────────────────────────────
+let _lastPrints = [], _feedPaused = false, _showFlow = false;
+
+window.mktToggleFeed = function() {
+  _feedPaused = !_feedPaused;
+  const btn = document.getElementById('mkt-feed-pause');
+  if(btn) { btn.textContent = _feedPaused ? '▶ PAUSED' : '⏸ LIVE'; btn.style.color = _feedPaused ? 'var(--dn)' : 'var(--up)'; }
+};
+
+window.mktShowFlow = function() {
+  _showFlow = !_showFlow;
+  document.getElementById('mkt-prints').style.display = _showFlow ? 'none' : 'block';
+  document.getElementById('mkt-flow').style.display = _showFlow ? 'block' : 'none';
+  document.getElementById('mkt-flow-btn').classList.toggle('on', _showFlow);
+};
+
+async function loadPrintFeed() {
+  if(_feedPaused) return;
+  const r = await api('/api/transactions?type=Trade&limit=50');
+  if(!r.ok || !Array.isArray(r.d)) return;
+  const trades = r.d;
+  if(!trades.length) return;
+  const el = document.getElementById('mkt-prints'); if(!el) return;
+  // Detect new trades
+  const knownIds = new Set(_lastPrints.map(t=>t.id||t.timestamp));
+  const newTrades = trades.filter(t=>!knownIds.has(t.id||t.timestamp));
+  _lastPrints = trades;
+  const ct = document.getElementById('mkt-print-ct');
+  if(ct) ct.textContent = ` — ${trades.length}`;
+  // Build prev-price-by-ticker for delta calculation
+  const prevByTicker = {};
+  [...trades].reverse().forEach(tx => {
+    if(tx.price && tx.ticker) prevByTicker[tx.ticker] = tx.price;
+  });
+  const firstByTicker = {};
+  trades.forEach(tx => {
+    if(tx.ticker && !firstByTicker[tx.ticker]) firstByTicker[tx.ticker] = tx.price;
+  });
+  el.innerHTML = trades.map((tx, i) => {
+    const isBuy = (tx.amount||0) < 0;
+    const isNew = newTrades.some(n=>(n.id||n.timestamp)===(tx.id||tx.timestamp));
+    const dt = tx.timestamp ? new Date(tx.timestamp) : null;
+    const time = dt ? dt.toLocaleTimeString('en-GB',{hour12:false}) : '—';
+    const qty = Math.abs(tx.quantity||0);
+    const isBlock = qty >= 100;
+    // Price delta: compare to midpoint from BB.secs
+    const sec = BB.secs.find(s=>s.ticker===tx.ticker);
+    const mid = sec?.market_price;
+    const delta = mid && tx.price ? ((tx.price - mid) / mid * 100) : null;
+    const deltaStr = delta != null ? (delta>=0?'+':'')+delta.toFixed(2)+'%' : '';
+    const flashClass = isNew ? (isBuy ? 'flash-up' : 'flash-dn') : '';
+    return `<div class="${flashClass}" style="display:flex;align-items:center;gap:5px;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.3);font-size:10px;cursor:pointer;${isBlock?'background:rgba(255,140,0,.03)':''}"
+        onclick="selectMktTicker('${tx.ticker}')">
+      <span style="width:34px;font-size:9px;color:var(--txt3);font-variant-numeric:tabular-nums">${time}</span>
+      <span style="width:36px;font-weight:700;color:var(--org)">${tx.ticker||'—'}</span>
+      <span style="width:28px;font-weight:700;font-size:9px;color:${isBuy?'var(--up)':'var(--dn)'}">${isBuy?'BID':'ASK'}</span>
+      <span style="width:46px;text-align:right;font-variant-numeric:tabular-nums;color:var(--wht);${isBlock?'font-weight:700':''}">${qty.toLocaleString()}</span>
+      <span style="width:52px;text-align:right;font-variant-numeric:tabular-nums;color:var(--yel)">$${tx.price!=null?f(tx.price,4):'—'}</span>
+      <span style="flex:1;text-align:right;font-size:9px;color:${delta!=null?(delta>=0?'var(--up)':'var(--dn)'):'var(--txt3)'}">${deltaStr}</span>
+      ${isBlock?'<span style="font-size:7px;color:var(--org);font-weight:700;border:1px solid var(--org);padding:0 2px">BLK</span>':''}
+      <button class="act-b" onclick="event.stopPropagation();mktQuickOrder('${tx.ticker}','buy')">B</button>
+      <button class="act-s" onclick="event.stopPropagation();mktQuickOrder('${tx.ticker}','sell')">S</button>
+    </div>`;
+  }).join('');
+}
+
+window.mktQuickOrder = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
+};
+
+setInterval(loadPrintFeed, 8000); // refresh prints every 8s
 
 })();
 </script>
