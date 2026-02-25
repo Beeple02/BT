@@ -199,6 +199,8 @@ async function sw(id) {
   await loadPage(id);
   // By here all scripts have executed synchronously — safe to call onShow
   if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
+  // Re-init drag-resize handles for the new page
+  setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
 }
 
 // ── Wire FK clicks ────────────────────────────────────────────────────────────
