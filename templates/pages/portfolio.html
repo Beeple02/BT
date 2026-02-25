@@ -17,7 +17,7 @@
   <div style="padding:0 10px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap">LIVE P&amp;L</div>
   <div id="pf-live-holds" style="display:flex;flex:1;overflow:hidden"></div>
   <div style="padding:0 10px;font-size:9px;border-left:1px solid var(--bdr);white-space:nowrap">
-    SESSION: <span id="pf-live-session" style="font-weight:700;color:var(--txt2)">—</span>
+    UPDATED: <span id="pf-live-session" style="font-weight:700;color:var(--txt2)">—</span>
   </div>
   <div style="padding:0 10px;font-size:9px;border-left:1px solid var(--bdr);white-space:nowrap">
     UNREALIZED: <span id="pf-live-unreal" style="font-weight:700">—</span>
@@ -161,6 +161,8 @@
 </div>
 
 <style>
+@keyframes pf-pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+.pf-live-pulse{animation:pf-pulse .6s ease-in-out}
 .pf-tab{padding:4px 14px;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:2px solid transparent}
 .pf-tab:hover{color:var(--txt);background:var(--bg4)}
 .pf-tab.active{color:var(--wht);border-bottom-color:var(--org);background:var(--bg4)}
@@ -223,13 +225,17 @@ function renderOverview(holds,bal){
     const pnl=(h.market_value||0)-(h.cost_basis||0),pp=h.cost_basis?pnl/h.cost_basis*100:0;
     const avg=h.quantity?h.cost_basis/h.quantity:0,wt=_pf.total_equity?(h.market_value||0)/_pf.total_equity*100:0;
     return `<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div style="display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:13px;font-weight:700;color:var(--wht)">${h.ticker}</span>
-        <span style="font-weight:700;color:${gc(pnl)}">${f(h.market_value)}</span>
+        <div style="display:flex;gap:3px;align-items:center">
+          <button class="act-b" onclick="pfQuickOrder('${h.ticker}','buy')">B</button>
+          <button class="act-s" onclick="pfQuickOrder('${h.ticker}','sell')">S</button>
+          <span style="font-weight:700;color:${gc(pnl)};margin-left:6px">${f(h.market_value)}</span>
+        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:1px">
-        <span>${h.quantity.toLocaleString()} x ${f(avg,4)}</span>
-        <span style="color:${gc(pnl)}">${fp(pp)} (${pnl>=0?'+':''}${f(pnl)})</span>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:2px">
+        <span>${h.quantity.toLocaleString()} × ${f(avg,4)}</span>
+        <span style="color:${gcI(pp)};font-weight:${gcIW(pp)}">${fp(pp)} (${pnl>=0?'+':''}${f(pnl)})</span>
       </div>
       <div style="font-size:9px;color:var(--txt3);margin-top:2px">WEIGHT ${f(wt,1)}%</div>
       <div style="height:2px;background:${COLS[i%COLS.length]};width:${Math.min(wt,100)}%;opacity:.5;margin-top:3px"></div>
@@ -406,6 +412,8 @@ function startLivePnL(holds) {
   async function update() {
     const secR = await api('/api/securities');
     if(!secR.ok || !Array.isArray(secR.d)) return;
+    const sesEl = document.getElementById('pf-live-session');
+    if(sesEl) sesEl.textContent = new Date().toLocaleTimeString('en-GB',{hour12:false});
     const prices = {};
     secR.d.forEach(s => prices[s.ticker] = s.market_price);
     _livePrices = prices;
@@ -428,9 +436,18 @@ function startLivePnL(holds) {
     const unEl = document.getElementById('pf-live-unreal');
     if(unEl) {
       const pct = _pf?.total_equity ? totalUnreal/_pf.total_equity*100 : 0;
-      unEl.textContent = (totalUnreal>=0?'+':'')+f(totalUnreal,0);
+      const newVal = (totalUnreal>=0?'+':'')+f(totalUnreal,0);
+      if(unEl.textContent && unEl.textContent !== newVal) {
+        // Value changed — pulse the strip
+        const strip = document.getElementById('pf-live-strip');
+        if(strip) { strip.classList.remove('pnl-updated'); void strip.offsetWidth; strip.classList.add('pnl-updated'); }
+      }
+      unEl.textContent = newVal;
       unEl.style.color = gcI(pct);
     }
+    // Pulse the strip on each update
+    const strip = document.getElementById('pf-live-strip');
+    if(strip){ strip.classList.remove('pf-live-pulse'); void strip.offsetWidth; strip.classList.add('pf-live-pulse'); }
   }
   update();
   _liveIv = setInterval(update, 15000);
@@ -535,6 +552,15 @@ function renderAttribution() {
       "pp" = percentage points of equity. A +2pp contribution means that holding added 2% to your total portfolio value.
     </div>`;
 }
+
+window.pfQuickOrder = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
+};
 
 function calcHealth(holds,cash,totalEq){
   if(!holds.length) return 50; let s=100;
