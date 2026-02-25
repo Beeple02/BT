@@ -33,6 +33,7 @@
   </div>
   <button class="btn on" onclick="loadCompare()">▶ ANALYSE</button>
   <button class="btn" onclick="cmpClear()">CLEAR</button>
+  <button class="btn" onclick="cmpAutoAll()">ALL TICKERS</button>
   <span id="cmp-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
 </div>
 
@@ -78,10 +79,16 @@
       </div>
     </div>
     <div class="win" style="height:130px;border-top:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">PAIRS SIGNAL</span></div></div>
-      <div id="cmp-pairs-detail" style="padding:8px;font-size:10px;display:grid;grid-template-columns:1fr 1fr;gap:3px 10px">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">6</span><span class="wtitle" id="cmp-p6-title">PERFORMANCE RANK</span></div>
+        <div class="wbar-r" id="cmp-p6-sub" style="font-size:9px;color:var(--txt3)"></div>
+      </div>
+      <!-- Pairs signal (2-ticker mode) -->
+      <div id="cmp-pairs-detail" style="padding:8px;font-size:10px;display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;display:none">
         <span style="color:var(--txt3);font-size:9px;grid-column:span 2">Select exactly 2 tickers for pairs analysis</span>
       </div>
+      <!-- Performance rank (always shown) -->
+      <div id="cmp-perf-rank" style="overflow-y:auto;flex:1;font-size:10px"></div>
     </div>
   </div>
 </div>
@@ -94,7 +101,13 @@ let _tickers=[], _cNorm=null, _cCorr=null, _cSpread=null, _statsData=[];
 
 window.PAGE_cmp_onShow=function(){
   populateSel('cmp-add-sel');
-  if(_tickers.length>=2) loadCompare();
+  if(_tickers.length>=2){ loadCompare(); return; }
+  // Auto-seed with all available tickers so page is never blank
+  if(BB.secs && BB.secs.length>=2 && _tickers.length===0){
+    BB.secs.slice(0,6).forEach(s=>{ if(!_tickers.includes(s.ticker)) _tickers.push(s.ticker); });
+    renderChips();
+    loadCompare();
+  }
 };
 
 window.cmpAddTicker=function(t){
@@ -104,6 +117,12 @@ window.cmpAddTicker=function(t){
   if(_tickers.length>=2) loadCompare();
 };
 window.cmpClear=function(){ _tickers=[]; _statsData=[]; renderChips(); document.getElementById('cmp-status').textContent='Cleared'; };
+window.cmpAutoAll=function(){
+  _tickers=[];
+  BB.secs.slice(0,6).forEach(s=>{ if(!_tickers.includes(s.ticker)) _tickers.push(s.ticker); });
+  renderChips();
+  if(_tickers.length>=2) loadCompare();
+};
 window.cmpRemove=function(t){ _tickers=_tickers.filter(x=>x!==t); renderChips(); if(_tickers.length>=2) loadCompare(); };
 
 function renderChips(){
@@ -191,6 +210,9 @@ window.loadCompare=async function(){
       const sig=cz!=null?(cz>2?`LONG ${_tickers[1]} / SHORT ${_tickers[0]}`:cz<-2?`LONG ${_tickers[0]} / SHORT ${_tickers[1]}`:Math.abs(cz)<0.5?'SPREAD AT MEAN':'WATCH — WIDENING'):'—';
       const sigColor=cz!=null?(Math.abs(cz)>2?'var(--org)':Math.abs(cz)<0.5?'var(--up)':'var(--yel)'):'var(--txt3)';
       document.getElementById('cmp-spread-sub').textContent=cz!=null?` Z=${cz.toFixed(2)}`:'';
+      document.getElementById('cmp-pairs-detail').style.display='grid';
+      document.getElementById('cmp-perf-rank').style.display='none';
+      document.getElementById('cmp-p6-title').textContent='PAIRS SIGNAL';
       document.getElementById('cmp-pairs-detail').innerHTML=`
         <span style="color:var(--txt3);font-size:9px">FULL CORR</span><span class="wht">${d.full_corr!=null?d.full_corr.toFixed(3):'—'}</span>
         <span style="color:var(--txt3);font-size:9px">CURR Z</span><span style="color:${sigColor};font-weight:700">${cz!=null?cz.toFixed(3):'—'}</span>
@@ -201,11 +223,20 @@ window.loadCompare=async function(){
         <span style="color:var(--txt3);font-size:8px;grid-column:span 2">±2σ entry · ±0.5σ exit</span>`;
     } else {
       document.getElementById('cmp-corr-sub').textContent=' — Not enough data for window';
+      document.getElementById('cmp-pairs-detail').style.display='grid';
+      document.getElementById('cmp-perf-rank').style.display='none';
+      document.getElementById('cmp-p6-title').textContent='PAIRS SIGNAL';
       document.getElementById('cmp-pairs-detail').innerHTML='<span style="color:var(--txt3);font-size:9px;grid-column:span 2">Not enough historical data</span>';
     }
   } else {
-    document.getElementById('cmp-pairs-detail').innerHTML='<span style="color:var(--txt3);font-size:9px;grid-column:span 2">Select exactly 2 tickers for pairs analysis</span>';
+    // Multi-ticker mode: show performance rank
+    document.getElementById('cmp-pairs-detail').style.display='none';
+    document.getElementById('cmp-perf-rank').style.display='block';
+    document.getElementById('cmp-p6-title').textContent='PERFORMANCE RANK';
+    document.getElementById('cmp-p6-sub').textContent=`${_tickers.length} tickers`;
   }
+  // Always render perf rank for all modes
+  renderPerfRank();
 
   // Correlation matrix
   const corrR=await api(`/api/correlation_matrix?days=${days}`);
@@ -254,5 +285,32 @@ window.loadCompare=async function(){
   });
   document.getElementById('cmp-status').textContent=`${_tickers.length} tickers · ${days}D`;
 };
+
+function renderPerfRank() {
+  if(!_statsData.length) return;
+  const el = document.getElementById('cmp-perf-rank'); if(!el) return;
+  const ranked = _statsData.map((sd,i) => {
+    const cs = sd.candles.map(c=>c.close);
+    if(!cs.length) return null;
+    const ret = (cs[cs.length-1]-cs[0])/cs[0]*100;
+    const rets = cs.map((c,j)=>j?(c-cs[j-1])/cs[j-1]:0).slice(1);
+    const avg = rets.reduce((s,v)=>s+v,0)/(rets.length||1);
+    const std = Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/(rets.length||1))||0.0001;
+    const sharpe = avg/std*Math.sqrt(252);
+    return { ticker:sd.ticker, ret, sharpe, color:COLORS[i] };
+  }).filter(Boolean).sort((a,b)=>b.ret-a.ret);
+  const maxAbsRet = Math.max(...ranked.map(r=>Math.abs(r.ret)),0.01);
+  el.innerHTML = ranked.map((r,i) => `
+    <div style="display:flex;align-items:center;gap:5px;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4)">
+      <span style="width:14px;font-size:8px;color:var(--txt3)">${i+1}</span>
+      <span style="width:36px;font-weight:700;color:${r.color}">${r.ticker}</span>
+      <div style="flex:1;height:4px;background:var(--bdr);position:relative">
+        <div style="position:absolute;top:0;bottom:0;${r.ret>=0?'left:50%':'right:50%;'}width:${(Math.abs(r.ret)/maxAbsRet*50).toFixed(1)}%;background:${r.ret>=0?'var(--up)':'var(--dn)'}"></div>
+        <div style="position:absolute;top:-1px;bottom:-1px;left:50%;width:1px;background:var(--bdr2)"></div>
+      </div>
+      <span style="width:54px;text-align:right;font-weight:700;color:${gcI(r.ret)}">${r.ret>=0?'+':''}${r.ret.toFixed(2)}%</span>
+      <span style="width:44px;text-align:right;font-size:9px;color:${r.sharpe>=1?'var(--up)':r.sharpe>0?'var(--yel)':'var(--dn)'}">${r.sharpe.toFixed(2)}sh</span>
+    </div>`).join('');
+}
 })();
 </script>
