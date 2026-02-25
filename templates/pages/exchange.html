@@ -88,6 +88,7 @@
 (function(){
 let _data=null, _corrData=null;
 let _cCap=null, _cMom=null;
+let _streamTrades=[], _streamPos=0, _streamRaf=null;
 const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
 
 // PAGE_exch_onShow defined below with stream
@@ -168,7 +169,7 @@ window.renderExchRows = function(){
       <td class="r ${s.sharpe>=0?'up':'dn'}">${f(s.sharpe,2)}</td>
       <td class="r dn">-${s.max_dd}%</td>
       <td class="r" style="color:${momColor};font-size:9px">${mom}</td>
-      <td><button style="font-size:8px;padding:1px 4px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button style="font-size:8px;padding:1px 4px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','sell')">S</button></td>\`;
+      <td><button class="act-b" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','sell')">S</button></td>`;
     tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
     tb.appendChild(tr);
   });
@@ -243,7 +244,6 @@ window.exchQuickOrder = function(ticker, side) {
 };
 
 // ── Live trade stream strip ──────────────────────────────────────────────────
-let _streamTrades = [], _streamPos = 0, _streamRaf = null;
 async function updateStream() {
   const r = await api('/api/transactions?type=Trade&limit=30');
   if(!r.ok || !Array.isArray(r.d)) return;
