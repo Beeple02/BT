@@ -35,6 +35,13 @@
   <span id="ex-updated" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
 </div>
 
+<!-- Live trade stream bar -->
+<div id="ex-stream-bar" style="height:22px;background:#0a0a0a;border-bottom:1px solid var(--bdr);display:flex;align-items:center;overflow:hidden;flex-shrink:0;position:relative">
+  <div style="padding:0 8px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap;flex-shrink:0">STREAM</div>
+  <div id="ex-stream-inner" style="display:flex;white-space:nowrap;gap:0"></div>
+  <div style="position:absolute;right:0;top:0;bottom:0;width:30px;background:linear-gradient(-90deg,#0a0a0a,transparent);pointer-events:none"></div>
+</div>
+
 <div class="wrow" style="flex:1">
 
   <!-- Securities table -->
@@ -51,7 +58,7 @@
           <th class="r">MKT CAP</th><th class="r">VOLUME</th>
           <th class="r">VOL SHR</th><th class="r">CAP SHR</th>
           <th class="r">VOL%pa</th><th class="r">SHARPE</th><th class="r">MAX DD</th>
-          <th class="r">MOMENTUM</th>
+          <th class="r">MOMENTUM</th><th>ACT</th>
         </tr></thead>
         <tbody id="ex-tbody"><tr><td colspan="12" class="loading">LOADING…</td></tr></tbody>
       </table>
@@ -65,11 +72,11 @@
       <div class="chart-wrap"><canvas id="ex-cap-c"></canvas></div>
     </div>
     <div class="win" style="flex:1;border-top:0;border-bottom:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">CORRELATION CONVERGENCE INDEX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">High = diversification collapsing</div></div>
-      <div id="ex-corr-detail" style="padding:8px;font-size:10px;flex:1"></div>
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">LARGE TRADES</span><span class="wsub" id="ex-lt-sub"></span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">≥100 shares</div></div>
+      <div class="scroll" id="ex-large-trades"><div class="loading">—</div></div>
     </div>
     <div class="win" style="flex:1;border-top:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">MOMENTUM BREAKDOWN</span></div></div>
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">ADVANCE / DECLINE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">% advancing vs declining</div></div>
       <div class="chart-wrap"><canvas id="ex-mom-c"></canvas></div>
     </div>
   </div>
@@ -83,7 +90,7 @@ let _data=null, _corrData=null;
 let _cCap=null, _cMom=null;
 const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
 
-window.PAGE_exch_onShow = function(){ if(!_data) loadExch(); };
+// PAGE_exch_onShow defined below with stream
 
 window.loadExch = async function(){
   const days=document.getElementById('ex-rng').value;
@@ -124,20 +131,11 @@ window.loadExch = async function(){
 
   document.getElementById('ex-updated').textContent='Updated '+new Date().toLocaleTimeString('en-GB');
 
-  const corrDetail=document.getElementById('ex-corr-detail');
-  if(_corrData && _corrData.tickers && _corrData.tickers.length>0){
-    const ac=_corrData.avg_corr??0;
-    const risk=ac>0.7?'CRITICAL — diversification collapsed':
-               ac>0.5?'ELEVATED — above normal':
-               ac>0.3?'MODERATE — some clustering':'LOW — healthy';
-    const riskColor=ac>0.7?'var(--dn)':ac>0.5?'var(--org)':ac>0.3?'var(--yel)':'var(--up)';
-    corrDetail.innerHTML=`
-      <div class="rm"><span class="k">AVG PAIRWISE CORR</span><span class="v" style="color:${riskColor};font-weight:700">${ac.toFixed(4)}</span></div>
-      <div class="rm"><span class="k">SECURITIES</span><span class="v dim">${_corrData.tickers.length}</span></div>
-      <div class="rm"><span class="k">REGIME</span><span class="v" style="color:${riskColor};font-size:9px">${risk}</span></div>
-      <div style="font-size:9px;color:var(--txt3);margin-top:6px;line-height:1.5">Above 0.7 = all assets fall together. Leading indicator of market stress.</div>`;
-  } else {
-    corrDetail.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">Correlation data unavailable — need price history for 2+ securities</div>';
+  // Update avg corr KPI card (panel 3 is now large trades)
+  if(_corrData && _corrData.tickers){
+    const ac=_corrData.avg_corr;
+    const corrEl=document.getElementById('ex-corr');
+    if(corrEl){ corrEl.textContent=ac!=null?ac.toFixed(3):'—'; corrEl.style.color=ac>0.7?'var(--dn)':ac>0.4?'var(--yel)':'var(--up)'; }
   }
 
   renderExchRows();
@@ -169,14 +167,15 @@ window.renderExchRows = function(){
       <td class="r yel">${s.volatility}%</td>
       <td class="r ${s.sharpe>=0?'up':'dn'}">${f(s.sharpe,2)}</td>
       <td class="r dn">-${s.max_dd}%</td>
-      <td class="r" style="color:${momColor};font-size:9px">${mom}</td>`;
+      <td class="r" style="color:${momColor};font-size:9px">${mom}</td>
+      <td><button style="font-size:8px;padding:1px 4px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button style="font-size:8px;padding:1px 4px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','sell')">S</button></td>\`;
     tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
     tb.appendChild(tr);
   });
   document.getElementById('ex-tbl-sub').textContent=`${sorted.length} securities`;
 };
 
-function renderExchCharts(){
+async function renderExchCharts(){
   const top10=[..._data.tickers].sort((a,b)=>b.mcap-a.mcap).slice(0,10);
   _cCap=dc(_cCap);
   _cCap=new Chart(document.getElementById('ex-cap-c'),{type:'bar',
@@ -185,15 +184,106 @@ function renderExchCharts(){
       plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` ${fk(c.parsed.x)}`}}},
       scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',callback:v=>fk(v)}},y:{grid:{display:false},ticks:{color:'#888'}}}}});
 
-  const mData=[..._data.tickers].sort((a,b)=>b.chg_pct-a.chg_pct);
+  // Advance/Decline stacked bar: show each ticker's contribution
+  const adData=[..._data.tickers].sort((a,b)=>b.chg_pct-a.chg_pct);
+  const upTickers=adData.filter(s=>s.chg_pct>0);
+  const dnTickers=adData.filter(s=>s.chg_pct<0);
+  const flatTickers=adData.filter(s=>s.chg_pct===0);
   _cMom=dc(_cMom);
   _cMom=new Chart(document.getElementById('ex-mom-c'),{type:'bar',
-    data:{labels:mData.map(s=>s.ticker),datasets:[{data:mData.map(s=>s.chg_pct),
-      backgroundColor:mData.map(s=>s.chg_pct>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'),borderWidth:0}]},
+    data:{
+      labels:adData.map(s=>s.ticker),
+      datasets:[
+        {data:adData.map(s=>s.chg_pct>=0?s.chg_pct:0),backgroundColor:'rgba(0,200,83,.75)',borderWidth:0,label:'UP'},
+        {data:adData.map(s=>s.chg_pct<0?s.chg_pct:0),backgroundColor:'rgba(244,67,54,.75)',borderWidth:0,label:'DN'},
+      ]
+    },
     options:{responsive:true,maintainAspectRatio:false,animation:false,
-      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` ${c.parsed.y?.toFixed(2)}%`}}},
-      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',font:{size:8}}},
-              y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v+'%'}}}}});
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{
+        title:c=>c[0].label,
+        label:c=>c.parsed.y!==0?` ${c.parsed.y.toFixed(2)}%`:null
+      }}},
+      scales:{
+        x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',font:{size:8}},stacked:true},
+        y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v+'%'},stacked:true}
+      }
+    }
+  });
+
+  // Large trades feed
+  const tr=await api('/api/transactions?type=Trade&limit=100');
+  const ltEl=document.getElementById('ex-large-trades');
+  if(tr.ok&&Array.isArray(tr.d)){
+    const large=tr.d.filter(tx=>Math.abs(tx.quantity||0)>=100).slice(0,30);
+    document.getElementById('ex-lt-sub').textContent=large.length?' — '+large.length+' shown':'';
+    ltEl.innerHTML=large.length?large.map(tx=>{
+      const isBuy=(tx.amount||0)<0;
+      const dt=tx.timestamp?new Date(tx.timestamp):null;
+      const time=dt?dt.toLocaleTimeString('en-GB',{hour12:false}):'—';
+      const val=Math.abs(tx.amount||0);
+      return `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;cursor:pointer" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${tx.ticker}'),200)">
+        <span style="font-size:9px;color:var(--txt3);width:44px;font-variant-numeric:tabular-nums">${time}</span>
+        <span style="font-weight:700;color:var(--org);width:38px">${tx.ticker}</span>
+        <span style="font-weight:700;font-size:9px;color:${isBuy?'var(--up)':'var(--dn)'};width:30px">${isBuy?'BUY':'SELL'}</span>
+        <span style="color:var(--wht);width:52px;text-align:right;font-variant-numeric:tabular-nums">${Math.abs(tx.quantity||0).toLocaleString()} sh</span>
+        <span style="color:var(--yel);flex:1;text-align:right;font-variant-numeric:tabular-nums">$${f(val,0)}</span>
+        <button style="font-size:8px;padding:1px 3px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();exchQuickOrder('${tx.ticker}','buy')">B</button>
+        <button style="font-size:8px;padding:1px 3px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();exchQuickOrder('${tx.ticker}','sell')">S</button>
+      </div>`;
+    }).join(''):'<div class="loading" style="padding:12px">No large trades found</div>';
+  }
 }
+window.exchQuickOrder = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
+};
+
+// ── Live trade stream strip ──────────────────────────────────────────────────
+let _streamTrades = [], _streamPos = 0, _streamRaf = null;
+async function updateStream() {
+  const r = await api('/api/transactions?type=Trade&limit=30');
+  if(!r.ok || !Array.isArray(r.d)) return;
+  const known = new Set(_streamTrades.map(t=>t.id||t.timestamp));
+  const newTs = r.d.filter(t=>!known.has(t.id||t.timestamp));
+  _streamTrades = r.d;
+  if(!newTs.length) return;
+  // Prepend new trades to stream
+  const inner = document.getElementById('ex-stream-inner');
+  if(!inner) return;
+  newTs.reverse().forEach(tx => {
+    const isBuy = (tx.amount||0) < 0;
+    const span = document.createElement('span');
+    span.style.cssText = `display:inline-flex;align-items:center;gap:4px;padding:0 12px;font-size:9px;border-right:1px solid var(--bdr);white-space:nowrap;color:${isBuy?'var(--up)':'var(--dn)'}`;
+    span.innerHTML = `<span style="color:var(--org);font-weight:700">${tx.ticker}</span>
+      <span style="font-weight:700">${isBuy?'▲':'▼'}</span>
+      <span style="color:var(--wht)">${Math.abs(tx.quantity||0).toLocaleString()}sh</span>
+      <span style="color:var(--yel)">$${f(tx.price||0,4)}</span>`;
+    span.style.animation = 'tape-flash .9s ease-out';
+    inner.prepend(span);
+    // keep max 60 items
+    while(inner.children.length > 60) inner.removeChild(inner.lastChild);
+  });
+}
+// Scroll the stream continuously
+function animateStream() {
+  const inner = document.getElementById('ex-stream-inner');
+  if(inner) {
+    _streamPos -= 0.4;
+    if(-_streamPos > inner.scrollWidth) _streamPos = 0;
+    inner.style.transform = `translateX(${_streamPos}px)`;
+  }
+  _streamRaf = requestAnimationFrame(animateStream);
+}
+window.PAGE_exch_onShow = function(){
+  if(!_data) loadExch();
+  updateStream();
+  if(!_streamRaf) animateStream();
+};
+setInterval(updateStream, 6000);
+
 })();
 </script>
