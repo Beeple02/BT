@@ -30,7 +30,7 @@
           <th>TICKER</th><th>NAME</th>
           <th class="r">HOLDERS</th><th class="r">HHI</th>
           <th class="r">TOP 1</th><th class="r">TOP 3</th><th class="r">TOP 5</th><th class="r">TOP 10</th>
-          <th class="r">WHALES</th><th class="r">GINI</th><th class="r">SUBSTANTIAL</th>
+          <th class="r">WHALES</th><th class="r">GINI</th><th class="r">SUBSTANTIAL</th><th>ACT</th><th>ACT</th>
         </tr></thead>
         <tbody id="hi-tbody"><tr><td colspan="11" class="loading">LOADING…</td></tr></tbody>
       </table>
@@ -156,6 +156,8 @@ window.loadHolders = async function(){
       <span style="font-size:9px;color:var(--txt3)">…${s.user.slice(-8)}</span>
       <span style="margin-left:auto;color:${s.pct>=25?'var(--dn)':s.pct>=10?'var(--org)':'var(--yel)'};font-weight:700">${s.pct}%</span>
       <span style="font-size:8px;color:var(--txt3)">${s.pct>=25?'DOMINANT':s.pct>=15?'SUBSTANTIAL':'THRESHOLD'}</span>
+      <button class="act-b" style="margin-left:4px" onclick="holdersQuickOrder('${s.ticker}','buy')">B</button>
+      <button class="act-s" onclick="holdersQuickOrder('${s.ticker}','sell')">S</button>
     </div>`).join('')
   :'<div style="padding:8px;font-size:9px;color:var(--txt3)">No substantial holders (≥10%) detected</div>';
 
@@ -193,6 +195,13 @@ window.loadHolders = async function(){
       <td class="r ${s.whale_count>0?'org':''}">${s.whale_count}</td>
       <td class="r dim">${s.hhi&&s.hhi>0?((s.hhi/10000)**0.5).toFixed(3):'—'}</td>
       <td class="r">${subStr}</td>`;
+    const btnTd = document.createElement('td');
+    btnTd.style.whiteSpace = 'nowrap';
+    btnTd.innerHTML = `<button style="font-size:8px;padding:1px 4px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();holdQO('${s.ticker}','buy')">B</button>&nbsp;<button style="font-size:8px;padding:1px 4px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();holdQO('${s.ticker}','sell')">S</button>`;
+    tr.appendChild(btnTd);
+    const actTd = document.createElement('td');
+    actTd.innerHTML = `<button class="act-b" onclick="event.stopPropagation();holdersQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();holdersQuickOrder('${s.ticker}','sell')">S</button>`;
+    tr.appendChild(actTd);
     tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
     tb.appendChild(tr);
   });
@@ -227,6 +236,23 @@ window.loadHolders = async function(){
     options:{responsive:true,maintainAspectRatio:false,animation:false,indexAxis:'y',
       plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>[` HHI: ${c.parsed.x}`,` Class: ${c.parsed.x>2500?'HIGH':c.parsed.x>1500?'MODERATE':'LOW'}`]}}},
       scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444'},min:0},y:{grid:{display:false},ticks:{color:'#888',font:{size:9}}}}}});
+};
+window.holdQO = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
+};
+
+window.holdersQuickOrder = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
 };
 })();
 </script>
