@@ -24,8 +24,12 @@
 .ti{display:inline-flex;gap:5px;align-items:center;padding:0 14px;font-size:10px;border-right:1px solid var(--bdr);cursor:pointer}
 .ti-s{color:var(--cyn);font-weight:700}.ti-p{font-variant-numeric:tabular-nums}
 .ti-chg{font-size:9px;font-variant-numeric:tabular-nums}
+.ti-exch{font-size:8px;padding:1px 3px;border-radius:2px;font-weight:700;letter-spacing:.5px;line-height:1.2}
+.ti-exch.ner{background:rgba(255,140,0,.18);color:var(--org)}
+.ti-exch.tse{background:rgba(0,229,255,.15);color:var(--cyn)}
 @keyframes tape-flash{0%{background:rgba(255,140,0,.25)}100%{background:transparent}}
 .ti.flash{animation:tape-flash .8s ease-out}
+#exch-filter{background:#111;border:1px solid var(--bdr);color:var(--wht);font-size:10px;padding:1px 5px;border-radius:2px;cursor:pointer;font-family:inherit;height:18px}
 #fkbar{display:flex;background:#000;border-bottom:2px solid var(--bdr);flex-shrink:0;height:24px;overflow-x:auto;overflow-y:hidden}
 .fk{flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:5px;height:100%;cursor:pointer;border-right:1px solid var(--bdr);font-size:10px;transition:background .08s;user-select:none;color:var(--txt2);padding:0 12px}
 .fk:hover{background:var(--bg3);color:var(--txt)}
@@ -47,7 +51,8 @@
 
 <div id="topbar">
   <div class="tb-brand">BLOOMBERG</div>
-  <div class="tb-seg"><span class="l">EXCHANGE</span><span class="v">NER — REDMONT</span></div>
+  <div class="tb-seg"><span class="l">EXCHANGE</span><span class="v">NER + TSE</span></div>
+  <div class="tb-seg" style="gap:5px"><span class="l">TAPE</span><select id="exch-filter" onchange="BB.exchFilter=this.value;buildTape(BB.secs)"><option value="ALL">ALL</option><option value="NER">NER</option><option value="TSE">TSE</option></select></div>
   <div class="tb-seg"><span class="tb-dot dead" id="tb-dot"></span><span class="v" id="tb-conn">CONNECTING</span></div>
   <div class="tb-seg"><span class="l">TIER</span><span class="v" id="tb-tier">TRADING</span></div>
   <div class="tb-seg"><span class="l">SECS</span><span class="v" id="tb-nsec">—</span></div>
@@ -226,13 +231,17 @@ document.addEventListener('keydown',e=>{
 // ── Ticker tape ───────────────────────────────────────────────────────────────
 function buildTape(newList){
   const inner=document.getElementById('tape-inner');
+  // Apply exchange filter
+  const filt=(BB.exchFilter||'ALL');
+  const filtered = filt==='ALL' ? newList : newList.filter(s=>(s.exchange||'NER')===filt);
   // detect changes from previous render and flash those tickers
   const prev=window._tapePrev||{};
-  const changed=new Set(newList.filter(s=>prev[s.ticker]&&prev[s.ticker]!==s.market_price).map(s=>s.ticker));
-  window._tapePrev=Object.fromEntries(newList.map(s=>[s.ticker,s.market_price]));
+  const changed=new Set(filtered.filter(s=>prev[s.ticker+':'+(s.exchange||'NER')]&&prev[s.ticker+':'+(s.exchange||'NER')]!==s.market_price).map(s=>s.ticker+':'+(s.exchange||'NER')));
+  window._tapePrev=Object.fromEntries(filtered.map(s=>[s.ticker+':'+(s.exchange||'NER'),s.market_price]));
   const chg=s=>s.change_pct??0;
-  inner.innerHTML=newList.map(s=>`<span class="ti${changed.has(s.ticker)?' flash':''}" data-tk="${s.ticker}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${s.ticker}'),200)">
-    <span class="ti-s">${s.ticker}</span>
+  const exLabel=s=>{const ex=(s.exchange||'NER');return `<span class="ti-exch ${ex.toLowerCase()}">${ex}</span>`;};
+  inner.innerHTML=filtered.map(s=>`<span class="ti${changed.has(s.ticker+':'+(s.exchange||'NER'))?' flash':''}" data-tk="${s.ticker}" data-ex="${s.exchange||'NER'}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_onShow&&PAGE_tkr_onShow('${s.ticker}','${s.exchange||'NER'}'),200)">
+    ${exLabel(s)}<span class="ti-s">${s.ticker}</span>
     <span class="ti-p" style="color:${gcI(chg(s))}">${f(s.market_price,4)}</span>
     <span class="ti-chg" style="color:${gcI(chg(s))}">${chg(s)>=0?'+':''}${chg(s).toFixed(2)}%</span>
   </span>`).join('');
