@@ -393,8 +393,13 @@ window.opSide=function(s){
 // ── ticker ─────────────────────────────────────────────────────
 window.opTickerChg=function(){
   const tk=g('op-tk').value;
-  if(!tk){_quote=null;_lastPx=null;g('op-sub').disabled=true;return;}
-  _ohlcv=null;refreshQ();refreshPos(tk);g('op-sub').disabled=false;
+  if(!tk){_quote=null;_lastPx=null;g('op-sub').disabled=true;
+    const ticket=document.querySelector('.op-ticket-inner');if(ticket)ticket.style.opacity='1';
+    const w=g('op-warn');if(w)w.textContent='';
+    return;
+  }
+  _ohlcv=null;refreshQ();refreshPos(tk);
+  // Don't enable submit yet — refreshQ will enable it after frozen check
 };
 
 async function refreshQ(){
@@ -436,6 +441,23 @@ async function refreshQ(){
         e.style.color=sec&&sec.change_pct<0?'var(--dn)':'var(--up)';
       }
     }
+  }
+  // Frozen ticker check — block trading if frozen
+  const sec = (BB.secs||[]).find(s=>s.ticker===tk);
+  const frozen = sec?.frozen || (mktR.ok && mktR.d?.frozen) || false;
+  const sb = g('op-sub');
+  const warn = g('op-warn');
+  if(frozen){
+    if(sb) sb.disabled = true;
+    if(warn){ warn.textContent = '🔒 TICKER FROZEN — trading suspended by exchange'; warn.style.color = 'var(--dn)'; }
+    // Dim the form visually
+    const ticket = document.querySelector('.op-ticket-inner');
+    if(ticket) ticket.style.opacity = '0.55';
+  } else {
+    if(sb && tk) sb.disabled = false;
+    if(warn && warn.textContent.includes('FROZEN')){ warn.textContent = ''; }
+    const ticket = document.querySelector('.op-ticket-inner');
+    if(ticket) ticket.style.opacity = '1';
   }
   calcTrail();opPrev();
 }
@@ -625,6 +647,9 @@ function calcTrail(){const e=g('p-trail-stop');if(!e||!_quote)return;const last=
 window.opModal=function(){
   const tk=g('op-tk').value;if(!tk){lg('Select a ticker.','warn');return;}
   const qty=nv('op-qty');if(!qty){lg('Enter quantity.','warn');return;}
+  // Final frozen check before showing modal
+  const sec=(BB.secs||[]).find(s=>s.ticker===tk);
+  if(sec?.frozen){lg(`✗ ${tk} is frozen — trading suspended by the exchange.`,'err');return;}
   const t=g('op-type').value,lp=getLp(t),val=qty*lp,comm=val*CR;
   const rows=[['SECURITY',tk,'color:var(--org);font-size:13px'],['ACTION',_side.toUpperCase(),_side==='buy'?'color:var(--up)':'color:var(--dn)'],['ORDER TYPE',tLbl(t),''],['QUANTITY',qty.toLocaleString(),'']];
   if(lp)rows.push(['LIMIT PRICE','$'+f(lp,4),'']);
