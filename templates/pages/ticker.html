@@ -436,6 +436,6 @@ function countWalls(bids, asks) {
 // Auto-refresh prints every 8s when page is active
 setInterval(()=>{
   if(BB.activePanel==='tkr' && _d?.ticker) loadTkrPrints(_d.ticker);
-}, 8000);
+}, 30000);
 })();
 </script>
