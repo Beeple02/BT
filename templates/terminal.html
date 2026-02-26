@@ -256,6 +256,7 @@ document.getElementById('cmd-in').addEventListener('keydown', e=>{
   if(parts[0]==='WATCH'&&parts[1]){
     if(!BB.watchlist.find(w=>w.ticker===parts[1]))
       BB.watchlist.push({ticker:parts[1],price:null,prev:null,hi:null,lo:null});
+      fetch('/api/session/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(BB.watchlist)}).catch(()=>{});
     sw('wl');st('Added '+parts[1]+' to watchlist');return;
   }
   if(parts[0]==='LIQ'&&parts[1]){
@@ -359,6 +360,11 @@ function updateTapeItem(ticker, sec) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init(){
+  // Restore watchlist from backend session
+  try{
+    const wr=await fetch('/api/session/watchlist');
+    if(wr.ok){const wl=await wr.json();if(Array.isArray(wl)&&wl.length)BB.watchlist=wl;}
+  }catch(e){}
   const r=await api('/api/securities');
   const dot=document.getElementById('tb-dot'),conn=document.getElementById('tb-conn');
   if(!r.ok){conn.textContent='OFFLINE';dot.className='tb-dot dead';return;}
