@@ -129,9 +129,19 @@ function populateSel(id, prependAll) {
   const el = document.getElementById(id);
   if (!el) return;
   const cur = el.value;
-  const opts = (BB.secs || []).map(s =>
-    `<option value="${s.ticker}"${s.ticker===cur?' selected':''}>${s.ticker} — ${s.full_name}</option>`
-  ).join('');
+  // Detect duplicate tickers (dual-listed) to label them with exchange
+  const tickerCount = {};
+  (BB.secs || []).forEach(s => { tickerCount[s.ticker] = (tickerCount[s.ticker]||0) + 1; });
+  const opts = (BB.secs || []).map(s => {
+    const isDual = tickerCount[s.ticker] > 1;
+    const ex = s.exchange || 'NER';
+    const label = isDual
+      ? `${s.ticker} [${ex}] — ${s.full_name}`
+      : `${s.ticker} — ${s.full_name}`;
+    // For dual-listed, value encodes exchange so PAGE_tkr_load can route correctly
+    const val = isDual ? `${s.ticker}|${ex}` : s.ticker;
+    return `<option value="${val}"${(s.ticker===cur||val===cur)?' selected':''}>${label}</option>`;
+  }).join('');
   el.innerHTML = (prependAll
     ? '<option value="*">ALL TICKERS</option>'
     : '<option value="">SELECT…</option>') + opts;
