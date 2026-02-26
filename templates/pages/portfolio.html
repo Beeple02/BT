@@ -450,7 +450,7 @@ function startLivePnL(holds) {
     if(strip){ strip.classList.remove('pf-live-pulse'); void strip.offsetWidth; strip.classList.add('pf-live-pulse'); }
   }
   update();
-  _liveIv = setInterval(update, 15000);
+  _liveIv = setInterval(update, 60000);
 }
 
 // ── Attribution rendering ─────────────────────────────────────────────────────
