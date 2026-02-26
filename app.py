@@ -83,7 +83,7 @@ def cached_get(path, params=None, auth=False, ttl=15):
 
 # Bulk orderbook cache — one call, filter by ticker in Python
 _ob_cache = {"ts": 0, "data": None}
-_OB_TTL = 4  # seconds
+_OB_TTL = 10  # seconds
 
 def get_all_orderbooks():
     """Single /orderbook call that returns all tickers. Shared across all routes."""
@@ -157,11 +157,11 @@ def ner_post(path, payload, _retries=2):
 # ── Pass-through proxies ──────────────────────────────────────────────────────
 @app.route("/api/securities")
 def securities():
-    s, d = cached_get("/securities", ttl=20); return jsonify(d), s
+    s, d = cached_get("/securities", ttl=60); return jsonify(d), s
 
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
-    s, d = cached_get(f"/market_price/{ticker}", ttl=5); return jsonify(d), s
+    s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
 
 @app.route("/api/shareholders")
 def shareholders():
@@ -186,13 +186,13 @@ def orderbook():
 @app.route("/api/analytics/price_history/<ticker>")
 def price_history(ticker):
     s, d = cached_get(f"/analytics/price_history/{ticker}",
-                      params={"days": request.args.get("days", 30)}, ttl=60)
+                      params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
 @app.route("/api/analytics/ohlcv/<ticker>")
 def ohlcv(ticker):
     s, d = cached_get(f"/analytics/ohlcv/{ticker}",
-                      params={"days": request.args.get("days", 30)}, ttl=60)
+                      params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
 @app.route("/api/portfolio")
@@ -398,7 +398,7 @@ def compare():
 @app.route("/api/market_breadth")
 def market_breadth():
     days = int(request.args.get("days", 7))
-    s, secs = cached_get("/securities", ttl=20)
+    s, secs = cached_get("/securities", ttl=60)
     if s != 200: return jsonify({"detail": "Cannot fetch securities"}), s
 
     results = []
@@ -466,7 +466,7 @@ def market_breadth():
 # ── GLOBAL ORDERBOOK AGGREGATOR ───────────────────────────────────────────────
 @app.route("/api/market_orderbook")
 def market_orderbook():
-    s_secs, secs = cached_get("/securities", ttl=20)
+    s_secs, secs = cached_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
     all_ob = get_all_orderbooks(); s_ob = 200 if all_ob else 503
     if s_ob != 200 or not isinstance(all_ob, list):
@@ -522,7 +522,7 @@ def market_orderbook():
 @app.route("/api/exchange_analytics")
 def exchange_analytics():
     days = int(request.args.get("days", 7))
-    s_secs, secs = cached_get("/securities", ttl=20)
+    s_secs, secs = cached_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
     ticker_data = []
@@ -594,7 +594,7 @@ def liquidity_lab(ticker):
     ob = get_ticker_orderbook(ticker)
     if ob is None:
         return jsonify({"detail": "Orderbook unavailable"}), 503
-    s_sec, secs_data = cached_get("/securities", ttl=20)
+    s_sec, secs_data = cached_get("/securities", ttl=60)
     sec = next((s for s in (secs_data if isinstance(secs_data, list) else []) if s["ticker"]==ticker), {})
     total_shares = sec.get("total_shares", 1) or 1
     s_ob = 200  # we got data from bulk cache
@@ -670,7 +670,7 @@ def liquidity_lab(ticker):
 @app.route("/api/holder_intel")
 def holder_intel():
     """Exchange-wide shareholder intelligence."""
-    s_secs, secs = cached_get("/securities", ttl=20)
+    s_secs, secs = cached_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
     all_data = []
@@ -739,7 +739,7 @@ def holder_intel_ticker(ticker):
     holders = get_ticker_shareholders(ticker)
     if not isinstance(holders, list) or not holders:
         return jsonify({"detail": "No holders found for ticker"}), 404
-    _, sec_list = cached_get("/securities", ttl=20)
+    _, sec_list = cached_get("/securities", ttl=60)
     sec = next((s for s in (sec_list if isinstance(sec_list,list) else []) if s["ticker"]==ticker), {})
     total_shares = sec.get("total_shares", 0)
     total_held   = sum(h["quantity"] for h in holders) if holders else 0
@@ -869,11 +869,6 @@ def webhook_ner():
             "updated_at":   data.get("updated_at", ""),
         }
 
-        # Also invalidate the local cache for this ticker so next poll gets fresh data
-        keys_to_drop = [k for k in _cache if f"/{ticker}" in k or f"ticker={ticker}" in k]
-        for k in keys_to_drop:
-            _cache.pop(k, None)
-
         # Broadcast to all SSE subscribers
         sse_broadcast("market_update", _sse_state[ticker])
         return jsonify({"ok": True}), 200
@@ -978,13 +973,13 @@ def transactions():
     ttype  = request.args.get("type", "")
     params = {"limit": limit, "offset": offset}
     if ttype: params["type"] = ttype
-    s, d = cached_get("/transactions", params=params, auth=True, ttl=0)  # always live
+    s, d = cached_get("/transactions", params=params, auth=True, ttl=10)  # short cache
     return jsonify(d), s
 
 # ── OPEN ORDERS ────────────────────────────────────────────────────────────────
 @app.route("/api/orders_open")
 def orders_open():
-    s, d = cached_get("/orders", auth=True, ttl=0)  # always live
+    s, d = cached_get("/orders", auth=True, ttl=5)  # short cache
     return jsonify(d), s
 
 @app.route("/api/orders_open/<order_id>", methods=["DELETE"])
@@ -998,7 +993,7 @@ def cancel_order(order_id):
 # ── FUNDS ─────────────────────────────────────────────────────────────────────
 @app.route("/api/funds")
 def funds():
-    s, d = cached_get("/funds", auth=True, ttl=0)  # always live
+    s, d = cached_get("/funds", auth=True, ttl=8)  # short cache
     return jsonify(d), s
 
 # ── ROLLING CORRELATION + PAIRS SPREAD ────────────────────────────────────────
@@ -1057,7 +1052,7 @@ def rolling_correlation():
 @app.route("/api/correlation_matrix")
 def correlation_matrix():
     days = int(request.args.get("days", 30))
-    _, secs_data = cached_get("/securities", ttl=20)
+    _, secs_data = cached_get("/securities", ttl=60)
     tickers = [s["ticker"] for s in (secs_data if isinstance(secs_data,list) else [])][:20]  # cap at 20
     # Fetch closes for all
     closes_map = {}
