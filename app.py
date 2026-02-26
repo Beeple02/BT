@@ -4,9 +4,9 @@ Bloomberg Terminal — NER Exchange
 Architecture: Flask proxy backend + split HTML page files
 Run: python app.py → http://localhost:5000
 """
-import os, time, math, statistics
+import os, time, math, statistics, json, queue, threading
 import requests
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, Response, stream_with_context
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
@@ -26,6 +26,26 @@ AUTH_H   = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 PUB_H    = {"Content-Type": "application/json"}
 _cache: dict = {}
 
+# ── SSE / Webhook state ───────────────────────────────────────────────────────
+# _sse_queues: set of active queue.Queue objects, one per connected SSE client
+# _sse_state:  latest known data per ticker, pushed to new subscribers immediately
+_sse_queues: set = set()
+_sse_lock = threading.Lock()
+_sse_state: dict = {}   # ticker → {market_price, frozen, orderbook, updated_at}
+
+def sse_broadcast(event_type: str, data: dict):
+    """Push an SSE event to all connected clients."""
+    payload = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+    dead = set()
+    with _sse_lock:
+        for q in _sse_queues:
+            try:
+                q.put_nowait(payload)
+            except queue.Full:
+                dead.add(q)
+        for q in dead:
+            _sse_queues.discard(q)
+
 # ── Cache helpers ─────────────────────────────────────────────────────────────
 # Only caches 200 responses — errors are never stored so stale 404s can't persist.
 # Auth endpoints (orders, funds, transactions) use ttl=0 to always bypass cache
@@ -36,6 +56,8 @@ def cached_get(path, params=None, auth=False, ttl=15):
         try:
             r = requests.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
                              params=params, timeout=10)
+            if r.status_code == 429:
+                return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
             return r.status_code, r.json()
         except Exception as ex:
             return 503, {"detail": str(ex)}
@@ -46,6 +68,12 @@ def cached_get(path, params=None, auth=False, ttl=15):
     try:
         r = requests.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
                          params=params, timeout=10)
+        if r.status_code == 429:
+            # 429 — return stale cache if available, else propagate
+            if e:
+                print(f"[cache] 429 from NER on {path} — serving stale (age {int(time.time()-e['ts'])}s)")
+                return e["s"], e["d"]
+            return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
         result = (r.status_code, r.json())
     except Exception as ex:
         result = (503, {"detail": str(ex)})
@@ -81,7 +109,8 @@ def get_ticker_orderbook(ticker):
 
 # Bulk shareholders cache — one call covers all tickers
 # Per-ticker shareholders cache — NER requires ticker param, no bulk endpoint
-_sh_ticker_cache: dict = {}   # ticker → {"ts": float, "data": list}
+_sh_ticker_cache: dict = {}
+   # ticker → {"ts": float, "data": list}
 _SH_TICKER_TTL = 90           # seconds
 
 def get_ticker_shareholders(ticker):
@@ -107,12 +136,23 @@ def get_ticker_shareholders(ticker):
     # Return stale data if available rather than nothing
     return _sh_ticker_cache.get(ticker, {}).get("data", [])
 
-def ner_post(path, payload):
-    try:
-        r = requests.post(f"{NER_BASE}{path}", headers=AUTH_H, json=payload, timeout=10)
-        return r.status_code, r.json()
-    except Exception as e:
-        return 503, {"detail": str(e)}
+def ner_post(path, payload, _retries=2):
+    """POST to NER with 429 retry (up to _retries times, 2s backoff)."""
+    for attempt in range(_retries + 1):
+        try:
+            r = requests.post(f"{NER_BASE}{path}", headers=AUTH_H, json=payload, timeout=10)
+            if r.status_code == 429 and attempt < _retries:
+                retry_after = int(r.headers.get("Retry-After", 2))
+                print(f"[ner_post] 429 on {path} — retrying in {retry_after}s (attempt {attempt+1})")
+                time.sleep(min(retry_after, 5))
+                continue
+            return r.status_code, r.json()
+        except Exception as e:
+            if attempt < _retries:
+                time.sleep(1)
+                continue
+            return 503, {"detail": str(e)}
+    return 429, {"detail": "Order rate limited by NER — please wait and retry."}
 
 # ── Pass-through proxies ──────────────────────────────────────────────────────
 @app.route("/api/securities")
@@ -806,14 +846,103 @@ def backtest():
             "num_trades":len(trades),"win_rate":round(len(win_trades)/max(len(trades)//2,1)*100,1),
             "final_equity":round(end_eq,2)}})
 
+# ── WEBHOOK RECEIVER (NER → Flask → SSE clients) ─────────────────────────────
+@app.route("/webhook/ner", methods=["POST"])
+def webhook_ner():
+    """
+    Receives NER market_update webhooks.
+    Payload: {event, ticker, market_price, frozen, orderbook, updated_at}
+    Stores latest state and broadcasts to all SSE clients.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        ticker = data.get("ticker")
+        if not ticker:
+            return jsonify({"ok": False, "detail": "No ticker"}), 400
+
+        # Update SSE state cache
+        _sse_state[ticker] = {
+            "ticker":       ticker,
+            "market_price": data.get("market_price"),
+            "frozen":       data.get("frozen", False),
+            "orderbook":    data.get("orderbook", {}),
+            "updated_at":   data.get("updated_at", ""),
+        }
+
+        # Also invalidate the local cache for this ticker so next poll gets fresh data
+        keys_to_drop = [k for k in _cache if f"/{ticker}" in k or f"ticker={ticker}" in k]
+        for k in keys_to_drop:
+            _cache.pop(k, None)
+
+        # Broadcast to all SSE subscribers
+        sse_broadcast("market_update", _sse_state[ticker])
+        return jsonify({"ok": True}), 200
+    except Exception as ex:
+        return jsonify({"ok": False, "detail": str(ex)}), 500
+
+
+# ── SSE STREAM (Flask → browser) ──────────────────────────────────────────────
+@app.route("/api/stream")
+def sse_stream():
+    """
+    Server-Sent Events endpoint.
+    Immediately sends current state for all known tickers, then streams live updates.
+    Clients: EventSource('/api/stream')
+    """
+    def generate():
+        q = queue.Queue(maxsize=200)
+        with _sse_lock:
+            _sse_queues.add(q)
+
+        # Send current state snapshot to new subscriber
+        try:
+            if _sse_state:
+                snapshot = {"tickers": list(_sse_state.values())}
+                yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
+
+            # Heartbeat comment every 25s to keep connection alive through proxies
+            last_hb = time.time()
+            while True:
+                try:
+                    msg = q.get(timeout=25)
+                    yield msg
+                    last_hb = time.time()
+                except queue.Empty:
+                    # Send SSE comment as heartbeat (ignored by EventSource)
+                    yield f": heartbeat {int(time.time())}\n\n"
+                    last_hb = time.time()
+        except GeneratorExit:
+            pass
+        finally:
+            with _sse_lock:
+                _sse_queues.discard(q)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # disable nginx buffering
+            "Connection": "keep-alive",
+        }
+    )
+
+
+# ── SSE STATE ENDPOINT (for initial load without waiting for webhook) ──────────
+@app.route("/api/stream/state")
+def sse_state():
+    """Returns current SSE state snapshot (for clients that missed the snapshot event)."""
+    return jsonify({"tickers": list(_sse_state.values())}), 200
+
+
 # ── PAGES ─────────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():           return render_template("terminal.html")
 @app.route("/page/<name>")
-def page(name):
+def page(n):
     allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news"]
-    if name not in allowed: return "Not found", 404
-    return render_template(f"pages/{name}.html")
+    if n not in allowed: return "Not found", 404
+    return render_template(f"pages/{n}.html")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
