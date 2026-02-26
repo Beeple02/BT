@@ -49,7 +49,7 @@
   <div class="tb-brand">BLOOMBERG</div>
   <div class="tb-seg"><span class="l">EXCHANGE</span><span class="v">NER — REDMONT</span></div>
   <div class="tb-seg"><span class="tb-dot dead" id="tb-dot"></span><span class="v" id="tb-conn">CONNECTING</span></div>
-  <div class="tb-seg"><span class="l">TIER</span><span class="v">ANALYST</span></div>
+  <div class="tb-seg"><span class="l">TIER</span><span class="v" id="tb-tier">TRADING</span></div>
   <div class="tb-seg"><span class="l">SECS</span><span class="v" id="tb-nsec">—</span></div>
   <div class="tb-seg" id="tb-session" style="gap:12px">
     <span><span class="l">P&amp;L </span><span class="v" id="tb-pnl" style="color:var(--txt2)">—</span></span>
@@ -231,7 +231,7 @@ function buildTape(newList){
   const changed=new Set(newList.filter(s=>prev[s.ticker]&&prev[s.ticker]!==s.market_price).map(s=>s.ticker));
   window._tapePrev=Object.fromEntries(newList.map(s=>[s.ticker,s.market_price]));
   const chg=s=>s.change_pct??0;
-  inner.innerHTML=newList.map(s=>`<span class="ti${changed.has(s.ticker)?' flash':''}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${s.ticker}'),200)">
+  inner.innerHTML=newList.map(s=>`<span class="ti${changed.has(s.ticker)?' flash':''}" data-tk="${s.ticker}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${s.ticker}'),200)">
     <span class="ti-s">${s.ticker}</span>
     <span class="ti-p" style="color:${gcI(chg(s))}">${f(s.market_price,4)}</span>
     <span class="ti-chg" style="color:${gcI(chg(s))}">${chg(s)>=0?'+':''}${chg(s).toFixed(2)}%</span>
@@ -274,6 +274,88 @@ document.getElementById('cmd-in').addEventListener('keydown', e=>{
     st('UNKNOWN: '+parts[0]);
   }
 });
+
+// ── SSE — Real-time market updates ───────────────────────────────────────────
+// Connects to /api/stream (Server-Sent Events).
+// Updates BB.secs prices in real-time without polling.
+// Falls back gracefully if SSE not available.
+(function initSSE() {
+  if (typeof EventSource === 'undefined') return; // no SSE support
+
+  let es, reconnectMs = 3000;
+
+  function connect() {
+    es = new EventSource('/api/stream');
+
+    // Snapshot: full state dump sent on connect
+    es.addEventListener('snapshot', e => {
+      try {
+        const snap = JSON.parse(e.data);
+        (snap.tickers || []).forEach(t => applyTickerUpdate(t));
+      } catch (_) {}
+    });
+
+    // Individual ticker update
+    es.addEventListener('market_update', e => {
+      try {
+        const t = JSON.parse(e.data);
+        applyTickerUpdate(t);
+        // Flash the tape item
+        const tapeEl = document.querySelector(`.ti[data-tk="${t.ticker}"]`);
+        if (tapeEl) { tapeEl.classList.remove('flash'); void tapeEl.offsetWidth; tapeEl.classList.add('flash'); }
+      } catch (_) {}
+    });
+
+    es.onopen = () => {
+      reconnectMs = 3000;
+      const dot = document.getElementById('tb-dot');
+      if (dot) { dot.className = 'tb-dot live'; dot.title = 'LIVE (SSE)'; }
+      const conn = document.getElementById('tb-conn');
+      if (conn) conn.textContent = 'LIVE';
+    };
+
+    es.onerror = () => {
+      es.close();
+      setTimeout(connect, reconnectMs);
+      reconnectMs = Math.min(reconnectMs * 2, 30000); // exponential backoff, max 30s
+    };
+  }
+
+  connect();
+})();
+
+function applyTickerUpdate(t) {
+  if (!t || !t.ticker) return;
+  const sec = BB.secs.find(s => s.ticker === t.ticker);
+  if (!sec) return;
+  const prev = sec.market_price;
+  if (t.market_price != null) sec.market_price = t.market_price;
+  if (t.frozen != null) sec.frozen = t.frozen;
+  // Compute change_pct from tape prev if available
+  if (window._tapePrev && window._tapePrev[t.ticker] && prev) {
+    sec.change_pct = ((t.market_price - prev) / prev * 100);
+  }
+  // Re-render tape item in-place (avoid full tape rebuild for single update)
+  updateTapeItem(t.ticker, sec);
+  // Notify active page if it cares (e.g. market page, orders page)
+  if (BB.activePanel && window[`PAGE_${BB.activePanel}_onSSE`]) {
+    window[`PAGE_${BB.activePanel}_onSSE`](t);
+  }
+}
+
+function updateTapeItem(ticker, sec) {
+  const chg = sec.change_pct ?? 0;
+  // Find existing tape item and update it without rebuild
+  const items = document.querySelectorAll('.ti');
+  items.forEach(el => {
+    if (el.dataset.tk !== ticker) return;
+    const pEl = el.querySelector('.ti-p');
+    const cEl = el.querySelector('.ti-chg');
+    if (pEl) { pEl.textContent = f(sec.market_price, 4); pEl.style.color = gcI(chg); }
+    if (cEl) { cEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%'; cEl.style.color = gcI(chg); }
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  });
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init(){
