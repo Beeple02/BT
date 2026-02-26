@@ -867,6 +867,73 @@ def backtest():
             "num_trades":len(trades),"win_rate":round(len(win_trades)/max(len(trades)//2,1)*100,1),
             "final_equity":round(end_eq,2)}})
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SESSION PERSISTENCE — algo jobs & watchlist
+# ══════════════════════════════════════════════════════════════════════════════
+import json as _json_mod
+
+_SESSION_FILE = os.path.join(os.path.dirname(__file__), "session_state.json")
+
+def _load_session():
+    try:
+        if os.path.exists(_SESSION_FILE):
+            with open(_SESSION_FILE, "r") as f:
+                return _json_mod.load(f)
+    except Exception:
+        pass
+    return {"algos": [], "watchlist": []}
+
+def _save_session(data):
+    try:
+        with open(_SESSION_FILE, "w") as f:
+            _json_mod.dump(data, f)
+    except Exception as ex:
+        print(f"[session] save error: {ex}")
+
+@app.route("/api/session/algos", methods=["GET"])
+def session_algos_get():
+    """Return persisted algo jobs (serializable fields only, no tick functions)."""
+    s = _load_session()
+    return jsonify(s.get("algos", [])), 200
+
+@app.route("/api/session/algos", methods=["POST"])
+def session_algos_post():
+    """Save/replace the full algo jobs list."""
+    try:
+        jobs = request.get_json(silent=True) or []
+        s = _load_session()
+        s["algos"] = jobs
+        _save_session(s)
+        return jsonify({"ok": True, "count": len(jobs)}), 200
+    except Exception as ex:
+        return jsonify({"ok": False, "detail": str(ex)}), 500
+
+@app.route("/api/session/algos/<job_id>", methods=["DELETE"])
+def session_algos_delete(job_id):
+    """Remove a single job by id."""
+    s = _load_session()
+    before = len(s.get("algos", []))
+    s["algos"] = [j for j in s.get("algos", []) if j.get("id") != job_id]
+    _save_session(s)
+    return jsonify({"ok": True, "removed": before - len(s["algos"])}), 200
+
+@app.route("/api/session/watchlist", methods=["GET"])
+def session_watchlist_get():
+    s = _load_session()
+    return jsonify(s.get("watchlist", [])), 200
+
+@app.route("/api/session/watchlist", methods=["POST"])
+def session_watchlist_post():
+    try:
+        wl = request.get_json(silent=True) or []
+        s = _load_session()
+        s["watchlist"] = wl
+        _save_session(s)
+        return jsonify({"ok": True}), 200
+    except Exception as ex:
+        return jsonify({"ok": False, "detail": str(ex)}), 500
+
 # ── WEBHOOK RECEIVER (NER → Flask → SSE clients) ─────────────────────────────
 @app.route("/webhook/ner", methods=["POST"])
 def webhook_ner():
