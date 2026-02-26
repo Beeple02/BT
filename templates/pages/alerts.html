@@ -365,11 +365,11 @@ async function checkAlerts(){
   // Fetch fresh data for needed tickers (skip if cached < 15s ago)
   await Promise.all(tickersToFetch.map(async t=>{
     const now = Date.now();
-    if(!_statsCache[t] || now-_statsCache[t].ts > 14000){
+    if(!_statsCache[t] || now-_statsCache[t].ts > 40000){
       const r = await api(`/api/ticker_stats/${t}?days=30`);
       if(r.ok) _statsCache[t] = {ts:now, d:r.d};
     }
-    if(!_liqCache[t] || now-_liqCache[t].ts > 14000){
+    if(!_liqCache[t] || now-_liqCache[t].ts > 40000){
       const r = await api(`/api/liquidity/${t}`);
       if(r.ok) _liqCache[t] = {ts:now, d:r.d};
     }
@@ -512,7 +512,7 @@ function showToast(ticker, cond, val, pri){
 
 function startEngine(){
   if(_timer) clearInterval(_timer);
-  _timer = setInterval(checkAlerts, 15000);
+  _timer = setInterval(checkAlerts, 45000);
   checkAlerts(); // immediate first check
 }
 
