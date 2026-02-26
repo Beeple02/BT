@@ -358,15 +358,196 @@
 'use strict';
 const CR=0.005;
 let _side='buy',_quote=null,_lastPx=null,_funds=null,_ohlcv=null,_jobs=[],_tool=null;
-let _qT,_jT,_oT;
+let _qT,_jT,_oT,_syncT;
+
+// ── Session persistence ────────────────────────────────────────
+// Serialisable fields only — tick functions are rebuilt on restore
+const JOB_FIELDS=['id','label','type','tk','qty','lp','exp','side','status',
+  'placed','total','remaining','slicesDone','totalSlices','startMs','info',
+  'durMin','slices','rand','intMs','weights','urg',
+  'stop','trailType','trailVal',
+  'tp','sl','id1','id2',
+  'lp1','lp2',
+  'showSize','lastOid',
+  'partPct','partDur',
+  'arrCfg',
+  'accDurMin','accMinW','accMaxW','accVar',
+  'nextAt','peak'];
+
+function jobToJSON(j){
+  const o={};
+  JOB_FIELDS.forEach(k=>{ if(j[k]!==undefined) o[k]=j[k]; });
+  return o;
+}
+
+async function syncSession(){
+  const alive=_jobs.filter(j=>j.status!=='done').map(jobToJSON);
+  try{
+    await fetch('/api/session/algos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(alive)});
+  }catch(e){}
+  // Also sync watchlist
+  if(BB.watchlist){
+    try{
+      await fetch('/api/session/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(BB.watchlist)});
+    }catch(e){}
+  }
+}
+
+async function restoreSession(){
+  try{
+    const r=await fetch('/api/session/algos');
+    if(!r.ok) return;
+    const jobs=await r.json();
+    if(!Array.isArray(jobs)||!jobs.length) return;
+    const restored=jobs.filter(j=>j.status!=='done');
+    if(!restored.length) return;
+    lg(`Restoring ${restored.length} algo(s) from last session…`,'info');
+    restored.forEach(j=>{
+      // Rebuild tick function based on type
+      rebuildTick(j);
+      _jobs.push(j);
+    });
+    renderJobs();
+    lg(`✓ ${restored.length} algo(s) restored`,'ok');
+  }catch(e){
+    lg('Session restore failed: '+e.message,'warn');
+  }
+}
+
+function rebuildTick(j){
+  const tk=j.tk,qty=j.qty,side=j.side,lp=j.lp||0,exp=j.exp||24;
+
+  if(j.label==='STP LMT'){
+    const stop=j.stop||lp;
+    j.tick=async()=>{
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
+      if(last==null){j.info='Waiting for price…';renderJobs();return;}
+      const hit=side==='buy'?last>=stop:last<=stop;
+      j.info=`Last $${f(last,4)} vs trigger $${f(stop,4)} — ${hit?'⚡ FIRING':'watching'}`;
+      renderJobs();
+      if(hit){await fireLmt(side,tk,qty,lp,exp);killJob(j.id);}
+    };
+  }
+  else if(j.label==='TRAIL'){
+    let peak=j.peak||null;
+    const tv=j.trailVal||3,tt=j.trailType||'pct';
+    j.tick=async()=>{
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
+      if(last==null)return;
+      if(side==='sell'){
+        if(!peak||last>peak)peak=last;
+        const stop=tt==='pct'?peak*(1-tv/100):peak-tv;
+        j.info=`Peak $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        j.peak=peak;
+        if(last<=stop){await fireMkt(side,tk,qty);killJob(j.id);}
+      }else{
+        if(!peak||last<peak)peak=last;
+        const stop=tt==='pct'?peak*(1+tv/100):peak+tv;
+        j.info=`Floor $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        j.peak=peak;
+        if(last>=stop){await fireMkt(side,tk,qty);killJob(j.id);}
+      }
+      renderJobs();
+    };
+  }
+  else if(j.label==='OCO'){
+    const id1=j.id1,id2=j.id2;
+    if(!id1||!id2){j.status='done';j.info='⚠ Restored — order IDs lost, cannot resume';return;}
+    j.tick=async()=>{
+      const open=await getOpenOrders();
+      const ids=open.map(o=>o.order_id);
+      const has1=ids.includes(id1),has2=ids.includes(id2);
+      if(!has1&&has2){await cxOid(id2);lg('OCO: Leg1 filled → Leg2 cancelled','ok');killJob(j.id);}
+      else if(!has2&&has1){await cxOid(id1);lg('OCO: Leg2 filled → Leg1 cancelled','ok');killJob(j.id);}
+      else if(!has1&&!has2){lg('OCO: both resolved','ok');killJob(j.id);}
+      else j.info=`Leg1:${has1?'open':'gone'} Leg2:${has2?'open':'gone'}`;
+      renderJobs();
+    };
+  }
+  else if(j.label==='BRACKET'){
+    const tp=j.tp,sl2=j.sl,tpId=j.id1,slId=j.id2;
+    if(!tpId||!slId){j.status='done';j.info='⚠ Restored — order IDs lost, cannot resume';return;}
+    j.tick=async()=>{
+      const open=await getOpenOrders();
+      const ids=open.map(o=>o.order_id);
+      if(!ids.includes(tpId)&&ids.includes(slId)){await cxOid(slId);lg('Bracket: TP filled → SL cancelled','ok');killJob(j.id);}
+      else if(!ids.includes(slId)&&ids.includes(tpId)){await cxOid(tpId);lg('Bracket: SL hit → TP cancelled','ok');killJob(j.id);}
+      else if(!ids.includes(tpId)&&!ids.includes(slId)){lg('Bracket: both resolved','ok');killJob(j.id);}
+      else j.info=`TP:${ids.includes(tpId)?'open':'filled'} SL:${ids.includes(slId)?'open':'filled'}`;
+      renderJobs();
+    };
+  }
+  else if(j.label==='TWAP'){
+    const durMin=j.durMin||60,slices=j.totalSlices||6,rand=j.rand||false,intMs=j.intMs||600000;
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el>durMin*60*1000+30000){lg(`TWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if((j.remaining||0)<=0){lg(`✓ TWAP complete — ${qty} placed`,'ok');killJob(j.id);return;}
+      if(el<(j.nextAt||0))return;
+      const base2=Math.ceil(qty/slices);
+      const sz=Math.min(j.remaining,rand?Math.max(1,Math.round(base2*(0.8+Math.random()*0.4))):base2);
+      const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+      const r=await fireLmt(side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed=(j.placed||0)+sz;j.remaining=(j.remaining||0)-sz;j.slicesDone=(j.slicesDone||0)+1;}
+      j.info=`${j.placed}/${qty} placed · ${j.slicesDone}/${slices} slices (RESUMED)`;
+      j.nextAt=(j.slicesDone||0)*intMs;renderJobs();
+    };
+  }
+  else if(j.label==='VWAP'){
+    const durMin=j.durMin||60,slices=j.totalSlices||8,weights=j.weights||Array(slices).fill(1/slices);
+    const intMs=Math.round(durMin*60*1000/slices);
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el>durMin*60*1000+30000){lg(`VWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if((j.remaining||0)<=0){lg(`✓ VWAP complete`,'ok');killJob(j.id);return;}
+      if(el<(j.nextAt||0))return;
+      const i=j.slicesDone||0;
+      const w=weights[Math.min(i,weights.length-1)]||1/slices;
+      const sz=Math.max(1,Math.min(j.remaining,Math.round(qty*w)));
+      const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+      const r=await fireLmt(side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed=(j.placed||0)+sz;j.remaining=(j.remaining||0)-sz;j.slicesDone=(j.slicesDone||0)+1;}
+      j.info=`${j.placed}/${qty} placed · ${j.slicesDone}/${slices} slices (RESUMED)`;
+      j.nextAt=(j.slicesDone||0)*intMs;renderJobs();
+    };
+  }
+  else if(j.label==='ICEBERG'){
+    const showSize=j.showSize||Math.ceil(qty/5);
+    j.tick=async()=>{
+      if((j.remaining||0)<=0){lg(`✓ Iceberg complete`,'ok');killJob(j.id);return;}
+      if(j.lastOid){
+        const open=await getOpenOrders();
+        if(open.find(o=>o.order_id===j.lastOid))return; // still open
+      }
+      const sz=Math.min(j.remaining||qty,showSize);
+      const r=await fireLmt(side,tk,sz,lp,exp);
+      if(r?.order_id){j.lastOid=r.order_id;j.placed=(j.placed||0)+sz;j.remaining=(j.remaining||qty)-sz;}
+      j.info=`${j.placed}/${qty} shown · ${j.remaining||0} hidden`;
+      renderJobs();
+    };
+  }
+  else {
+    // Unknown/unsupported type after restore — mark as interrupted
+    j.status='done';
+    j.info='⚠ Interrupted (refresh) — '+j.label;
+  }
+}
 
 window.PAGE_ord_onShow=function(){
   populateSel('op-tk');
   loadFunds();loadOpenOrders();loadFills();opTypeChg();
-  clearInterval(_qT);clearInterval(_jT);clearInterval(_oT);
+  clearInterval(_qT);clearInterval(_jT);clearInterval(_oT);clearInterval(_syncT);
   _qT=setInterval(()=>{if(g('op-tk').value)refreshQ();},10000);
   _jT=setInterval(tickJobs,5000);
   _oT=setInterval(loadOpenOrders,20000);
+  _syncT=setInterval(syncSession,30000);
+  // Restore algos from last session (only on first load)
+  if(!window._sessionRestored){
+    window._sessionRestored=true;
+    restoreSession();
+  }
   lg('Order terminal ready.','info');
 };
 
@@ -818,7 +999,7 @@ function spawnJob(t,tk,qty,lp,exp){
 
   if(t==='stop_limit'){
     const stop=nv('op-stop');
-    j={...base,label:'STP LMT',tk,qty,side:_side,info:`Trigger:$${f(stop,4)}`};
+    j={...base,label:'STP LMT',type:'stop_limit',tk,qty,lp,exp,side:_side,stop,info:`Trigger:$${f(stop,4)}`};
     j.tick=async()=>{
       // Use real last trade price, not mid
       const mktR=await api(`/api/market_price/${tk}`);
@@ -838,7 +1019,7 @@ function spawnJob(t,tk,qty,lp,exp){
   }
   else if(t==='trailing'){
     const tt=sv('op-trail-type'),tv=nv('op-trail-val')||3;let peak=null;
-    j={...base,label:'TRAIL',tk,qty,side:_side};
+    j={...base,label:'TRAIL',type:'trailing',tk,qty,lp,exp,side:_side,trailType:tt,trailVal:tv,peak:null};
     j.tick=async()=>{
       const mktR=await api(`/api/market_price/${tk}`);
       const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
@@ -885,6 +1066,7 @@ function spawnJob(t,tk,qty,lp,exp){
       slR.ok?lg(`✓ SL @ $${f(sl2,4)}`,'ok'):lg('✗ SL failed: '+slR.d.detail,'err');
       if(tpR.ok&&slR.ok){
         const tpId=tpR.d.order_id,slId=slR.d.order_id;
+        j.id1=tpId;j.id2=slId;syncSession();
         j.status='watching';j.info='Monitoring TP and SL';
         j.tick=async()=>{
           const open=await getOpenOrders();
@@ -910,7 +1092,7 @@ function spawnJob(t,tk,qty,lp,exp){
       r2.ok?lg(`✓ OCO Leg2 @ $${f(lp2,4)}`,'ok'):lg('✗ OCO Leg2 failed: '+r2.d.detail,'err');
       if(r1.ok&&r2.ok){
         const id1=r1.d.order_id,id2=r2.d.order_id;
-        const jj={...base,id:'J'+Date.now(),label:'OCO',tk,qty,side:_side,total:qty,status:'watching',info:'Watching legs'};
+        const jj={...base,id:'J'+Date.now(),label:'OCO',type:'oco',tk,qty,lp,exp,side:_side,total:qty,status:'watching',info:'Watching legs',id1,id2};
         jj.tick=async()=>{
           const open=await getOpenOrders(); // always fresh
           const ids=open.map(o=>o.order_id);
@@ -942,7 +1124,7 @@ function spawnJob(t,tk,qty,lp,exp){
   else if(t==='twap'){
     const durMin=nv('op-twap-dur')||60,slices=Math.max(1,nv('op-twap-sl')||6),rand=sv('op-twap-rand')==='yes';
     const intMs=Math.round(durMin*60*1000/slices);
-    j={...base,label:'TWAP',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,nextAt:0};
+    j={...base,label:'TWAP',type:'twap',tk,qty,lp,exp,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,nextAt:0,durMin,slices,rand,intMs};
     j.tick=async()=>{
       const el=Date.now()-j.startMs;
       if(el>durMin*60*1000+30000){lg(`TWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
@@ -960,7 +1142,7 @@ function spawnJob(t,tk,qty,lp,exp){
   }
   else if(t==='vwap'){
     const durMin=nv('op-vwap-dur')||60,slices=Math.max(1,nv('op-vwap-sl')||8),urg=sv('op-vwap-urg');
-    j={...base,label:'VWAP',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,weights:null,nextAt:0};
+    j={...base,label:'VWAP',type:'vwap',tk,qty,lp,exp,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,weights:null,nextAt:0,durMin,slices,urg};
     (async()=>{
       if(!_ohlcv){const r=await api(`/api/analytics/ohlcv/${tk}?days=30`);_ohlcv=r.ok&&r.d.ohlcv?r.d.ohlcv:null;}
       let weights=Array(slices).fill(1/slices);
@@ -1080,12 +1262,12 @@ function spawnJob(t,tk,qty,lp,exp){
   }
 
   if(!j)return;
-  _jobs.push(j);renderJobs();
+  _jobs.push(j);renderJobs();syncSession();
 }
 
 // ── job management ─────────────────────────────────────────────
-function killJob(id){const j=_jobs.find(j=>j.id===id);if(j){j.status='done';j.tick=null;}renderJobs();}
-window.stopJob=id=>{killJob(id);lg('Job stopped.','warn');};
+function killJob(id){const j=_jobs.find(j=>j.id===id);if(j){j.status='done';j.tick=null;}renderJobs();syncSession();}
+window.stopJob=id=>{killJob(id);lg('Job stopped.','warn');syncSession();};
 function tickJobs(){_jobs.filter(j=>j.status!=='done'&&j.tick).forEach(j=>{try{j.tick();}catch(e){console.error('Job tick:',e);}});}
 
 function renderJobs(){
