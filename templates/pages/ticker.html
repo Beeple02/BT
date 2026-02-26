@@ -6,6 +6,12 @@
   <div class="ff"><label>TICKER</label>
     <select id="tkr-sel" style="min-width:180px"><option value="">SELECT…</option></select>
   </div>
+  <div class="ff"><label>EXCHANGE</label>
+    <select id="tkr-exch" onchange="_onTkrExchChange()">
+      <option value="NER">NER</option>
+      <option value="TSE">TSE</option>
+    </select>
+  </div>
   <div class="ff"><label>RANGE</label>
     <select id="tkr-rng">
       <option value="7">7D</option><option value="14">14D</option><option value="30" selected>30D</option>
@@ -129,19 +135,50 @@
 (function(){
 let _d=null, _ovs=new Set(['vwap']), _ch={};
 
-window.PAGE_tkr_onShow = function(){
+window.PAGE_tkr_onShow = function(ticker, exchange){
   populateSel('tkr-sel');
   const sel=document.getElementById('tkr-sel');
-  sel.onchange = () => PAGE_tkr_load(sel.value);
-  document.getElementById('tkr-rng').onchange = () => { if(sel.value) PAGE_tkr_load(sel.value); };
-  document.getElementById('tkr-ct').onchange  = () => { if(sel.value) PAGE_tkr_load(sel.value); };
+  sel.onchange = () => {
+    // Value may be "TICKER" or "TICKER|EXCHANGE" for dual-listed
+    const parts = sel.value.split('|');
+    const tk = parts[0], exFromVal = parts[1]||null;
+    const ex = exFromVal || _inferExchange(tk) || document.getElementById('tkr-exch').value;
+    document.getElementById('tkr-exch').value = ex;
+    PAGE_tkr_load(tk, ex);
+  };
+  document.getElementById('tkr-rng').onchange = () => { if(sel.value) { const parts=sel.value.split('|'); PAGE_tkr_load(parts[0], parts[1]||document.getElementById('tkr-exch').value); } };
+  document.getElementById('tkr-ct').onchange  = () => { if(sel.value) { const parts=sel.value.split('|'); PAGE_tkr_load(parts[0], parts[1]||document.getElementById('tkr-exch').value); } };
+  // If called with specific ticker+exchange (e.g. from tape click)
+  if(ticker){ sel.value=ticker; if(exchange) document.getElementById('tkr-exch').value=exchange; PAGE_tkr_load(ticker, exchange||document.getElementById('tkr-exch').value); }
 };
 
-window.PAGE_tkr_load = async function(ticker) {
+// When exchange dropdown changes, reload with same ticker
+window._onTkrExchChange = function(){
+  const tk = document.getElementById('tkr-sel').value;
+  const ex = document.getElementById('tkr-exch').value;
+  if(tk) PAGE_tkr_load(tk, ex);
+};
+
+// Infer exchange from BB.secs — if ticker only exists on one exchange, pick that
+function _inferExchange(ticker){
+  if(!BB.secs) return 'NER';
+  const matches = BB.secs.filter(s=>s.ticker===ticker);
+  if(matches.length===1) return matches[0].exchange||'NER';
+  return null; // dual-listed — don't force
+}
+
+window.PAGE_tkr_load = async function(ticker, exchange) {
   if(!ticker) return;
+  const exch = exchange || document.getElementById('tkr-exch').value || 'NER';
   document.getElementById('tkr-sel').value = ticker;
+  document.getElementById('tkr-exch').value = exch;
   const days  = document.getElementById('tkr-rng').value;
   const ctype = document.getElementById('tkr-ct').value;
+
+  // ── Route by exchange ────────────────────────────────────────────────────
+  if(exch === 'TSE') {
+    return await _loadTSETicker(ticker, days, ctype);
+  }
 
   const [sR, obR, hiR] = await Promise.all([
     api(`/api/ticker_stats/${ticker}?days=${days}`),
@@ -417,6 +454,124 @@ async function loadTkrPrints(ticker) {
   _tkrLastPrintIds = newIds;
 }
 
+// ── TSE Ticker loader (Phase 2) ───────────────────────────────────────────────
+async function _loadTSETicker(ticker, days, ctype) {
+  const set = (id, v, cls) => { const e=document.getElementById(id); if(!e) return; e.textContent=v; if(cls) e.className=e.className.replace(/up|dn|yel/g,'')+' '+cls; };
+
+  // Map days → TSE interval (TSE supports 30s|1m|5m|15m|1h)
+  const interval = days<=7 ? '5m' : days<=30 ? '15m' : '1h';
+  const limit    = days<=7 ? 2000 : days<=30 ? 2000 : 1000;
+
+  // Fetch in parallel: market summary + candles + orderbook
+  const [mR, cR, obR] = await Promise.all([
+    api(`/api/tse/market/${ticker}`),
+    api(`/api/tse/candles/${ticker}?interval=${interval}&limit=${limit}`),
+    api(`/api/tse/orderbook/${ticker}?depth=20`),
+  ]);
+
+  // ── Header KPIs from market data ──────────────────────────────────────────
+  if(mR.ok && mR.d) {
+    const m = mR.d;
+    const px = parseFloat(m.last_price || m.price || 0);
+    const bid= parseFloat(m.best_bid||0), ask=parseFloat(m.best_ask||0);
+    const vol24= m.volume_24h ?? 0;
+    const hi24 = parseFloat(m.high_24h||0), lo24=parseFloat(m.low_24h||0);
+    const chgPct = m.change_pct ?? m.price_change_pct ?? null;
+
+    document.getElementById('tkr-px').textContent = f(px);
+    document.getElementById('tkr-px').style.color = gc(chgPct??0);
+    set('tkr-chg', chgPct!=null ? fp(chgPct) : '—'); document.getElementById('tkr-chg').style.color=gc(chgPct??0);
+    set('tkr-vol', '—'); set('tkr-shrp','—'); set('tkr-mdd','—');
+    document.getElementById('tkr-frz').style.display = m.status==='halted' ? 'inline-block' : 'none';
+
+    // Stat strip
+    set('ts-o','—'); set('ts-h', f(hi24)); set('ts-l', f(lo24));
+    set('ts-c', f(px));
+    set('ts-v', vol24.toLocaleString());
+    set('ts-av','—'); set('ts-ph', f(hi24)); set('ts-pl', f(lo24));
+    set('ts-atr','—');
+    const sec=(BB.secs||[]).find(s=>s.ticker===ticker&&s.exchange==='TSE')||{};
+    set('ts-mc', sec.total_shares ? fk(sec.total_shares * px) : '—');
+  }
+
+  // ── Chart from TSE candles ─────────────────────────────────────────────────
+  if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
+  Object.values(_ch).forEach(c=>c&&c.destroy()); _ch={};
+
+  if(cR.ok && Array.isArray(cR.d) && cR.d.length) {
+    // TSE candles: [{time, open, high, low, close, volume}] — time is Unix epoch seconds
+    const cs = cR.d;
+    const cl=cs.map(c=>c.close), hi=cs.map(c=>c.high), lo=cs.map(c=>c.low);
+    const vols=cs.map(c=>c.volume||0);
+    // Build date labels from Unix timestamps
+    const dates=cs.map(c=>{const d=new Date((c.time||c.timestamp)*1000);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});});
+
+    if(ctype==='candle') {
+      _ch.price = mkCandle(document.getElementById('tkr-c'), cs.map(c=>({
+        open:c.open, high:c.high, low:c.low, close:c.close, date:dates[cs.indexOf(c)]
+      })));
+    } else {
+      const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
+      _ch.price=mkLine(document.getElementById('tkr-c'),dates,ds);
+    }
+
+    // Volume chart
+    _ch.vol = mkVol(document.getElementById('tkr-v'), dates, vols);
+  } else {
+    document.getElementById('tkr-c').getContext('2d').clearRect(0,0,9999,9999);
+  }
+
+  // ── Order book depth chart from TSE ──────────────────────────────────────
+  if(obR.ok && obR.d) {
+    const bids=(obR.d.bids||[]).map(l=>({price:parseFloat(l.price||l[0]),quantity:parseInt(l.quantity||l[1]||0)}));
+    const asks=(obR.d.asks||[]).map(l=>({price:parseFloat(l.price||l[0]),quantity:parseInt(l.quantity||l[1]||0)}));
+    // Reuse NER depth chart builder
+    _buildDepthChart(bids, asks);
+    // Also fill OB table if exists
+    _fillOBTable(bids, asks);
+  }
+
+  // Hide shareholder intel (TSE doesn't have holders via our key)
+  document.getElementById('tkr-hi').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">Holder data not available via TSE API key</div>';
+  document.getElementById('tkr-sh').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">—</div>';
+
+  // TSE recent prints
+  _loadTSEPrints(ticker);
+}
+
+async function _loadTSEPrints(ticker) {
+  const el=document.getElementById('tkr-prints'); if(!el) return;
+  const r=await api(`/api/tse/trades/${ticker}?limit=50`);
+  if(!r.ok||!Array.isArray(r.d)){el.innerHTML='<div class="loading">—</div>';return;}
+  const trades=r.d;
+  document.getElementById('tkr-print-ct').textContent=trades.length?` — ${trades.length}`:'';
+  if(!trades.length){el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>';return;}
+  const tot=trades.reduce((s,t)=>s+(t.quantity||0),0);
+  const vwapVal=tot>0?trades.reduce((s,t)=>s+(t.price||0)*(t.quantity||0),0)/tot:0;
+  el.innerHTML=trades.map(t=>{
+    const px=parseFloat(t.price||0), qty=t.quantity||0;
+    const ts=t.executed_ts||t.timestamp||'';
+    const timeStr=ts?new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+    return `<div style="padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.5);display:flex;justify-content:space-between;font-size:10px">
+      <span style="color:var(--txt3)">${timeStr}</span>
+      <span style="color:var(--cyn);font-weight:700">${f(px,4)}</span>
+      <span style="color:var(--wht)">${qty.toLocaleString()}</span>
+    </div>`;
+  }).join('')
+  +`<div style="padding:4px 6px;font-size:9px;border-top:1px solid var(--bdr);display:flex;gap:12px">
+    <span>VWAP <span style="color:var(--cyn);font-weight:700">$${f(vwapVal,4)}</span></span>
+    <span style="color:var(--txt3)">${trades.length} prints · ${tot.toLocaleString()} sh</span>
+  </div>`;
+}
+
+// Helper: fill OB table rows (shared between NER and TSE)
+function _fillOBTable(bids, asks) {
+  const bidEl=document.getElementById('tkr-ob-bids'), askEl=document.getElementById('tkr-ob-asks');
+  if(!bidEl||!askEl) return;
+  bidEl.innerHTML=bids.slice(0,10).map(b=>`<tr><td class="up">${f(b.price,4)}</td><td>${b.quantity.toLocaleString()}</td></tr>`).join('');
+  askEl.innerHTML=asks.slice(0,10).map(a=>`<tr><td class="dn">${f(a.price,4)}</td><td>${a.quantity.toLocaleString()}</td></tr>`).join('');
+}
+
 window.tkrQuickOrder = function(side) {
   const ticker = document.getElementById('tkr-sel')?.value; if(!ticker) return;
   sw('ord');
@@ -436,6 +591,6 @@ function countWalls(bids, asks) {
 // Auto-refresh prints every 8s when page is active
 setInterval(()=>{
   if(BB.activePanel==='tkr' && _d?.ticker) loadTkrPrints(_d.ticker);
-}, 30000);
+}, 8000);
 })();
 </script>
