@@ -111,13 +111,21 @@ def get_ticker_orderbook(ticker):
 # Per-ticker shareholders cache — NER requires ticker param, no bulk endpoint
 _sh_ticker_cache: dict = {}
    # ticker → {"ts": float, "data": list}
-_SH_TICKER_TTL = 90           # seconds
+_SH_TICKER_TTL = 600          # seconds — shareholders change rarely
+
+_sh_last_fetch: float = 0.0  # timestamp of last actual NER shareholders call
 
 def get_ticker_shareholders(ticker):
-    """Fetch shareholders for one ticker, with 90s cache per ticker."""
+    """Fetch shareholders for one ticker, with per-ticker cache."""
+    global _sh_last_fetch
     e = _sh_ticker_cache.get(ticker)
     if e and time.time() - e["ts"] < _SH_TICKER_TTL:
         return e["data"]
+    # Throttle: never hit NER shareholders faster than once per 200ms globally
+    gap = time.time() - _sh_last_fetch
+    if gap < 0.2:
+        time.sleep(0.2 - gap)
+    _sh_last_fetch = time.time()
     try:
         # Try with X-API-Key for better compatibility
         r = requests.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
@@ -676,6 +684,10 @@ def holder_intel():
     all_data = []
     for sec in secs:
         t = sec["ticker"]
+        # Stagger cold fetches — avoid 12-call burst that triggers 429 and kills order execution
+        e = _sh_ticker_cache.get(t)
+        if not e or time.time() - e["ts"] >= _SH_TICKER_TTL:
+            time.sleep(0.25)  # 250ms between cold NER calls = max 4/s instead of 12 at once
         holders = get_ticker_shareholders(t)
         if not holders: continue
         total_qty = sum(h["quantity"] for h in holders)
