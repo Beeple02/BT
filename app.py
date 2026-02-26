@@ -21,6 +21,33 @@ app = Flask(
 )
 
 NER_BASE = "http://150.230.117.88:8082"
+TSE_BASE = "https://market.installe.us"
+TSE_KEY  = os.environ.get("TSE_API_KEY", "exch_live_dfe5e4f0820de420c525a8e8057493e865ac3b654e1fd3a65b60cde9ea183d35")
+TSE_H    = {"X-API-Key": TSE_KEY}
+
+# TSE cache — separate from NER cache
+_tse_cache: dict = {}
+
+def tse_get(path, params=None, ttl=60):
+    """GET from TSE API with caching. No auth required for market data."""
+    key = path + str(params or {})
+    e = _tse_cache.get(key)
+    if e and time.time() - e["ts"] < ttl:
+        return e["s"], e["d"]
+    try:
+        r = _session.get(f"{TSE_BASE}{path}", headers=TSE_H,
+                         params=params, timeout=8)
+        if r.status_code == 200:
+            d = r.json()
+            _tse_cache[key] = {"ts": time.time(), "s": 200, "d": d}
+            return 200, d
+        return r.status_code, {}
+    except Exception as ex:
+        print(f"[TSE] {path} error: {ex}")
+        # Return stale if available
+        if e:
+            return e["s"], e["d"]
+        return 503, {}
 
 # Connection pool — reuse TCP connections, cap pool size to avoid
 # thread starvation when NER is slow (all threads waiting on timeout)
@@ -172,9 +199,105 @@ def ner_post(path, payload, _retries=2):
     return 429, {"detail": "Order rate limited by NER — please wait and retry."}
 
 # ── Pass-through proxies ──────────────────────────────────────────────────────
+# Tickers that exist on both exchanges — user can pick via ?exchange= param
+_DUAL_LISTED = {"GCC"}
+
 @app.route("/api/securities")
 def securities():
-    s, d = cached_get("/securities", ttl=60); return jsonify(d), s
+    """Merged NER + TSE securities list. TSE adds exchange field to all entries."""
+    s, ner = cached_get("/securities", ttl=60)
+    if s != 200:
+        return jsonify(ner), s
+
+    # Tag NER securities
+    for sec in ner:
+        sec["exchange"] = "NER"
+
+    # Fetch TSE stocks
+    ts, tse_stocks = tse_get("/api/v1/stocks", ttl=60)
+    if ts == 200 and isinstance(tse_stocks, list):
+        ner_tickers = {sec["ticker"] for sec in ner}
+        for stk in tse_stocks:
+            sym = stk.get("symbol", "")
+            if not sym:
+                continue
+            # Dual-listed: keep NER entry, just tag it; add TSE as separate entry with suffix
+            if sym in ner_tickers:
+                if sym in _DUAL_LISTED:
+                    # Add TSE variant with exchange tag — ticker stays same, exchange differs
+                    tse_entry = _tse_stock_to_sec(stk)
+                    tse_entry["exchange"] = "TSE"
+                    tse_entry["_dual"] = True
+                    ner.append(tse_entry)
+                # else: same ticker not in dual list — skip TSE to avoid confusion
+            else:
+                entry = _tse_stock_to_sec(stk)
+                entry["exchange"] = "TSE"
+                ner.append(entry)
+
+    return jsonify(ner), 200
+
+def _tse_stock_to_sec(stk):
+    """Normalize TSE StockResponse to NER securities format."""
+    px = stk.get("current_price")
+    try:
+        px = float(px) if px else None
+    except (ValueError, TypeError):
+        px = None
+    return {
+        "ticker":        stk.get("symbol", ""),
+        "full_name":     stk.get("company_name", stk.get("symbol", "")),
+        "market_price":  px,
+        "change_pct":    None,
+        "frozen":        stk.get("status") == "halted",
+        "total_shares":  stk.get("total_shares", 0),
+        "sector":        stk.get("sector", ""),
+        "exchange":      "TSE",
+        "_tse_id":       stk.get("stock_id", ""),
+    }
+
+# ─── TSE market data proxy routes ──────────────────────────────────────────
+
+@app.route("/api/tse/stock/<symbol>")
+def tse_stock(symbol):
+    """Full TSE stock detail (sector, volume, high/low 24h, market_cap)."""
+    s, d = tse_get(f"/api/v1/stocks/{symbol}", ttl=15)
+    return jsonify(d), s
+
+@app.route("/api/tse/candles/<symbol>")
+def tse_candles(symbol):
+    """OHLCV candles from TSE. Supports interval=30s|1m|5m|15m|1h and limit."""
+    interval = request.args.get("interval", "1h")
+    limit    = request.args.get("limit", "300")
+    start    = request.args.get("start")
+    end      = request.args.get("end")
+    params   = {"interval": interval, "limit": int(limit)}
+    if start: params["start"] = int(start)
+    if end:   params["end"]   = int(end)
+    s, d = tse_get(f"/api/v1/market/{symbol}/candles", params=params, ttl=10)
+    return jsonify(d), s
+
+@app.route("/api/tse/orderbook/<symbol>")
+def tse_orderbook(symbol):
+    """TSE order book for a symbol. depth param supported."""
+    depth = request.args.get("depth", "20")
+    s, d = tse_get(f"/api/v1/market/{symbol}/orderbook",
+                   params={"depth": int(depth)}, ttl=5)
+    return jsonify(d), s
+
+@app.route("/api/tse/trades/<symbol>")
+def tse_trades(symbol):
+    """Recent TSE trades for a symbol."""
+    limit = request.args.get("limit", "50")
+    s, d = tse_get(f"/api/v1/market/{symbol}/trades",
+                   params={"limit": int(limit)}, ttl=5)
+    return jsonify(d), s
+
+@app.route("/api/tse/market/<symbol>")
+def tse_market(symbol):
+    """TSE market summary for a symbol (bid/ask, volume, price)."""
+    s, d = tse_get(f"/api/v1/market/{symbol}", ttl=10)
+    return jsonify(d), s
 
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
