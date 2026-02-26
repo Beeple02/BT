@@ -364,9 +364,9 @@ window.PAGE_ord_onShow=function(){
   populateSel('op-tk');
   loadFunds();loadOpenOrders();loadFills();opTypeChg();
   clearInterval(_qT);clearInterval(_jT);clearInterval(_oT);
-  _qT=setInterval(()=>{if(g('op-tk').value)refreshQ();},4000);
+  _qT=setInterval(()=>{if(g('op-tk').value)refreshQ();},10000);
   _jT=setInterval(tickJobs,5000);
-  _oT=setInterval(loadOpenOrders,12000);
+  _oT=setInterval(loadOpenOrders,20000);
   lg('Order terminal ready.','info');
 };
 
