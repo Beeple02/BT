@@ -21,6 +21,15 @@ app = Flask(
 )
 
 NER_BASE = "http://150.230.117.88:8082"
+
+# Connection pool — reuse TCP connections, cap pool size to avoid
+# thread starvation when NER is slow (all threads waiting on timeout)
+_session = requests.Session()
+_session.mount("http://", requests.adapters.HTTPAdapter(
+    pool_connections=4,
+    pool_maxsize=8,
+    max_retries=0   # retries handled manually
+))
 API_KEY  = os.environ.get("NER_API_KEY", "ner_l7nBYB_pFwRvVPcW2rum-UeI9qrJh2BWekgG__BDeYk")
 AUTH_H   = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 PUB_H    = {"Content-Type": "application/json"}
@@ -54,8 +63,8 @@ def cached_get(path, params=None, auth=False, ttl=15):
     if ttl == 0:
         # Live/uncached path — always hit NER directly
         try:
-            r = requests.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
-                             params=params, timeout=10)
+            r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
+                             params=params, timeout=8)
             if r.status_code == 429:
                 return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
             return r.status_code, r.json()
@@ -66,8 +75,8 @@ def cached_get(path, params=None, auth=False, ttl=15):
     if e and time.time() - e["ts"] < ttl:
         return e["s"], e["d"]
     try:
-        r = requests.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
-                         params=params, timeout=10)
+        r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
+                         params=params, timeout=8)
         if r.status_code == 429:
             # 429 — return stale cache if available, else propagate
             if e:
@@ -91,7 +100,7 @@ def get_all_orderbooks():
     if time.time() - _ob_cache["ts"] < _OB_TTL and _ob_cache["data"] is not None:
         return _ob_cache["data"]
     try:
-        r = requests.get(f"{NER_BASE}/orderbook", headers=PUB_H, timeout=10)
+        r = _session.get(f"{NER_BASE}/orderbook", headers=PUB_H, timeout=8)
         if r.status_code == 200:
             data = r.json()
             _ob_cache = {"ts": time.time(), "data": data}
@@ -128,8 +137,8 @@ def get_ticker_shareholders(ticker):
     _sh_last_fetch = time.time()
     try:
         # Try with X-API-Key for better compatibility
-        r = requests.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
-                         params={"ticker": ticker}, timeout=10)
+        r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
+                         params={"ticker": ticker}, timeout=6)
         if r.status_code == 200:
             data = r.json()
             if isinstance(data, list):
@@ -148,7 +157,7 @@ def ner_post(path, payload, _retries=2):
     """POST to NER with 429 retry (up to _retries times, 2s backoff)."""
     for attempt in range(_retries + 1):
         try:
-            r = requests.post(f"{NER_BASE}{path}", headers=AUTH_H, json=payload, timeout=10)
+            r = _session.post(f"{NER_BASE}{path}", headers=AUTH_H, json=payload, timeout=(4, 10))
             if r.status_code == 429 and attempt < _retries:
                 retry_after = int(r.headers.get("Retry-After", 2))
                 print(f"[ner_post] 429 on {path} — retrying in {retry_after}s (attempt {attempt+1})")
@@ -998,7 +1007,7 @@ def orders_open():
 def cancel_order(order_id):
     import requests as req
     url = f"{NER_BASE}/orders/{order_id}"
-    r = req.delete(url, headers=AUTH_H, timeout=10)
+    r = req.delete(url, headers=AUTH_H, timeout=(4, 8))
     try: return jsonify(r.json()), r.status_code
     except: return jsonify({"detail":"Error"}), r.status_code
 
@@ -1315,8 +1324,8 @@ def portfolio_analytics():
 def debug_shareholders(ticker):
     """Exposes raw NER /shareholders response for debugging."""
     try:
-        r = requests.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
-                         params={"ticker": ticker}, timeout=10)
+        r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
+                         params={"ticker": ticker}, timeout=6)
         return jsonify({
             "status": r.status_code,
             "is_list": isinstance(r.json(), list),
