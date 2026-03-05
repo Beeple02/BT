@@ -20,14 +20,14 @@
 <div class="wrow" style="flex:1">
 
   <!-- Left: order book + slippage sim -->
-  <div class="wcol" style="max-width:260px">
+  <div class="wcol" style="width:260px;flex-shrink:0">
     <!-- Full depth book -->
     <div class="win" style="flex:1;border-right:0;border-bottom:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">FULL DEPTH</span></div></div>
       <div class="scroll" id="liq-ob"><div class="loading">SELECT TICKER</div></div>
     </div>
     <!-- Slippage sim -->
-    <div class="win" style="flex:1;min-height:40px;border-right:0;border-top:0">
+    <div class="win" style="flex:1;min-min-height:40px;border-right:0;border-top:0">
       <div class="wbar">
         <div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SLIPPAGE SIMULATOR</span></div>
       </div>
@@ -51,7 +51,7 @@
   </div>
 
   <!-- Right: slippage table + walls -->
-  <div class="wcol" style="max-width:300px">
+  <div class="wcol" style="width:300px;flex-shrink:0">
     <div class="win" style="flex:1;border-bottom:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">SLIPPAGE TABLE (BUY)</span></div></div>
       <div class="scroll" id="liq-slip-tbl-buy">
@@ -70,7 +70,7 @@
         </table>
       </div>
     </div>
-    <div class="win" style="flex:1;min-height:40px;border-top:0;border-bottom:0">
+    <div class="win" style="flex:1;min-min-height:40px;border-top:0;border-bottom:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">DETECTED WALLS</span></div></div>
       <div class="scroll" id="liq-walls-list"><div class="loading">—</div></div>
     </div>
