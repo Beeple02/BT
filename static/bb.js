@@ -195,27 +195,52 @@ const gcIW = n => {
 };
 
 // ── Global Drag-Resize System ─────────────────────────────────────────────────
-// Session-only resize on whitelisted pages. Zero localStorage. Always resets on page switch.
+// Each page has completely isolated layout state.
+// Saving/restoring is scoped strictly to the active page ID.
+// No page ever reads or writes another page's layout.
 
 (function () {
-  // Only these pages get drag handles. All others stay at CSS defaults always.
-  const RESIZE_PAGES = new Set(['p-tkr', 'p-liq', 'p-cmp', 'p-pf', 'p-bt']);
+  const STORE = {};  // in-memory only — no localStorage, no cross-page bleed
 
-  // Nuke all bb_ localStorage keys — clears any previously saved sizes from old versions
-  try {
-    Object.keys(localStorage).filter(k => k.startsWith('bb_')).forEach(k => localStorage.removeItem(k));
-  } catch(_) {}
-
-  function removeHandles() {
-    document.querySelectorAll('.bb-handle').forEach(h => h.remove());
+  // Save current inline sizes for a given panel element, keyed by page+position
+  function saveLayout(panelId) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const data = {};
+    panel.querySelectorAll('.win, .wcol').forEach((el, i) => {
+      const parent = el.parentElement;
+      if (!parent) return;
+      const isRow = parent.classList.contains('wrow');
+      const w = el.style.width, h = el.style.height, fl = el.style.flex;
+      if (w || h || fl) data[i] = { w, h, fl };
+    });
+    STORE[panelId] = data;
   }
 
-  window.initResize = function () {
-    removeHandles();
+  // Restore saved sizes for a given panel, then inject handles
+  function restoreLayout(panelId) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const data = STORE[panelId] || {};
+    panel.querySelectorAll('.win, .wcol').forEach((el, i) => {
+      const saved = data[i];
+      if (saved) {
+        if (saved.w) el.style.width  = saved.w;
+        if (saved.h) el.style.height = saved.h;
+        if (saved.fl) el.style.flex  = saved.fl;
+      } else {
+        // No saved state for this element — always reset to CSS default
+        el.style.width = ''; el.style.height = ''; el.style.flex = '';
+      }
+    });
+  }
 
-    const panel = document.querySelector('.panel.active');
-    if (!panel || !RESIZE_PAGES.has(panel.id)) return;
+  function removeHandles(panel) {
+    (panel || document).querySelectorAll('.bb-handle').forEach(h => h.remove());
+  }
 
+  function injectHandles(panel) {
+    if (!panel) return;
     panel.querySelectorAll('.wrow, .wcol').forEach(container => {
       const isRow = container.classList.contains('wrow');
       const kids = [...container.children].filter(c =>
@@ -237,10 +262,13 @@ const gcIW = n => {
         h.onmouseenter = () => { h.style.background = '#ff8c0066'; };
         h.onmouseleave = () => { if (!h._dragging) h.style.background = 'transparent'; };
 
-        // Double-click: reset both panels to CSS defaults for this session
+        // Double-click: clear this page's saved layout and reset to CSS defaults
         h.ondblclick = () => {
-          el.style.width = el.style.height = el.style.flex = '';
-          next.style.width = next.style.height = next.style.flex = '';
+          const pid = panel.id;
+          delete STORE[pid];
+          panel.querySelectorAll('.win, .wcol').forEach(p => {
+            p.style.width = ''; p.style.height = ''; p.style.flex = '';
+          });
           window.dispatchEvent(new Event('resize'));
         };
 
@@ -267,7 +295,8 @@ const gcIW = n => {
             document.body.style.cursor = document.body.style.userSelect = '';
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
-            // No save — intentionally ephemeral, no persistence
+            // Save this page's layout into its isolated store entry
+            saveLayout(panel.id);
           };
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
@@ -276,7 +305,32 @@ const gcIW = n => {
         el.after(h);
       });
     });
+  }
+
+  // Called by sw() in terminal.html on every page switch
+  // leavingId = panel id we're leaving, arrivingId = panel id we're going to
+  window.bbSaveLayout   = (panelId) => saveLayout(panelId);
+  window.bbRestoreLayout = (panelId) => {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    removeHandles(panel);
+    restoreLayout(panelId);
+    injectHandles(panel);
   };
+
+  // Legacy hook — called after page load on first visit (no saved state yet)
+  window.initResize = function () {
+    const panel = document.querySelector('.panel.active');
+    if (!panel) return;
+    removeHandles(panel);
+    restoreLayout(panel.id);
+    injectHandles(panel);
+  };
+
+  // Wipe any old localStorage keys from previous broken versions
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('bb_')).forEach(k => localStorage.removeItem(k));
+  } catch(_) {}
 
   if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', () => setTimeout(window.initResize, 300));
