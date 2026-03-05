@@ -195,75 +195,40 @@ const gcIW = n => {
 };
 
 // ── Global Drag-Resize System ─────────────────────────────────────────────────
-// How it works:
-//   • After every page switch, initResize() scans the active .panel for all
-//     flex containers (.wrow = horizontal layout, .wcol = vertical stack).
-//   • Between every pair of sibling panels it injects a thin .bb-handle div.
-//   • Dragging the handle resizes both adjacent panels simultaneously so no
-//     space is lost. Charts are told to reflow via window.dispatchEvent('resize').
-//   • Sizes persist in localStorage keyed by panel title so they survive reload.
-//   • Double-clicking a handle resets both panels to their natural flex sizes.
+// Injects drag handles between adjacent panel siblings.
+// Sizes are SESSION-ONLY — never persisted. This prevents stale pixel values
+// from corrupting layouts on page load or page switch.
+// Double-click any handle to reset both panels to natural flex sizing.
 
 (function () {
-  const LS = 'bb_sz3';
-
-  function load() { try { return JSON.parse(localStorage.getItem(LS)||'{}'); } catch { return {}; } }
-  function save(o) { try { localStorage.setItem(LS, JSON.stringify(o)); } catch {} }
-
-  // Stable ID for a panel based on wnum+wtitle text inside it
-  function pid(el) {
-    const n = el.querySelector('.wnum');
-    const t = el.querySelector('.wtitle');
-    const pg = el.closest('.panel')?.id || 'g';
-    return pg + '|' + (n?.textContent||'') + '|' + (t?.textContent||'').trim().slice(0,18);
-  }
 
   function removeHandles() {
     document.querySelectorAll('.bb-handle').forEach(h => h.remove());
   }
 
-  window.initResize = function () {
-    // Step 1: Remove all existing handles
-    removeHandles();
-
-    // Step 2: Clear ALL previously applied inline sizes so flex can recalculate
-    // natural sizes. This prevents stale pixel sizes from a different layout persisting.
-    document.querySelectorAll('.win, .wcol').forEach(el => {
+  function clearSizes(scope) {
+    (scope || document).querySelectorAll('.win, .wcol').forEach(el => {
       el.style.width  = '';
       el.style.height = '';
       el.style.flex   = '';
     });
+  }
 
-    // Step 3: Force a synchronous reflow
-    void document.body.offsetWidth;
+  window.initResize = function () {
+    removeHandles();
+    // Always reset inline sizes so flex recalculates from scratch.
+    // This is the fix: stale px values from any previous drag are wiped.
+    clearSizes();
+    void document.body.offsetWidth; // force reflow
 
-    const saved = load();
-
-    // Step 4: Restore saved sizes — only on the ACTIVE panel to avoid cross-page pollution
     const activePanel = document.querySelector('.panel.active');
-    const scope = activePanel || document;
-    scope.querySelectorAll('.win, .wcol').forEach(el => {
-      const id = pid(el);
-      if (!saved[id]) return;
-      const parent = el.parentElement;
-      if (!parent) return;
-      const isRow = parent.classList.contains('wrow');
-      // Sanity check: only apply if saved size is reasonable
-      const sz = saved[id];
-      if (sz < 40 || sz > 4000) return;
-      el.style[isRow ? 'width' : 'height'] = sz + 'px';
-      el.style.flex = 'none';
-    });
-
-    // Step 5: Insert handles — only within the active panel
-    const containers = activePanel
+    const containers  = activePanel
       ? activePanel.querySelectorAll('.wrow, .wcol')
       : document.querySelectorAll('.wrow, .wcol');
 
     containers.forEach(container => {
       const isRow = container.classList.contains('wrow');
-      // Eligible children: .win or .wcol (columns inside rows)
-      const kids = [...container.children].filter(c =>
+      const kids  = [...container.children].filter(c =>
         c.classList.contains('win') || c.classList.contains('wcol')
       );
       if (kids.length < 2) return;
@@ -274,37 +239,31 @@ const gcIW = n => {
 
         const h = document.createElement('div');
         h.className = 'bb-handle';
-        h.title = 'Drag to resize · Double-click to reset';
+        h.title = 'Drag to resize \xB7 Double-click to reset';
         h.style.cssText = isRow
           ? 'width:5px;flex-shrink:0;cursor:col-resize;background:transparent;position:relative;z-index:20;transition:background .12s'
           : 'height:5px;flex-shrink:0;cursor:row-resize;background:transparent;position:relative;z-index:20;transition:background .12s';
 
-        // Visual feedback on hover
         h.onmouseenter = () => { h.style.background = '#ff8c0066'; };
         h.onmouseleave = () => { if (!h._dragging) h.style.background = 'transparent'; };
 
-        // Double-click: reset both panels
+        // Double-click: reset to natural flex
         h.ondblclick = () => {
-          [el, next].forEach(p => {
-            p.style[isRow ? 'width' : 'height'] = '';
-            p.style.flex = '';
-            const id = pid(p);
-            const o = load(); delete o[id]; save(o);
-          });
+          el.style.width = el.style.height = el.style.flex = '';
+          next.style.width = next.style.height = next.style.flex = '';
           window.dispatchEvent(new Event('resize'));
         };
 
-        // Drag logic
         h.onmousedown = e => {
           e.preventDefault();
           h._dragging = true;
           h.style.background = '#ff8c00aa';
 
-          const startXY  = isRow ? e.clientX : e.clientY;
-          const startA   = isRow ? el.offsetWidth   : el.offsetHeight;
-          const startB   = isRow ? next.offsetWidth  : next.offsetHeight;
-          const dim      = isRow ? 'width' : 'height';
-          const minSz    = 40; // px minimum panel size
+          const startXY = isRow ? e.clientX : e.clientY;
+          const startA  = isRow ? el.offsetWidth   : el.offsetHeight;
+          const startB  = isRow ? next.offsetWidth  : next.offsetHeight;
+          const dim     = isRow ? 'width' : 'height';
+          const minSz   = 40;
 
           document.body.style.cursor     = isRow ? 'col-resize' : 'row-resize';
           document.body.style.userSelect = 'none';
@@ -313,8 +272,8 @@ const gcIW = n => {
             const d  = (isRow ? mv.clientX : mv.clientY) - startXY;
             const nA = Math.max(minSz, startA + d);
             const nB = Math.max(minSz, startB - d);
-            el.style[dim]   = nA + 'px';  el.style.flex   = 'none';
-            next.style[dim] = nB + 'px';  next.style.flex = 'none';
+            el.style[dim]   = nA + 'px'; el.style.flex   = 'none';
+            next.style[dim] = nB + 'px'; next.style.flex = 'none';
             window.dispatchEvent(new Event('resize'));
           };
 
@@ -323,16 +282,11 @@ const gcIW = n => {
             h.style.background = 'transparent';
             document.body.style.cursor = document.body.style.userSelect = '';
             document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            // Persist
-            const o = load();
-            o[pid(el)]   = isRow ? el.offsetWidth   : el.offsetHeight;
-            o[pid(next)] = isRow ? next.offsetWidth  : next.offsetHeight;
-            save(o);
+            document.removeEventListener('mouseup',   onUp);
           };
 
           document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup', onUp);
+          document.addEventListener('mouseup',   onUp);
         };
 
         el.after(h);
@@ -340,9 +294,11 @@ const gcIW = n => {
     });
   };
 
-  // First run after initial page load
+  // Nuke any stale sizes saved by the old localStorage-based system
+  try { localStorage.removeItem('bb_sz3'); } catch(_) {}
+
   if (document.readyState === 'loading')
-    document.addEventListener('DOMContentLoaded', () => setTimeout(window.initResize, 500));
+    document.addEventListener('DOMContentLoaded', () => setTimeout(window.initResize, 200));
   else
-    setTimeout(window.initResize, 500);
+    setTimeout(window.initResize, 200);
 })();
