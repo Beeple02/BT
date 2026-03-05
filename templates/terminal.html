@@ -196,25 +196,21 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Remove handles BEFORE switching panels so they don't bleed across pages
-  if(window.initResize) document.querySelectorAll('.bb-handle').forEach(h=>h.remove());
-  // Clear inline sizes from the panel we're LEAVING so they don't persist to revisit
-  const leaving = document.querySelector('.panel.active');
-  if(leaving) {
-    leaving.querySelectorAll('.win, .wcol').forEach(el => {
-      el.style.width=''; el.style.height=''; el.style.flex='';
-    });
-  }
+  // Remove handles and clear inline sizes BEFORE switching so the incoming
+  // panel always renders from its natural flex layout, not stale px values.
+  document.querySelectorAll('.bb-handle').forEach(h => h.remove());
+  document.querySelectorAll('.win, .wcol').forEach(el => {
+    el.style.width = ''; el.style.height = ''; el.style.flex = '';
+  });
   document.querySelectorAll('.fk').forEach(f=>f.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelector(`[data-p="${id}"]`).classList.add('active');
   document.getElementById(`p-${id}`).classList.add('active');
   BB.activePanel = id;
   await loadPage(id);
-  // By here all scripts have executed synchronously — safe to call onShow
   if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
-  // Re-init drag-resize handles for the new page
-  setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
+  // initResize after a tick so the panel's DOM is fully painted
+  setTimeout(()=>{ if(window.initResize) initResize(); }, 150);
 }
 
 // ── Wire FK clicks ────────────────────────────────────────────────────────────
@@ -520,9 +516,8 @@ async function updateTradeFeed() {
 
 setInterval(async()=>{
   const r=await api('/api/securities');
-  if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;
-    if(BB.activePanel && window[`PAGE_${BB.activePanel}_onShow`]) window[`PAGE_${BB.activePanel}_onShow`]();}
-  // Update alert badge from fired log
+  if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;}
+  // Update alert badge
   try{
     const log=JSON.parse(localStorage.getItem('al_log')||'[]');
     const recent=log.filter(e=>Date.now()-new Date(e.isoTime||0).getTime()<3600000).length;
