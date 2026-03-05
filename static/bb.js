@@ -195,35 +195,13 @@ const gcIW = n => {
 };
 
 // ── Global Drag-Resize System ─────────────────────────────────────────────────
-// How it works:
-//   • After every page switch, initResize() scans the ACTIVE .panel only.
-//   • Between every pair of sibling panels it injects a thin .bb-handle div.
-//   • Dragging the handle resizes both adjacent panels simultaneously so no
-//     space is lost. Charts are told to reflow via window.dispatchEvent('resize').
-//   • Sizes persist in localStorage keyed by panel id + position (collision-safe).
-//   • Double-clicking a handle resets both panels to their natural flex sizes.
+// Only enabled on pages where panels genuinely need resizing.
+// No localStorage persistence — layouts always start from CSS defaults.
+// Double-click a handle to reset to defaults mid-session.
 
 (function () {
-  const LS = 'bb_sz4'; // bumped key to clear any corrupted legacy data
-
-  function load() { try { return JSON.parse(localStorage.getItem(LS)||'{}'); } catch { return {}; } }
-  function save(o) { try { localStorage.setItem(LS, JSON.stringify(o)); } catch {} }
-
-  // Stable ID scoped strictly to the page panel + DOM position index.
-  // Using positional index avoids collisions between pages that share panel titles.
-  function pid(el, panelId) {
-    // Walk up to find position among siblings of same type
-    const parent = el.parentElement;
-    const siblings = parent ? [...parent.children].filter(c =>
-      c.classList.contains('win') || c.classList.contains('wcol')
-    ) : [];
-    const idx = siblings.indexOf(el);
-    // Include parent chain for uniqueness (e.g. wrow inside wcol inside panel)
-    const parentIdx = parent?.parentElement
-      ? [...(parent.parentElement.children||[])].indexOf(parent)
-      : 0;
-    return `${panelId}|${parentIdx}|${idx}`;
-  }
+  // Only these pages get resize handles. All others load at CSS default sizes.
+  const RESIZE_PAGES = new Set(['p-tkr', 'p-liq', 'p-cmp', 'p-pf', 'p-bt']);
 
   function removeHandles() {
     document.querySelectorAll('.bb-handle').forEach(h => h.remove());
@@ -232,26 +210,12 @@ const gcIW = n => {
   window.initResize = function () {
     removeHandles();
 
-    // Only operate on the currently active panel — never touch inactive panels
     const activePanel = document.querySelector('.panel.active');
     if (!activePanel) return;
-    const panelId = activePanel.id || 'unknown';
 
-    const saved = load();
+    // Skip pages that don't need resize — they render at CSS defaults
+    if (!RESIZE_PAGES.has(activePanel.id)) return;
 
-    // Restore saved sizes ONLY within the active panel
-    activePanel.querySelectorAll('.win, .wcol').forEach(el => {
-      const id = pid(el, panelId);
-      if (!saved[id]) return;
-      const parent = el.parentElement;
-      if (!parent) return;
-      const isRow = parent.classList.contains('wrow');
-      el.style[isRow ? 'width' : 'height'] = saved[id] + 'px';
-      el.style.flex = 'none';
-    });
-
-    // Insert handles between every adjacent pair of resizable children,
-    // scoped to the active panel only
     activePanel.querySelectorAll('.wrow, .wcol').forEach(container => {
       const isRow = container.classList.contains('wrow');
       const kids = [...container.children].filter(c =>
@@ -273,18 +237,17 @@ const gcIW = n => {
         h.onmouseenter = () => { h.style.background = '#ff8c0066'; };
         h.onmouseleave = () => { if (!h._dragging) h.style.background = 'transparent'; };
 
-        // Double-click: reset both panels to default flex, clear from storage
+        // Double-click: reset both panels to CSS defaults for this session
         h.ondblclick = () => {
           [el, next].forEach(p => {
-            p.style[isRow ? 'width' : 'height'] = '';
+            p.style.width = '';
+            p.style.height = '';
             p.style.flex = '';
-            const id = pid(p, panelId);
-            const o = load(); delete o[id]; save(o);
           });
           window.dispatchEvent(new Event('resize'));
         };
 
-        // Drag logic
+        // Drag: session-only, nothing persisted to localStorage
         h.onmousedown = e => {
           e.preventDefault();
           h._dragging = true;
@@ -303,8 +266,8 @@ const gcIW = n => {
             const d  = (isRow ? mv.clientX : mv.clientY) - startXY;
             const nA = Math.max(minSz, startA + d);
             const nB = Math.max(minSz, startB - d);
-            el.style[dim]   = nA + 'px';  el.style.flex   = 'none';
-            next.style[dim] = nB + 'px';  next.style.flex = 'none';
+            el.style[dim]   = nA + 'px'; el.style.flex   = 'none';
+            next.style[dim] = nB + 'px'; next.style.flex = 'none';
             window.dispatchEvent(new Event('resize'));
           };
 
@@ -314,11 +277,7 @@ const gcIW = n => {
             document.body.style.cursor = document.body.style.userSelect = '';
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
-            // Save scoped to active panel
-            const o = load();
-            o[pid(el, panelId)]   = isRow ? el.offsetWidth   : el.offsetHeight;
-            o[pid(next, panelId)] = isRow ? next.offsetWidth  : next.offsetHeight;
-            save(o);
+            // Intentionally no save
           };
 
           document.addEventListener('mousemove', onMove);
@@ -329,6 +288,9 @@ const gcIW = n => {
       });
     });
   };
+
+  // Clear any legacy persisted layout data from old versions
+  try { localStorage.removeItem('bb_sz3'); localStorage.removeItem('bb_sz4'); } catch {}
 
   // First run after initial page load
   if (document.readyState === 'loading')
