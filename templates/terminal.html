@@ -196,9 +196,7 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Clear resize handles and inline sizes ONLY on the panel we're leaving.
-  // This prevents dragged sizes from persisting when you return to that page,
-  // without touching the incoming panel's intended layout widths.
+  // Clear session resize handles and inline sizes from the leaving panel
   const leaving = document.querySelector('.panel.active');
   if (leaving) {
     leaving.querySelectorAll('.bb-handle').forEach(h => h.remove());
