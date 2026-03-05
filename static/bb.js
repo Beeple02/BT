@@ -196,26 +196,33 @@ const gcIW = n => {
 
 // ── Global Drag-Resize System ─────────────────────────────────────────────────
 // How it works:
-//   • After every page switch, initResize() scans the active .panel for all
-//     flex containers (.wrow = horizontal layout, .wcol = vertical stack).
+//   • After every page switch, initResize() scans the ACTIVE .panel only.
 //   • Between every pair of sibling panels it injects a thin .bb-handle div.
 //   • Dragging the handle resizes both adjacent panels simultaneously so no
 //     space is lost. Charts are told to reflow via window.dispatchEvent('resize').
-//   • Sizes persist in localStorage keyed by panel title so they survive reload.
+//   • Sizes persist in localStorage keyed by panel id + position (collision-safe).
 //   • Double-clicking a handle resets both panels to their natural flex sizes.
 
 (function () {
-  const LS = 'bb_sz3';
+  const LS = 'bb_sz4'; // bumped key to clear any corrupted legacy data
 
   function load() { try { return JSON.parse(localStorage.getItem(LS)||'{}'); } catch { return {}; } }
   function save(o) { try { localStorage.setItem(LS, JSON.stringify(o)); } catch {} }
 
-  // Stable ID for a panel based on wnum+wtitle text inside it
-  function pid(el) {
-    const n = el.querySelector('.wnum');
-    const t = el.querySelector('.wtitle');
-    const pg = el.closest('.panel')?.id || 'g';
-    return pg + '|' + (n?.textContent||'') + '|' + (t?.textContent||'').trim().slice(0,18);
+  // Stable ID scoped strictly to the page panel + DOM position index.
+  // Using positional index avoids collisions between pages that share panel titles.
+  function pid(el, panelId) {
+    // Walk up to find position among siblings of same type
+    const parent = el.parentElement;
+    const siblings = parent ? [...parent.children].filter(c =>
+      c.classList.contains('win') || c.classList.contains('wcol')
+    ) : [];
+    const idx = siblings.indexOf(el);
+    // Include parent chain for uniqueness (e.g. wrow inside wcol inside panel)
+    const parentIdx = parent?.parentElement
+      ? [...(parent.parentElement.children||[])].indexOf(parent)
+      : 0;
+    return `${panelId}|${parentIdx}|${idx}`;
   }
 
   function removeHandles() {
@@ -224,11 +231,17 @@ const gcIW = n => {
 
   window.initResize = function () {
     removeHandles();
+
+    // Only operate on the currently active panel — never touch inactive panels
+    const activePanel = document.querySelector('.panel.active');
+    if (!activePanel) return;
+    const panelId = activePanel.id || 'unknown';
+
     const saved = load();
 
-    // Restore previously saved sizes on all panels that are now in the DOM
-    document.querySelectorAll('.win, .wcol').forEach(el => {
-      const id = pid(el);
+    // Restore saved sizes ONLY within the active panel
+    activePanel.querySelectorAll('.win, .wcol').forEach(el => {
+      const id = pid(el, panelId);
       if (!saved[id]) return;
       const parent = el.parentElement;
       if (!parent) return;
@@ -237,10 +250,10 @@ const gcIW = n => {
       el.style.flex = 'none';
     });
 
-    // Insert handles between every adjacent pair of resizable children
-    document.querySelectorAll('.wrow, .wcol').forEach(container => {
+    // Insert handles between every adjacent pair of resizable children,
+    // scoped to the active panel only
+    activePanel.querySelectorAll('.wrow, .wcol').forEach(container => {
       const isRow = container.classList.contains('wrow');
-      // Eligible children: .win or .wcol (columns inside rows)
       const kids = [...container.children].filter(c =>
         c.classList.contains('win') || c.classList.contains('wcol')
       );
@@ -257,16 +270,15 @@ const gcIW = n => {
           ? 'width:5px;flex-shrink:0;cursor:col-resize;background:transparent;position:relative;z-index:20;transition:background .12s'
           : 'height:5px;flex-shrink:0;cursor:row-resize;background:transparent;position:relative;z-index:20;transition:background .12s';
 
-        // Visual feedback on hover
         h.onmouseenter = () => { h.style.background = '#ff8c0066'; };
         h.onmouseleave = () => { if (!h._dragging) h.style.background = 'transparent'; };
 
-        // Double-click: reset both panels
+        // Double-click: reset both panels to default flex, clear from storage
         h.ondblclick = () => {
           [el, next].forEach(p => {
             p.style[isRow ? 'width' : 'height'] = '';
             p.style.flex = '';
-            const id = pid(p);
+            const id = pid(p, panelId);
             const o = load(); delete o[id]; save(o);
           });
           window.dispatchEvent(new Event('resize'));
@@ -278,11 +290,11 @@ const gcIW = n => {
           h._dragging = true;
           h.style.background = '#ff8c00aa';
 
-          const startXY  = isRow ? e.clientX : e.clientY;
-          const startA   = isRow ? el.offsetWidth   : el.offsetHeight;
-          const startB   = isRow ? next.offsetWidth  : next.offsetHeight;
-          const dim      = isRow ? 'width' : 'height';
-          const minSz    = 40; // px minimum panel size
+          const startXY = isRow ? e.clientX : e.clientY;
+          const startA  = isRow ? el.offsetWidth   : el.offsetHeight;
+          const startB  = isRow ? next.offsetWidth  : next.offsetHeight;
+          const dim     = isRow ? 'width' : 'height';
+          const minSz   = 40;
 
           document.body.style.cursor     = isRow ? 'col-resize' : 'row-resize';
           document.body.style.userSelect = 'none';
@@ -302,10 +314,10 @@ const gcIW = n => {
             document.body.style.cursor = document.body.style.userSelect = '';
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
-            // Persist
+            // Save scoped to active panel
             const o = load();
-            o[pid(el)]   = isRow ? el.offsetWidth   : el.offsetHeight;
-            o[pid(next)] = isRow ? next.offsetWidth  : next.offsetHeight;
+            o[pid(el, panelId)]   = isRow ? el.offsetWidth   : el.offsetHeight;
+            o[pid(next, panelId)] = isRow ? next.offsetWidth  : next.offsetHeight;
             save(o);
           };
 
