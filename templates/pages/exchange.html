@@ -79,6 +79,10 @@
       <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">ADVANCE / DECLINE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">% advancing vs declining</div></div>
       <div class="chart-wrap"><canvas id="ex-mom-c"></canvas></div>
     </div>
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">TSE LEADERBOARD</span></div><div class="wbar-r" style="font-size:9px;color:var(--cyn)">LIVE</div></div>
+      <div class="scroll" id="ex-leaderboard"><div class="loading">—</div></div>
+    </div>
   </div>
 
 </div>
@@ -96,9 +100,10 @@ const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6
 window.loadExch = async function(){
   const days=document.getElementById('ex-rng').value;
   document.getElementById('ex-tbody').innerHTML='<tr><td colspan="12" class="loading">LOADING…</td></tr>';
-  const [r, corrR]=await Promise.all([
+  const [r, corrR, lbR]=await Promise.all([
     api(`/api/exchange_analytics?days=${days}`),
-    api(`/api/correlation_matrix?days=${days}`)
+    api(`/api/correlation_matrix?days=${days}`),
+    api('/api/tse/leaderboard?limit=20'),
   ]);
   if(!r.ok){ document.getElementById('ex-tbody').innerHTML=`<tr><td colspan="12"><div class="err-banner">${r.d.detail||'Error'}</div></td></tr>`; return; }
   _data=r.d; _corrData=corrR.ok?corrR.d:null;
@@ -141,6 +146,7 @@ window.loadExch = async function(){
 
   renderExchRows();
   renderExchCharts();
+  renderLeaderboard(lbR.ok ? lbR.d : null);
 };
 
 window.renderExchRows = function(){
@@ -213,8 +219,7 @@ async function renderExchCharts(){
 
   // Large trades feed
   const tr=await api('/api/transactions?type=Trade&limit=100');
-  const ltEl=document.getElementById('ex-large-trades');
-  if(tr.ok&&Array.isArray(tr.d)){
+  const ltEl=document.getElementById('ex-large-trades');  if(tr.ok&&Array.isArray(tr.d)){
     const large=tr.d.filter(tx=>Math.abs(tx.quantity||0)>=100).slice(0,30);
     document.getElementById('ex-lt-sub').textContent=large.length?' — '+large.length+' shown':'';
     ltEl.innerHTML=large.length?large.map(tx=>{
@@ -234,6 +239,39 @@ async function renderExchCharts(){
     }).join(''):'<div class="loading" style="padding:12px">No large trades found</div>';
   }
 }
+function renderLeaderboard(data) {
+  const el = document.getElementById('ex-leaderboard');
+  if(!el) return;
+  const rows = Array.isArray(data) ? data : (data?.leaderboard || data?.traders || data?.entries || []);
+  if(!rows.length) {
+    el.innerHTML = '<div class="loading">No leaderboard data</div>';
+    return;
+  }
+  const maxPnl = Math.max(...rows.map(r => Math.abs(r.pnl || r.profit_loss || r.total_pnl || r.returns || 0)));
+  el.innerHTML = rows.slice(0, 20).map((r, i) => {
+    const rank = r.rank || (i + 1);
+    const name = r.username || r.user || r.name || ('…' + (r.user_id||'?').slice(-8));
+    const pnl  = r.pnl ?? r.profit_loss ?? r.total_pnl ?? r.returns ?? null;
+    const ret  = r.return_pct ?? r.return_percent ?? r.roi ?? null;
+    const trades = r.trades ?? r.num_trades ?? r.trade_count ?? null;
+    const isPos = pnl == null ? true : pnl >= 0;
+    const barW  = maxPnl > 0 && pnl != null ? Math.abs(pnl)/maxPnl*100 : 0;
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+    return `<div style="padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+        <span style="width:22px;font-size:11px">${medal}</span>
+        <span style="color:var(--cyn);font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
+        ${pnl != null ? `<span style="color:${isPos?'var(--up)':'var(--dn)'};font-weight:700;font-variant-numeric:tabular-nums">${isPos?'+':''}$${Math.abs(pnl).toLocaleString(undefined,{maximumFractionDigits:0})}</span>` : ''}
+        ${ret != null ? `<span style="color:${ret>=0?'var(--up)':'var(--dn)'};font-size:9px;min-width:42px;text-align:right">${ret>=0?'+':''}${(+ret).toFixed(1)}%</span>` : ''}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:2px;background:var(--bdr)"><div style="height:100%;background:${isPos?'var(--up)':'var(--dn)'};width:${barW.toFixed(0)}%"></div></div>
+        ${trades != null ? `<span style="font-size:8px;color:var(--txt3)">${trades} trades</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 window.exchQuickOrder = function(ticker, side) {
   sw('ord');
   setTimeout(()=>{
