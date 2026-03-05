@@ -1,8 +1,8 @@
 <!-- F9: EXCHANGE ANALYTICS — Full institutional market intelligence -->
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
 
-<!-- Exchange KPI cards -->
-<div class="scards" style="grid-template-columns:repeat(9,1fr);border-bottom:1px solid var(--bdr)">
+<!-- Exchange KPI cards — NER only (TSE has its own) -->
+<div class="scards" style="grid-template-columns:repeat(9,1fr);border-bottom:1px solid var(--bdr)" id="ex-ner-kpis">
   <div class="sc"><div class="sc-l">TOTAL MKT CAP</div><div class="sc-v" id="ex-mcap">—</div></div>
   <div class="sc"><div class="sc-l">TOTAL VOLUME</div><div class="sc-v" id="ex-vol">—</div></div>
   <div class="sc"><div class="sc-l">SECURITIES</div><div class="sc-v" id="ex-nsec">—</div></div>
@@ -14,7 +14,24 @@
   <div class="sc"><div class="sc-l">BREADTH SCORE</div><div class="sc-v" id="ex-breadth">—</div></div>
 </div>
 
-<div class="frow">
+<!-- TSE KPI cards (hidden by default) -->
+<div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr);display:none" id="ex-tse-kpis">
+  <div class="sc"><div class="sc-l">TSE SECURITIES</div><div class="sc-v cyn" id="tse-nsec">—</div></div>
+  <div class="sc"><div class="sc-l">TSE TOTAL MCAP</div><div class="sc-v" id="tse-mcap">—</div></div>
+  <div class="sc"><div class="sc-l">TSE VOLUME 24H</div><div class="sc-v" id="tse-vol">—</div></div>
+  <div class="sc"><div class="sc-l">LEADERBOARD #1</div><div class="sc-v org" id="tse-lb1">—</div></div>
+  <div class="sc"><div class="sc-l">TOP TRADER PNL</div><div class="sc-v up" id="tse-lb1pnl">—</div></div>
+  <div class="sc"><div class="sc-l">LAST UPDATED</div><div class="sc-v dim" id="tse-updated">—</div></div>
+</div>
+
+<!-- Exchange toggle tabs -->
+<div style="display:flex;background:#000;border-bottom:2px solid var(--bdr);flex-shrink:0;height:26px">
+  <button id="ex-tab-ner" onclick="exSwitchTab('ner')" style="padding:0 18px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;border:none;background:var(--org);color:#000;cursor:pointer;border-right:1px solid var(--bdr)">NER</button>
+  <button id="ex-tab-tse" onclick="exSwitchTab('tse')" style="padding:0 18px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;border:none;background:transparent;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr)">TSE</button>
+  <span id="ex-tab-label" style="display:flex;align-items:center;padding:0 12px;font-size:9px;color:var(--txt3)">NER EXCHANGE — ANALYTICS</span>
+</div>
+
+<div class="frow" id="ex-ner-controls">
   <div class="ff"><label>PERIOD</label>
     <select id="ex-rng" onchange="loadExch()">
       <option value="1">1D</option><option value="7" selected>7D</option>
@@ -35,14 +52,33 @@
   <span id="ex-updated" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
 </div>
 
-<!-- Live trade stream bar -->
+<div class="frow" id="ex-tse-controls" style="display:none">
+  <button class="btn on" onclick="loadTSE()">↻ REFRESH</button>
+  <div class="ff" style="margin-left:8px"><label>FILTER BY SECTOR</label>
+    <select id="tse-sector-filter" onchange="renderTSERows()" style="min-width:140px">
+      <option value="">ALL SECTORS</option>
+    </select>
+  </div>
+  <div class="ff"><label>SORT BY</label>
+    <select id="tse-sort" onchange="renderTSERows()">
+      <option value="market_cap">MARKET CAP</option>
+      <option value="volume_24h">VOLUME</option>
+      <option value="price_change_pct">% CHANGE</option>
+      <option value="current_price">PRICE</option>
+    </select>
+  </div>
+  <span id="tse-updated" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px"></span>
+</div>
+
+<!-- NER live trade stream bar -->
 <div id="ex-stream-bar" style="height:22px;background:#0a0a0a;border-bottom:1px solid var(--bdr);display:flex;align-items:center;overflow:hidden;flex-shrink:0;position:relative">
   <div style="padding:0 8px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap;flex-shrink:0">STREAM</div>
   <div id="ex-stream-inner" style="display:flex;white-space:nowrap;gap:0"></div>
   <div style="position:absolute;right:0;top:0;bottom:0;width:30px;background:linear-gradient(-90deg,#0a0a0a,transparent);pointer-events:none"></div>
 </div>
 
-<div class="wrow" style="flex:1">
+<!-- NER panel -->
+<div id="ex-ner-panel" class="wrow" style="flex:1">
 
   <!-- Securities table -->
   <div class="win resizable" style="flex:1;border-right:0">
@@ -79,9 +115,46 @@
       <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">ADVANCE / DECLINE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">% advancing vs declining</div></div>
       <div class="chart-wrap"><canvas id="ex-mom-c"></canvas></div>
     </div>
-    <div class="win" style="flex:1;border-top:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">TSE LEADERBOARD</span></div><div class="wbar-r" style="font-size:9px;color:var(--cyn)">LIVE</div></div>
+  </div>
+
+</div>
+
+<!-- TSE panel (hidden by default) -->
+<div id="ex-tse-panel" style="flex:1;display:none;overflow:hidden" class="wrow">
+
+  <!-- TSE securities table -->
+  <div class="win resizable" style="flex:1;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">TSE — STOCKS &amp; MARKET DATA</span><span class="wsub" id="tse-tbl-sub"></span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--cyn)">THE STOCK EXCHANGE</div>
+    </div>
+    <div class="scroll">
+      <table class="dt">
+        <thead><tr>
+          <th>SYMBOL</th><th>NAME</th><th>SECTOR</th>
+          <th class="r">PRICE</th><th class="r">CHG%</th>
+          <th class="r">BID</th><th class="r">ASK</th><th class="r">SPREAD</th>
+          <th class="r">VOLUME 24H</th><th class="r">MKT CAP</th><th class="r">STATUS</th>
+          <th>ACT</th>
+        </tr></thead>
+        <tbody id="tse-tbody"><tr><td colspan="12" class="loading">LOADING…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TSE right column -->
+  <div class="wcol resizable" style="width:310px">
+    <div class="win" style="flex:1;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">TSE LEADERBOARD</span></div><div class="wbar-r" style="font-size:9px;color:var(--cyn)">TOP TRADERS</div></div>
       <div class="scroll" id="ex-leaderboard"><div class="loading">—</div></div>
+    </div>
+    <div class="win" style="flex:1;border-top:0;border-bottom:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">TSE RECENT TRADES</span></div></div>
+      <div class="scroll" id="tse-trades"><div class="loading">—</div></div>
+    </div>
+    <div class="win" style="flex:1;border-top:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">TSE SECTOR BREAKDOWN</span></div></div>
+      <div class="chart-wrap"><canvas id="tse-sector-c"></canvas></div>
     </div>
   </div>
 
@@ -90,13 +163,44 @@
 
 <script>
 (function(){
-let _data=null, _corrData=null;
-let _cCap=null, _cMom=null;
+let _data=null, _corrData=null, _tseData=null, _tseLbData=null;
+let _cCap=null, _cMom=null, _cTseSector=null;
 let _streamTrades=[], _streamPos=0, _streamRaf=null;
+let _activeTab = 'ner';
 const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
 
-// PAGE_exch_onShow defined below with stream
+// ── Tab switch ──────────────────────────────────────────────────────────────
+window.exSwitchTab = function(tab) {
+  _activeTab = tab;
+  const isNer = tab === 'ner';
+  document.getElementById('ex-ner-panel').style.display = isNer ? '' : 'none';
+  document.getElementById('ex-tse-panel').style.display = isNer ? 'none' : '';
+  document.getElementById('ex-ner-controls').style.display = isNer ? '' : 'none';
+  document.getElementById('ex-tse-controls').style.display = isNer ? 'none' : '';
+  document.getElementById('ex-ner-kpis').style.display = isNer ? '' : 'none';
+  document.getElementById('ex-tse-kpis').style.display = isNer ? 'none' : '';
+  document.getElementById('ex-stream-bar').style.display = isNer ? '' : 'none';
+  // Tab button styles
+  document.getElementById('ex-tab-ner').style.cssText = isNer
+    ? 'padding:0 18px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;border:none;background:var(--org);color:#000;cursor:pointer;border-right:1px solid var(--bdr)'
+    : 'padding:0 18px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;border:none;background:transparent;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr)';
+  document.getElementById('ex-tab-tse').style.cssText = isNer
+    ? 'padding:0 18px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;border:none;background:transparent;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr)'
+    : 'padding:0 18px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;border:none;background:var(--cyn);color:#000;cursor:pointer;border-right:1px solid var(--bdr)';
+  document.getElementById('ex-tab-label').textContent = isNer
+    ? 'NER EXCHANGE — ANALYTICS'
+    : 'THE STOCK EXCHANGE (TSE) — ANALYTICS';
+  if(isNer) {
+    if(!_data) loadExch(); else renderExchRows();
+    if(!_streamRaf) animateStream();
+  } else {
+    if(_streamRaf) { cancelAnimationFrame(_streamRaf); _streamRaf = null; }
+    if(!_tseData) loadTSE(); else renderTSERows();
+  }
+  setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
+};
 
+// ── NER: load exchange analytics ───────────────────────────────────────────
 window.loadExch = async function(){
   const days=document.getElementById('ex-rng').value;
   document.getElementById('ex-tbody').innerHTML='<tr><td colspan="12" class="loading">LOADING…</td></tr>';
@@ -120,33 +224,22 @@ window.loadExch = async function(){
   const ewEl=document.getElementById('ex-ew');
   ewEl.textContent=(ex.avg_return>=0?'+':'')+ex.avg_return+'%';
   ewEl.style.color=gc(ex.avg_return);
-
   if(_corrData){
     const ac=_corrData.avg_corr;
     const corrEl=document.getElementById('ex-corr');
     corrEl.textContent=ac!=null?ac.toFixed(3):'—';
     corrEl.style.color=ac>0.7?'var(--dn)':ac>0.4?'var(--yel)':'var(--up)';
   }
-
   const tickers=_data.tickers||[];
   const above=tickers.filter(t=>t.chg_pct>0).length;
   const breadthPct=tickers.length?Math.round(above/tickers.length*100):0;
   const breadthEl=document.getElementById('ex-breadth');
   breadthEl.textContent=breadthPct+'%';
   breadthEl.style.color=breadthPct>60?'var(--up)':breadthPct<40?'var(--dn)':'var(--yel)';
-
   document.getElementById('ex-updated').textContent='Updated '+new Date().toLocaleTimeString('en-GB');
-
-  // Update avg corr KPI card (panel 3 is now large trades)
-  if(_corrData && _corrData.tickers){
-    const ac=_corrData.avg_corr;
-    const corrEl=document.getElementById('ex-corr');
-    if(corrEl){ corrEl.textContent=ac!=null?ac.toFixed(3):'—'; corrEl.style.color=ac>0.7?'var(--dn)':ac>0.4?'var(--yel)':'var(--up)'; }
-  }
-
   renderExchRows();
   renderExchCharts();
-  renderLeaderboard(lbR.ok ? lbR.d : null);
+  if(lbR.ok) renderLeaderboard(lbR.d);
 };
 
 window.renderExchRows = function(){
@@ -191,11 +284,7 @@ async function renderExchCharts(){
       plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` ${fk(c.parsed.x)}`}}},
       scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',callback:v=>fk(v)}},y:{grid:{display:false},ticks:{color:'#888'}}}}});
 
-  // Advance/Decline stacked bar: show each ticker's contribution
   const adData=[..._data.tickers].sort((a,b)=>b.chg_pct-a.chg_pct);
-  const upTickers=adData.filter(s=>s.chg_pct>0);
-  const dnTickers=adData.filter(s=>s.chg_pct<0);
-  const flatTickers=adData.filter(s=>s.chg_pct===0);
   _cMom=dc(_cMom);
   _cMom=new Chart(document.getElementById('ex-mom-c'),{type:'bar',
     data:{
@@ -219,7 +308,8 @@ async function renderExchCharts(){
 
   // Large trades feed
   const tr=await api('/api/transactions?type=Trade&limit=100');
-  const ltEl=document.getElementById('ex-large-trades');  if(tr.ok&&Array.isArray(tr.d)){
+  const ltEl=document.getElementById('ex-large-trades');
+  if(tr.ok&&Array.isArray(tr.d)){
     const large=tr.d.filter(tx=>Math.abs(tx.quantity||0)>=100).slice(0,30);
     document.getElementById('ex-lt-sub').textContent=large.length?' — '+large.length+' shown':'';
     ltEl.innerHTML=large.length?large.map(tx=>{
@@ -239,34 +329,184 @@ async function renderExchCharts(){
     }).join(''):'<div class="loading" style="padding:12px">No large trades found</div>';
   }
 }
+
+// ── TSE: load all TSE data ──────────────────────────────────────────────────
+window.loadTSE = async function(){
+  document.getElementById('tse-tbody').innerHTML='<tr><td colspan="12" class="loading">LOADING TSE DATA…</td></tr>';
+  document.getElementById('ex-leaderboard').innerHTML='<div class="loading">LOADING…</div>';
+
+  const [stocksR, lbR] = await Promise.all([
+    api('/api/tse/leaderboard?limit=20'),
+    api('/api/tse/leaderboard?limit=20'),
+  ]);
+
+  // Fetch TSE stocks directly from securities (already merged)
+  const secsR = await api('/api/securities');
+  const allSecs = secsR.ok && Array.isArray(secsR.d) ? secsR.d : [];
+  const tseSecs = allSecs.filter(s => s.exchange === 'TSE');
+
+  // Enrich with live market data
+  const enriched = await Promise.all(tseSecs.map(async s => {
+    const mR = await api(`/api/tse/market/${s.ticker}`);
+    if(mR.ok && mR.d) {
+      return {
+        ...s,
+        bid: mR.d.best_bid ?? mR.d.bid ?? null,
+        ask: mR.d.best_ask ?? mR.d.ask ?? null,
+        current_price: mR.d.last_price ?? mR.d.price ?? s.market_price,
+        volume_24h: mR.d.volume ?? mR.d.volume_24h ?? 0,
+        price_change_pct: mR.d.price_change_pct ?? mR.d.change_pct ?? 0,
+      };
+    }
+    return { ...s, bid: null, ask: null, current_price: s.market_price, volume_24h: 0, price_change_pct: 0 };
+  }));
+
+  _tseData = enriched;
+
+  // Populate sector filter
+  const sectors = [...new Set(enriched.map(s=>s.sector||'').filter(Boolean))].sort();
+  const sectorSel = document.getElementById('tse-sector-filter');
+  const curSector = sectorSel.value;
+  sectorSel.innerHTML = '<option value="">ALL SECTORS</option>' + sectors.map(s=>`<option value="${s}"${s===curSector?' selected':''}>${s}</option>`).join('');
+
+  // KPI strip
+  const totalMcap = enriched.reduce((s,x)=>{
+    const mc = (x.current_price||0) * (x.total_shares||0);
+    return s + mc;
+  }, 0);
+  const totalVol = enriched.reduce((s,x)=>s+(x.volume_24h||0),0);
+  document.getElementById('tse-nsec').textContent = enriched.length;
+  document.getElementById('tse-mcap').textContent = fk(totalMcap);
+  document.getElementById('tse-vol').textContent = fk(totalVol);
+  document.getElementById('tse-updated').textContent = 'Updated '+new Date().toLocaleTimeString('en-GB');
+
+  renderTSERows();
+
+  // Leaderboard
+  const lbData = lbR.ok ? lbR.d : null;
+  renderLeaderboard(lbData);
+  _tseLbData = lbData;
+
+  // Pull first-place leaderboard entry for KPI
+  const rows = Array.isArray(lbData) ? lbData : (lbData?.leaderboard||lbData?.traders||lbData?.entries||[]);
+  if(rows.length) {
+    const top = rows[0];
+    const name = top.username||top.user||top.name||('…'+(top.user_id||'').slice(-8));
+    const pnl  = top.pnl??top.profit_loss??top.total_pnl??top.returns??null;
+    document.getElementById('tse-lb1').textContent = name;
+    document.getElementById('tse-lb1pnl').textContent = pnl!=null ? (pnl>=0?'+':'')+fk(pnl) : '—';
+  }
+
+  // Recent TSE trades — pick first active symbol
+  if(enriched.length) {
+    const sym = enriched[0].ticker;
+    const trR = await api(`/api/tse/trades/${sym}?limit=30`);
+    renderTSETrades(trR.ok ? trR.d : []);
+  }
+
+  // Sector chart
+  renderTSESectorChart(enriched);
+};
+
+window.renderTSERows = function(){
+  if(!_tseData) return;
+  const srt = document.getElementById('tse-sort').value;
+  const sec = document.getElementById('tse-sector-filter').value;
+  let rows = sec ? _tseData.filter(s=>s.sector===sec) : [..._tseData];
+  rows.sort((a,b) => {
+    const av = a[srt]??0, bv = b[srt]??0;
+    return bv - av;
+  });
+  const tb = document.getElementById('tse-tbody'); tb.innerHTML='';
+  document.getElementById('tse-tbl-sub').textContent = ` · ${rows.length} securities`;
+  rows.forEach(s => {
+    const chg = s.price_change_pct ?? 0;
+    const spread = (s.bid&&s.ask) ? ((s.ask-s.bid)/s.bid*100).toFixed(2)+'%' : '—';
+    const status = s.frozen ? '<span class="badge b-dn">HALTED</span>' : '<span class="badge b-up">LIVE</span>';
+    const tr = document.createElement('tr');
+    tr.className = chg>0.5?'up-row':chg<-0.5?'dn-row':'';
+    tr.innerHTML = `
+      <td><strong class="cyn">${s.ticker}</strong></td>
+      <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis">${s.full_name||s.ticker}</td>
+      <td class="dim" style="font-size:9px">${s.sector||'—'}</td>
+      <td class="r wht">${f(s.current_price??s.market_price,4)}</td>
+      <td class="r ${chg>=0?'up':'dn'}">${fp(chg)}</td>
+      <td class="r dim">${s.bid!=null?f(s.bid,4):'—'}</td>
+      <td class="r dim">${s.ask!=null?f(s.ask,4):'—'}</td>
+      <td class="r dim">${spread}</td>
+      <td class="r">${fk(s.volume_24h)}</td>
+      <td class="r">${fk((s.current_price||0)*(s.total_shares||0))}</td>
+      <td>${status}</td>
+      <td><button class="act-b" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();exchQuickOrder('${s.ticker}','sell')">S</button></td>`;
+    tr.onclick = ()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker+'|TSE'),250); };
+    tb.appendChild(tr);
+  });
+};
+
+function renderTSETrades(trades) {
+  const el = document.getElementById('tse-trades');
+  const arr = Array.isArray(trades) ? trades : (trades?.trades||[]);
+  if(!arr.length) { el.innerHTML='<div class="loading">No recent trades</div>'; return; }
+  el.innerHTML = arr.slice(0,40).map(t => {
+    const isBuy = t.side==='buy'||(t.amount&&t.amount<0);
+    const price = t.price ?? t.last_price ?? 0;
+    const qty   = t.quantity ?? t.size ?? 0;
+    const time  = t.timestamp ? new Date(t.timestamp).toLocaleTimeString('en-GB',{hour12:false}) : '—';
+    return `<div style="display:flex;align-items:center;gap:5px;padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <span style="font-size:9px;color:var(--txt3);width:44px">${time}</span>
+      <span style="font-weight:700;color:var(--cyn);width:36px">${t.symbol||t.ticker||'—'}</span>
+      <span style="font-size:9px;font-weight:700;color:${isBuy?'var(--up)':'var(--dn)'};width:28px">${isBuy?'BUY':'SELL'}</span>
+      <span style="color:var(--wht);width:52px;text-align:right">${qty.toLocaleString()} sh</span>
+      <span style="color:var(--yel);flex:1;text-align:right">$${f(price,4)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderTSESectorChart(secs) {
+  const bysector = {};
+  secs.forEach(s => {
+    const sec = s.sector||'Other';
+    const mc = (s.current_price||s.market_price||0)*(s.total_shares||0);
+    bysector[sec] = (bysector[sec]||0) + mc;
+  });
+  const labels = Object.keys(bysector);
+  const data   = labels.map(k=>bysector[k]);
+  _cTseSector = dc(_cTseSector);
+  _cTseSector = new Chart(document.getElementById('tse-sector-c'),{
+    type:'doughnut',
+    data:{labels,datasets:[{data,backgroundColor:COLS.slice(0,labels.length),borderColor:'#111',borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{position:'right',labels:{color:'#888',font:{size:9},boxWidth:8,padding:5}},
+               tooltip:{...TT,callbacks:{label:c=>` ${c.label}: ${fk(c.parsed)}`}}}}
+  });
+}
+
+// ── Leaderboard renderer (shared) ──────────────────────────────────────────
 function renderLeaderboard(data) {
   const el = document.getElementById('ex-leaderboard');
   if(!el) return;
-  const rows = Array.isArray(data) ? data : (data?.leaderboard || data?.traders || data?.entries || []);
-  if(!rows.length) {
-    el.innerHTML = '<div class="loading">No leaderboard data</div>';
-    return;
-  }
-  const maxPnl = Math.max(...rows.map(r => Math.abs(r.pnl || r.profit_loss || r.total_pnl || r.returns || 0)));
-  el.innerHTML = rows.slice(0, 20).map((r, i) => {
-    const rank = r.rank || (i + 1);
-    const name = r.username || r.user || r.name || ('…' + (r.user_id||'?').slice(-8));
-    const pnl  = r.pnl ?? r.profit_loss ?? r.total_pnl ?? r.returns ?? null;
-    const ret  = r.return_pct ?? r.return_percent ?? r.roi ?? null;
-    const trades = r.trades ?? r.num_trades ?? r.trade_count ?? null;
-    const isPos = pnl == null ? true : pnl >= 0;
-    const barW  = maxPnl > 0 && pnl != null ? Math.abs(pnl)/maxPnl*100 : 0;
-    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+  const rows = Array.isArray(data) ? data : (data?.leaderboard||data?.traders||data?.entries||[]);
+  if(!rows.length) { el.innerHTML='<div class="loading">No leaderboard data</div>'; return; }
+  const maxPnl = Math.max(...rows.map(r=>Math.abs(r.pnl??r.profit_loss??r.total_pnl??r.returns??0)));
+  el.innerHTML = rows.slice(0,20).map((r,i)=>{
+    const rank = r.rank||(i+1);
+    const name = r.username||r.user||r.name||('…'+(r.user_id||'?').slice(-8));
+    const pnl  = r.pnl??r.profit_loss??r.total_pnl??r.returns??null;
+    const ret  = r.return_pct??r.return_percent??r.roi??null;
+    const trades = r.trades??r.num_trades??r.trade_count??null;
+    const isPos = pnl==null ? true : pnl>=0;
+    const barW  = maxPnl>0&&pnl!=null ? Math.abs(pnl)/maxPnl*100 : 0;
+    const medal = rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':`#${rank}`;
     return `<div style="padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
         <span style="width:22px;font-size:11px">${medal}</span>
         <span style="color:var(--cyn);font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
-        ${pnl != null ? `<span style="color:${isPos?'var(--up)':'var(--dn)'};font-weight:700;font-variant-numeric:tabular-nums">${isPos?'+':''}$${Math.abs(pnl).toLocaleString(undefined,{maximumFractionDigits:0})}</span>` : ''}
-        ${ret != null ? `<span style="color:${ret>=0?'var(--up)':'var(--dn)'};font-size:9px;min-width:42px;text-align:right">${ret>=0?'+':''}${(+ret).toFixed(1)}%</span>` : ''}
+        ${pnl!=null?`<span style="color:${isPos?'var(--up)':'var(--dn)'};font-weight:700;font-variant-numeric:tabular-nums">${isPos?'+':''}$${Math.abs(pnl).toLocaleString(undefined,{maximumFractionDigits:0})}</span>`:''}
+        ${ret!=null?`<span style="color:${ret>=0?'var(--up)':'var(--dn)'};font-size:9px;min-width:42px;text-align:right">${ret>=0?'+':''}${(+ret).toFixed(1)}%</span>`:''}
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div style="flex:1;height:2px;background:var(--bdr)"><div style="height:100%;background:${isPos?'var(--up)':'var(--dn)'};width:${barW.toFixed(0)}%"></div></div>
-        ${trades != null ? `<span style="font-size:8px;color:var(--txt3)">${trades} trades</span>` : ''}
+        ${trades!=null?`<span style="font-size:8px;color:var(--txt3)">${trades} trades</span>`:''}
       </div>
     </div>`;
   }).join('');
@@ -281,7 +521,7 @@ window.exchQuickOrder = function(ticker, side) {
   }, 300);
 };
 
-// ── Live trade stream strip ──────────────────────────────────────────────────
+// ── Live trade stream strip (NER only) ─────────────────────────────────────
 async function updateStream() {
   const r = await api('/api/transactions?type=Trade&limit=30');
   if(!r.ok || !Array.isArray(r.d)) return;
@@ -289,7 +529,6 @@ async function updateStream() {
   const newTs = r.d.filter(t=>!known.has(t.id||t.timestamp));
   _streamTrades = r.d;
   if(!newTs.length) return;
-  // Prepend new trades to stream
   const inner = document.getElementById('ex-stream-inner');
   if(!inner) return;
   newTs.reverse().forEach(tx => {
@@ -302,11 +541,9 @@ async function updateStream() {
       <span style="color:var(--yel)">$${f(tx.price||0,4)}</span>`;
     span.style.animation = 'tape-flash .9s ease-out';
     inner.prepend(span);
-    // keep max 60 items
     while(inner.children.length > 60) inner.removeChild(inner.lastChild);
   });
 }
-// Scroll the stream continuously
 function animateStream() {
   const inner = document.getElementById('ex-stream-inner');
   if(inner) {
@@ -317,11 +554,17 @@ function animateStream() {
   _streamRaf = requestAnimationFrame(animateStream);
 }
 window.PAGE_exch_onShow = function(){
-  if(!_data) loadExch();
-  updateStream();
-  if(!_streamRaf) animateStream();
+  if(_activeTab === 'ner') {
+    if(!_data) loadExch();
+    updateStream();
+    if(!_streamRaf) animateStream();
+  } else {
+    if(!_tseData) loadTSE();
+  }
 };
-setInterval(updateStream, 30000);
+setInterval(()=>{
+  if(_activeTab==='ner') updateStream();
+}, 30000);
 
 })();
 </script>
