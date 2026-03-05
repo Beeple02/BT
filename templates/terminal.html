@@ -95,6 +95,7 @@
   <div class="fk"        data-p="scr"  ><span class="fk-n">F12</span><span class="fk-l">SCREENER</span></div>
   <div class="fk"        data-p="al"   ><span class="fk-n">F13</span><span class="fk-l">ALERTS</span></div>
   <div class="fk"        data-p="nf"   ><span class="fk-n">F14</span><span class="fk-l">FEED</span></div>
+  <div class="fk"        data-p="block"><span class="fk-n">F15</span><span class="fk-l">BLOCK</span></div>
 </div>
 
 <div id="panels">
@@ -112,11 +113,12 @@
   <div class="panel"        id="p-scr" ></div>
   <div class="panel"        id="p-al"  ></div>
   <div class="panel"        id="p-nf"  ></div>
+  <div class="panel"        id="p-block"></div>
 </div>
 
 <div id="cmdbar">
   <div class="cmd-p">CMD&gt;</div>
-  <input id="cmd-in" placeholder="F1–F14 · B=BUY · S=SELL · ESC=CLOSE · &lt;TICKER&gt; · HELP" autocomplete="off">
+  <input id="cmd-in" placeholder="F1–F15 · B=BUY · S=SELL · ESC=CLOSE · &lt;TICKER&gt; · HELP" autocomplete="off">
   <div id="cmd-st">READY</div>
 </div>
 </div>
@@ -141,7 +143,7 @@ const PAGE_SRCS = {
   mkt:'market',tkr:'ticker',pf:'portfolio',ord:'orders',
   bt:'backtest',cmp:'compare',wl:'watchlist',hm:'heatmap',
   exch:'exchange',liq:'liquidity',hold:'holders',
-  scr:'screener',al:'alerts',nf:'news'
+  scr:'screener',al:'alerts',nf:'news',block:'block'
 };
 const loaded = new Set();
 
@@ -196,23 +198,15 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Clear resize handles and inline sizes ONLY on the panel we're leaving.
-  // This prevents dragged sizes from persisting when you return to that page,
-  // without touching the incoming panel's intended layout widths.
-  const leaving = document.querySelector('.panel.active');
-  if (leaving) {
-    leaving.querySelectorAll('.bb-handle').forEach(h => h.remove());
-    leaving.querySelectorAll('.win, .wcol').forEach(el => {
-      el.style.width = ''; el.style.height = ''; el.style.flex = '';
-    });
-  }
   document.querySelectorAll('.fk').forEach(f=>f.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelector(`[data-p="${id}"]`).classList.add('active');
   document.getElementById(`p-${id}`).classList.add('active');
   BB.activePanel = id;
   await loadPage(id);
+  // By here all scripts have executed synchronously — safe to call onShow
   if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
+  // Re-init drag-resize handles for the new page
   setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
 }
 
@@ -221,7 +215,7 @@ document.querySelectorAll('.fk').forEach(fk=>{
   fk.addEventListener('click',()=>sw(fk.dataset.p));
 });
 document.addEventListener('keydown',e=>{
-  const m={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf'};
+  const m={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf',F15:'block'};
   if(m[e.key]){e.preventDefault();sw(m[e.key]);return;}
   // Global shortcuts — only fire when command bar is not focused
   const cmd=document.getElementById('cmd-in');
@@ -263,12 +257,13 @@ document.getElementById('cmd-in').addEventListener('keydown', e=>{
   if(e.key!=='Enter')return;
   const raw=e.target.value.trim().toUpperCase();e.target.value='';if(!raw)return;
   const parts=raw.split(/\s+/);
-  const fk={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf'};
+  const fk={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf',F15:'block'};
   const st=id=>document.getElementById('cmd-st').textContent=id;
   if(fk[parts[0]]){sw(fk[parts[0]]);return;}
-  if(parts[0]==='HELP'){st('F1-F14 | TICKER | WATCH TICKER | LIQ TICKER | SCR | FEED | HELP | CLEAR');return;}
+  if(parts[0]==='HELP'){st('F1-F15 | TICKER | WATCH TICKER | LIQ TICKER | SCR | FEED | BLOCK | HELP | CLEAR');return;}
   if(parts[0]==='SCR'){sw('scr');return;}
   if(parts[0]==='FEED'||parts[0]==='NEWS'){sw('nf');return;}
+  if(parts[0]==='BLOCK'||parts[0]==='DARK'){sw('block');return;}
   if(parts[0]==='CLEAR'){st('—');return;}
   if(parts[0]==='WATCH'&&parts[1]){
     if(!BB.watchlist.find(w=>w.ticker===parts[1]))
@@ -519,7 +514,9 @@ async function updateTradeFeed() {
 
 setInterval(async()=>{
   const r=await api('/api/securities');
-  if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;}
+  if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;
+    if(BB.activePanel && window[`PAGE_${BB.activePanel}_onShow`]) window[`PAGE_${BB.activePanel}_onShow`]();}
+  // Update alert badge from fired log
   try{
     const log=JSON.parse(localStorage.getItem('al_log')||'[]');
     const recent=log.filter(e=>Date.now()-new Date(e.isoTime||0).getTime()<3600000).length;
