@@ -299,6 +299,24 @@ def tse_market(symbol):
     s, d = tse_get(f"/api/v1/market/{symbol}", ttl=10)
     return jsonify(d), s
 
+@app.route("/api/tse/filings")
+def tse_filings():
+    """TSE corporate filings — public, no auth required."""
+    limit  = request.args.get("limit", 50)
+    symbol = request.args.get("symbol", None)
+    params = {"limit": int(limit)}
+    if symbol:
+        params["symbol"] = symbol
+    s, d = tse_get("/api/v1/filings", params=params, ttl=120)
+    return jsonify(d), s
+
+@app.route("/api/tse/leaderboard")
+def tse_leaderboard():
+    """TSE trader leaderboard — public."""
+    limit = request.args.get("limit", 50)
+    s, d = tse_get("/api/v1/leaderboard", params={"limit": int(limit)}, ttl=60)
+    return jsonify(d), s
+
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
     s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
