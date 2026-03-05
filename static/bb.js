@@ -223,22 +223,44 @@ const gcIW = n => {
   }
 
   window.initResize = function () {
+    // Step 1: Remove all existing handles
     removeHandles();
+
+    // Step 2: Clear ALL previously applied inline sizes so flex can recalculate
+    // natural sizes. This prevents stale pixel sizes from a different layout persisting.
+    document.querySelectorAll('.win, .wcol').forEach(el => {
+      el.style.width  = '';
+      el.style.height = '';
+      el.style.flex   = '';
+    });
+
+    // Step 3: Force a synchronous reflow
+    void document.body.offsetWidth;
+
     const saved = load();
 
-    // Restore previously saved sizes on all panels that are now in the DOM
-    document.querySelectorAll('.win, .wcol').forEach(el => {
+    // Step 4: Restore saved sizes — only on the ACTIVE panel to avoid cross-page pollution
+    const activePanel = document.querySelector('.panel.active');
+    const scope = activePanel || document;
+    scope.querySelectorAll('.win, .wcol').forEach(el => {
       const id = pid(el);
       if (!saved[id]) return;
       const parent = el.parentElement;
       if (!parent) return;
       const isRow = parent.classList.contains('wrow');
-      el.style[isRow ? 'width' : 'height'] = saved[id] + 'px';
+      // Sanity check: only apply if saved size is reasonable
+      const sz = saved[id];
+      if (sz < 40 || sz > 4000) return;
+      el.style[isRow ? 'width' : 'height'] = sz + 'px';
       el.style.flex = 'none';
     });
 
-    // Insert handles between every adjacent pair of resizable children
-    document.querySelectorAll('.wrow, .wcol').forEach(container => {
+    // Step 5: Insert handles — only within the active panel
+    const containers = activePanel
+      ? activePanel.querySelectorAll('.wrow, .wcol')
+      : document.querySelectorAll('.wrow, .wcol');
+
+    containers.forEach(container => {
       const isRow = container.classList.contains('wrow');
       // Eligible children: .win or .wcol (columns inside rows)
       const kids = [...container.children].filter(c =>
