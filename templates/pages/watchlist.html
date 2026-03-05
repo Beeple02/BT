@@ -24,7 +24,7 @@
 
   <div class="win" style="flex:1;border-right:0">
     <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">QUICK CHART</span><span class="wsub" id="wl-ct"></span></div></div>
-    <div class="chart-wrap"><canvas id="wl-c"></canvas></div>
+    <div class="chart-wrap" id="wl-chart-wrap" style="display:flex;flex-direction:column"><canvas id="wl-c"></canvas><div id="wl-c-hint" style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--txt3);font-size:10px;letter-spacing:2px">CLICK A TICKER TO CHART</div></div>
   </div>
 
   <div class="wcol" style="width:230px">
@@ -96,6 +96,8 @@ window.wlRefresh=async function(){
   renderWL();
   renderWLStats();
   renderVolRank();
+  // Auto-load chart for first ticker so QUICK CHART isn't empty
+  if(BB.watchlist.length && !document.getElementById('wl-c')._hasChart) wlLoadChart(BB.watchlist[0].ticker);
 };
 
 function renderWL(){
@@ -169,6 +171,7 @@ window.wlDel=function(i){ BB.watchlist.splice(i,1); wlRefresh(); };
 
 window.wlLoadChart=async function(ticker){
   document.getElementById('wl-ct').textContent=' '+ticker;
+  const hint=document.getElementById('wl-c-hint'); if(hint) hint.style.display='none';
   const r=await api(`/api/analytics/price_history/${ticker}?days=30`);
   _wlC=dc(_wlC);
   if(r.ok&&r.d.length){
