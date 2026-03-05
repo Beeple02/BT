@@ -195,13 +195,16 @@ const gcIW = n => {
 };
 
 // ── Global Drag-Resize System ─────────────────────────────────────────────────
-// Only enabled on pages where panels genuinely need resizing.
-// No localStorage persistence — layouts always start from CSS defaults.
-// Double-click a handle to reset to defaults mid-session.
+// Session-only resize on whitelisted pages. Zero localStorage. Always resets on page switch.
 
 (function () {
-  // Only these pages get resize handles. All others load at CSS default sizes.
+  // Only these pages get drag handles. All others stay at CSS defaults always.
   const RESIZE_PAGES = new Set(['p-tkr', 'p-liq', 'p-cmp', 'p-pf', 'p-bt']);
+
+  // Nuke all bb_ localStorage keys — clears any previously saved sizes from old versions
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('bb_')).forEach(k => localStorage.removeItem(k));
+  } catch(_) {}
 
   function removeHandles() {
     document.querySelectorAll('.bb-handle').forEach(h => h.remove());
@@ -210,13 +213,10 @@ const gcIW = n => {
   window.initResize = function () {
     removeHandles();
 
-    const activePanel = document.querySelector('.panel.active');
-    if (!activePanel) return;
+    const panel = document.querySelector('.panel.active');
+    if (!panel || !RESIZE_PAGES.has(panel.id)) return;
 
-    // Skip pages that don't need resize — they render at CSS defaults
-    if (!RESIZE_PAGES.has(activePanel.id)) return;
-
-    activePanel.querySelectorAll('.wrow, .wcol').forEach(container => {
+    panel.querySelectorAll('.wrow, .wcol').forEach(container => {
       const isRow = container.classList.contains('wrow');
       const kids = [...container.children].filter(c =>
         c.classList.contains('win') || c.classList.contains('wcol')
@@ -239,47 +239,36 @@ const gcIW = n => {
 
         // Double-click: reset both panels to CSS defaults for this session
         h.ondblclick = () => {
-          [el, next].forEach(p => {
-            p.style.width = '';
-            p.style.height = '';
-            p.style.flex = '';
-          });
+          el.style.width = el.style.height = el.style.flex = '';
+          next.style.width = next.style.height = next.style.flex = '';
           window.dispatchEvent(new Event('resize'));
         };
 
-        // Drag: session-only, nothing persisted to localStorage
         h.onmousedown = e => {
           e.preventDefault();
           h._dragging = true;
           h.style.background = '#ff8c00aa';
-
           const startXY = isRow ? e.clientX : e.clientY;
           const startA  = isRow ? el.offsetWidth   : el.offsetHeight;
           const startB  = isRow ? next.offsetWidth  : next.offsetHeight;
           const dim     = isRow ? 'width' : 'height';
-          const minSz   = 40;
-
-          document.body.style.cursor     = isRow ? 'col-resize' : 'row-resize';
+          document.body.style.cursor = isRow ? 'col-resize' : 'row-resize';
           document.body.style.userSelect = 'none';
 
           const onMove = mv => {
-            const d  = (isRow ? mv.clientX : mv.clientY) - startXY;
-            const nA = Math.max(minSz, startA + d);
-            const nB = Math.max(minSz, startB - d);
-            el.style[dim]   = nA + 'px'; el.style.flex   = 'none';
-            next.style[dim] = nB + 'px'; next.style.flex = 'none';
+            const d = (isRow ? mv.clientX : mv.clientY) - startXY;
+            el.style[dim]   = Math.max(40, startA + d) + 'px'; el.style.flex = 'none';
+            next.style[dim] = Math.max(40, startB - d) + 'px'; next.style.flex = 'none';
             window.dispatchEvent(new Event('resize'));
           };
-
           const onUp = () => {
             h._dragging = false;
             h.style.background = 'transparent';
             document.body.style.cursor = document.body.style.userSelect = '';
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
-            // Intentionally no save
+            // No save — intentionally ephemeral, no persistence
           };
-
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
         };
@@ -289,31 +278,8 @@ const gcIW = n => {
     });
   };
 
-  // Wipe ALL bb layout keys from localStorage (covers any key name from any old version)
-  try {
-    Object.keys(localStorage)
-      .filter(k => k.startsWith('bb_'))
-      .forEach(k => localStorage.removeItem(k));
-  } catch {}
-
-  // Force-clear inline sizes on ALL panels immediately.
-  // This fixes corrupted styles baked in before this version was deployed.
-  function clearAllPanelSizes() {
-    document.querySelectorAll('.win, .wcol').forEach(el => {
-      el.style.width = '';
-      el.style.height = '';
-      el.style.flex = '';
-    });
-  }
-
-  // First run after initial page load
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      clearAllPanelSizes();
-      setTimeout(window.initResize, 500);
-    });
-  } else {
-    clearAllPanelSizes();
-    setTimeout(window.initResize, 500);
-  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', () => setTimeout(window.initResize, 300));
+  else
+    setTimeout(window.initResize, 300);
 })();
