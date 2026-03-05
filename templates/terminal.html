@@ -196,8 +196,7 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Always nuke ALL inline sizes and handles across the entire DOM.
-  // Pages always open at their CSS default layout — no state carried over.
+  // Nuke ALL inline sizes and handles on every switch — pages always open at CSS defaults
   document.querySelectorAll('.bb-handle').forEach(h => h.remove());
   document.querySelectorAll('.win, .wcol').forEach(el => {
     el.style.width = ''; el.style.height = ''; el.style.flex = '';
