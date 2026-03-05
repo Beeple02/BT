@@ -328,9 +328,9 @@
 
   <div class="op-view act" id="bv-open"><div class="scroll">
     <table class="dt"><thead><tr>
-      <th>ORDER ID</th><th>TICKER</th><th>SIDE</th><th>TYPE</th>
+      <th>EXCH</th><th>ORDER ID</th><th>TICKER</th><th>SIDE</th><th>TYPE</th>
       <th class="r">QTY</th><th class="r">PRICE</th><th>EXPIRY</th><th>STATUS</th><th></th>
-    </tr></thead><tbody id="op-open-body"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody></table>
+    </tr></thead><tbody id="op-open-body"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody></table>
   </div></div>
 
   <div class="op-view" id="bv-algos">
@@ -573,7 +573,18 @@ window.opSide=function(s){
 
 // ── ticker ─────────────────────────────────────────────────────
 window.opTickerChg=function(){
-  const tk=g('op-tk').value;
+  let tkRaw=g('op-tk').value;
+  // Decode ticker|exchange encoding from populateSel dual-listed
+  let tkParts = tkRaw.split('|');
+  const tkFromVal = tkParts[0];
+  const exFromVal = tkParts[1] || null;
+  if(exFromVal) {
+    const exchSel = g('op-exch');
+    if(exchSel) exchSel.value = exFromVal;
+  }
+  const exch = g('op-exch')?.value || 'NER';
+  const tk = tkFromVal;
+  if(tkRaw.includes('|')) { g('op-tk').value = tkRaw; }
   if(!tk){_quote=null;_lastPx=null;g('op-sub').disabled=true;
     const ticket=document.querySelector('.op-ticket-inner');if(ticket)ticket.style.opacity='1';
     const w=g('op-warn');if(w)w.textContent='';
@@ -829,7 +840,8 @@ window.opModal=function(){
   const tk=g('op-tk').value;if(!tk){lg('Select a ticker.','warn');return;}
   const qty=nv('op-qty');if(!qty){lg('Enter quantity.','warn');return;}
   // Final frozen check before showing modal
-  const sec=(BB.secs||[]).find(s=>s.ticker===tk);
+  const exch=g('op-exch')?.value||'NER';
+  const sec=(BB.secs||[]).find(s=>s.ticker===tk&&(s.exchange||'NER')===exch)||(BB.secs||[]).find(s=>s.ticker===tk);
   if(sec?.frozen){lg(`✗ ${tk} is frozen — trading suspended by the exchange.`,'err');return;}
   const t=g('op-type').value,lp=getLp(t),val=qty*lp,comm=val*CR;
   const rows=[['SECURITY',tk,'color:var(--org);font-size:13px'],['ACTION',_side.toUpperCase(),_side==='buy'?'color:var(--up)':'color:var(--dn)'],['ORDER TYPE',tLbl(t),''],['QUANTITY',qty.toLocaleString(),'']];
@@ -863,16 +875,21 @@ window.opExec=async function(){
   const tk=g('op-tk').value,qty=nv('op-qty'),t=g('op-type').value;
   const lp=getLp(t),exp=Math.max(1,Math.round(nv('op-exp')||24));
 
+  const _exch = g('op-exch')?.value || 'NER';
+  const _isTSE = _exch === 'TSE';
+  const _base = _isTSE ? '/api/tse/orders' : '/api/orders';
+  const _tsePayload = _isTSE ? {symbol:tk} : {ticker:tk};
+
   if(t==='limit'){
-    lg(`Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info');
-    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
-    r.ok?lg(`✓ LMT placed · ${r.d.order_id?.slice(0,10)}…`,'ok'):lg(`✗ ${r.d.detail}`,'err');
+    lg(`[${_exch}] Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info');
+    const r=await apiPost(`${_base}/${_side}_limit`,{..._tsePayload,quantity:qty,limit_price:px4(lp),...(_isTSE?{}:{expiry_hours:exp})});
+    r.ok?lg(`✓ [${_exch}] LMT placed · ${(r.d.order_id||r.d.id||'').toString().slice(0,10)}…`,'ok'):lg(`✗ ${r.d.detail||r.d.error||'Order failed'}`,'err');
     doRefresh();return;
   }
   if(t==='market'){
-    lg(`Placing ${_side.toUpperCase()} MKT ${qty}×${tk}…`,'info');
-    const r=await apiPost(`/api/orders/${_side}_market`,{ticker:tk,quantity:qty,expiry_hours:exp});
-    r.ok?lg(`✓ MKT placed`,'ok'):lg(`✗ ${r.d.detail}`,'err');
+    lg(`[${_exch}] Placing ${_side.toUpperCase()} MKT ${qty}×${tk}…`,'info');
+    const r=await apiPost(`${_base}/${_side}_market`,{..._tsePayload,quantity:qty,...(_isTSE?{}:{expiry_hours:exp})});
+    r.ok?lg(`✓ [${_exch}] MKT filled`,'ok'):lg(`✗ ${r.d.detail||r.d.error||'Order failed'}`,'err');
     doRefresh();return;
   }
   if(t==='fok'){
@@ -1293,33 +1310,58 @@ function renderJobs(){
 
 // ── open orders ────────────────────────────────────────────────
 async function loadOpenOrders(){
-  const r=await apiLive('/api/orders_open'),tb=g('op-open-body');
-  const orders=r.ok&&Array.isArray(r.d)?r.d:[];
-  if(!orders.length){tb.innerHTML='<tr><td colspan="9" class="loading">No open orders</td></tr>';g('ct-open').textContent='';return;}
-  g('ct-open').textContent='('+orders.length+')';
-  tb.innerHTML=orders.map(o=>`<tr>
-    <td class="dim" style="font-size:9px">${(o.order_id||'').slice(0,12)}…</td>
+  const tb=g('op-open-body');
+  // Load NER + TSE open orders in parallel
+  const [nerR, tseR] = await Promise.all([
+    apiLive('/api/orders_open'),
+    apiLive('/api/tse/orders')
+  ]);
+  const nerOrders = nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
+  const tseRaw    = tseR.ok ? (tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])) : [];
+  // Normalize TSE orders to NER format
+  const tseOrders = tseRaw.map(o=>({
+    order_id:  o.order_id||o.id||'',
+    ticker:    o.symbol||o.ticker||'?',
+    order_type:o.side||o.order_type||'',
+    sub_type:  o.order_type||'LIMIT',
+    quantity:  o.quantity||o.qty||0,
+    price:     o.limit_price||o.price||null,
+    status:    o.status||'OPEN',
+    expiry:    o.expires_at||o.expiry||null,
+    _exch:     'TSE'
+  }));
+  const all = [...nerOrders.map(o=>({...o,_exch:'NER'})), ...tseOrders];
+  if(!all.length){tb.innerHTML='<tr><td colspan="10" class="loading">No open orders</td></tr>';g('ct-open').textContent='';return;}
+  g('ct-open').textContent='('+all.length+')';
+  tb.innerHTML=all.map(o=>`<tr>
+    <td><span class="badge" style="font-size:8px;padding:1px 4px;background:${o._exch==='TSE'?'rgba(0,229,255,.15)':'rgba(255,140,0,.15)'};color:${o._exch==='TSE'?'var(--cyn)':'var(--org)'}">${o._exch}</span></td>
+    <td class="dim" style="font-size:9px">${(o.order_id||'').toString().slice(0,10)}…</td>
     <td class="wht" style="font-weight:700">${o.ticker||'—'}</td>
-    <td style="color:${o.order_type==='buy'?'var(--up)':'var(--dn)'};font-weight:700">${(o.order_type||'').toUpperCase()}</td>
+    <td style="color:${(o.order_type||'').includes('buy')?'var(--up)':'var(--dn)'};font-weight:700">${(o.order_type||'').toUpperCase()}</td>
     <td class="dim">${(o.sub_type||'LIMIT').toUpperCase()}</td>
     <td class="r wht">${o.quantity!=null?o.quantity.toLocaleString():'—'}</td>
     <td class="r yel">${o.price!=null?'$'+f(o.price,4):'MKT'}</td>
     <td class="dim" style="font-size:9px">${o.expiry?new Date(o.expiry).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}):'—'}</td>
     <td class="dim" style="font-size:9px">${o.status||'—'}</td>
-    <td><button class="cx-btn" onclick="opCx('${o.order_id}')">✕</button></td>
+    <td><button class="cx-btn" onclick="opCx('${o.order_id}','${o._exch}')">✕</button></td>
   </tr>`).join('');
 }
-window.opCx=async function(id){
-  const r=await fetch(`/api/orders_open/${id}`,{method:'DELETE'}),d=await r.json();
-  r.ok?lg(`Order ${id.slice(0,10)}… cancelled`,'warn'):lg(`Cancel failed: ${d.detail}`,'err');
+window.opCx=async function(id, exch='NER'){
+  const url = exch==='TSE' ? `/api/tse/orders/${id}` : `/api/orders_open/${id}`;
+  const r=await fetch(url,{method:'DELETE'}),d=await r.json().catch(()=>({}));
+  r.ok?lg(`[${exch}] Order ${id.toString().slice(0,10)}… cancelled`,'warn'):lg(`Cancel failed: ${d.detail||d.error||r.status}`,'err');
   setTimeout(loadOpenOrders,700);
 };
 window.opCancelAll=async function(){
-  const r=await apiLive('/api/orders_open');
-  const orders=r.ok&&Array.isArray(r.d)?r.d:[];
-  if(!orders.length){lg('No open orders.','info');return;}
-  await Promise.all(orders.map(o=>fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'})));
-  lg(`Cancelled ${orders.length} order(s).`,'warn');setTimeout(loadOpenOrders,700);
+  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open'),apiLive('/api/tse/orders')]);
+  const nerOrders=nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
+  const tseOrders=tseR.ok?(tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])):[];
+  let count=0;
+  await Promise.all([
+    ...nerOrders.map(o=>{count++;return fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'});}),
+    ...tseOrders.map(o=>{count++;return fetch(`/api/tse/orders/${o.order_id||o.id}`,{method:'DELETE'});})
+  ]);
+  lg(`Cancelled ${count} order(s) across NER+TSE.`,'warn');setTimeout(loadOpenOrders,700);
 };
 
 // ── fills ──────────────────────────────────────────────────────
