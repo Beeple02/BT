@@ -196,12 +196,16 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Remove handles and clear inline sizes BEFORE switching so the incoming
-  // panel always renders from its natural flex layout, not stale px values.
-  document.querySelectorAll('.bb-handle').forEach(h => h.remove());
-  document.querySelectorAll('.win, .wcol').forEach(el => {
-    el.style.width = ''; el.style.height = ''; el.style.flex = '';
-  });
+  // Clear resize handles and inline sizes ONLY on the panel we're leaving.
+  // This prevents dragged sizes from persisting when you return to that page,
+  // without touching the incoming panel's intended layout widths.
+  const leaving = document.querySelector('.panel.active');
+  if (leaving) {
+    leaving.querySelectorAll('.bb-handle').forEach(h => h.remove());
+    leaving.querySelectorAll('.win, .wcol').forEach(el => {
+      el.style.width = ''; el.style.height = ''; el.style.flex = '';
+    });
+  }
   document.querySelectorAll('.fk').forEach(f=>f.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelector(`[data-p="${id}"]`).classList.add('active');
@@ -209,8 +213,7 @@ async function sw(id) {
   BB.activePanel = id;
   await loadPage(id);
   if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
-  // initResize after a tick so the panel's DOM is fully painted
-  setTimeout(()=>{ if(window.initResize) initResize(); }, 150);
+  setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
 }
 
 // ── Wire FK clicks ────────────────────────────────────────────────────────────
@@ -517,7 +520,6 @@ async function updateTradeFeed() {
 setInterval(async()=>{
   const r=await api('/api/securities');
   if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;}
-  // Update alert badge
   try{
     const log=JSON.parse(localStorage.getItem('al_log')||'[]');
     const recent=log.filter(e=>Date.now()-new Date(e.isoTime||0).getTime()<3600000).length;
