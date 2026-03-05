@@ -2,12 +2,10 @@
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
 
 <!-- KPI strip -->
-<div class="scards" style="grid-template-columns:repeat(9,1fr);border-bottom:1px solid var(--bdr)">
-  <div class="sc"><div class="sc-l">NER CASH</div><div class="sc-v wht" id="pf-cash">—</div></div>
-  <div class="sc"><div class="sc-l">NER RESERVED</div><div class="sc-v dim" id="pf-res">—</div></div>
-  <div class="sc"><div class="sc-l">NER EQUITY</div><div class="sc-v wht" id="pf-eq">—</div></div>
-  <div class="sc"><div class="sc-l">TSE EQUITY</div><div class="sc-v cyn" id="pf-tse-eq">—</div></div>
-  <div class="sc"><div class="sc-l">COMBINED</div><div class="sc-v" style="color:#e0e0e0" id="pf-combined">—</div></div>
+<div class="scards" style="grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--bdr)">
+  <div class="sc"><div class="sc-l">CASH</div><div class="sc-v wht" id="pf-cash">—</div></div>
+  <div class="sc"><div class="sc-l">RESERVED</div><div class="sc-v dim" id="pf-res">—</div></div>
+  <div class="sc"><div class="sc-l">TOTAL EQUITY</div><div class="sc-v wht" id="pf-eq">—</div></div>
   <div class="sc"><div class="sc-l">AVAILABLE</div><div class="sc-v up" id="pf-av">—</div></div>
   <div class="sc"><div class="sc-l">TOTAL P&L</div><div class="sc-v" id="pf-pnl-tot">—</div></div>
   <div class="sc"><div class="sc-l">HEALTH SCORE</div><div class="sc-v cyn" id="pf-health">—</div></div>
@@ -34,7 +32,6 @@
   <span class="pf-tab" data-t="liq"      onclick="pfTab(this)">LIQUIDITY</span>
   <span class="pf-tab" data-t="stress"   onclick="pfTab(this)">STRESS TEST</span>
   <span class="pf-tab" data-t="attr"     onclick="pfTab(this)">ATTRIBUTION</span>
-  <span class="pf-tab" data-t="margin"   onclick="pfTab(this)">MARGIN &amp; LEVERAGE</span>
   <span style="margin-left:auto;display:flex;align-items:center;padding:0 10px">
     <button class="btn btn-xs" onclick="loadPF()">REFRESH</button>
   </span>
@@ -85,7 +82,7 @@
         <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">DRAWDOWN</span></div></div>
         <div class="chart-wrap"><canvas id="pf-dd-c"></canvas></div>
       </div>
-      <div class="win" style="flex:1;min-min-min-height:40px">
+      <div class="win" style="flex:1;min-height:40px">
         <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERFORMANCE</span></div></div>
         <div style="display:grid;grid-template-columns:1fr 1fr" id="pf-perf-met"></div>
       </div>
@@ -136,7 +133,7 @@
         <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SCENARIO RESULT</span></div></div>
         <div style="padding:12px;font-size:11px" id="sc-result"><div class="loading">CONFIGURE AND RUN A SCENARIO</div></div>
       </div>
-      <div class="win" style="flex:1;min-min-min-height:40px">
+      <div class="win" style="flex:1;min-height:40px">
         <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">IMPACT BY HOLDING</span></div></div>
         <div class="chart-wrap"><canvas id="sc-bar-c"></canvas></div>
       </div>
@@ -144,63 +141,7 @@
   </div>
 </div>
 
-<!-- MARGIN & LEVERAGE VIEW -->
-<div class="pf-view" id="pv-margin" style="flex:1;overflow:hidden;display:none">
-  <div class="wrow" style="height:100%">
-    <!-- Left: margin health -->
-    <div class="win" style="width:320px;border-right:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">MARGIN HEALTH MONITOR</span></div>
-        <div class="wbar-r"><button class="btn btn-xs" onclick="loadMargin()">REFRESH</button></div>
-      </div>
-      <div style="padding:12px;display:flex;flex-direction:column;gap:10px" id="mg-health-panel">
-        <!-- NER account -->
-        <div style="border:1px solid var(--bdr);padding:10px">
-          <div style="font-size:9px;font-weight:700;letter-spacing:2px;color:var(--org);margin-bottom:8px">◼ NER ACCOUNT</div>
-          <div id="mg-ner-rows"><div class="loading">—</div></div>
-          <div style="margin-top:8px">
-            <div style="font-size:8px;color:var(--txt3);margin-bottom:3px">MARGIN UTILIZATION</div>
-            <div style="height:8px;background:var(--bdr);border-radius:2px">
-              <div id="mg-ner-bar" style="height:100%;background:var(--up);width:0%;border-radius:2px;transition:width .5s"></div>
-            </div>
-            <div style="display:flex;justify-content:space-between;font-size:9px;margin-top:2px">
-              <span id="mg-ner-util" class="dim">—</span>
-              <span id="mg-ner-status" style="font-weight:700">—</span>
-            </div>
-          </div>
-        </div>
-        <!-- TSE account -->
-        <div style="border:1px solid var(--bdr);padding:10px">
-          <div style="font-size:9px;font-weight:700;letter-spacing:2px;color:var(--cyn);margin-bottom:8px">◼ TSE ACCOUNT</div>
-          <div id="mg-tse-rows"><div class="loading">—</div></div>
-          <div style="margin-top:8px">
-            <div style="font-size:8px;color:var(--txt3);margin-bottom:3px">MARGIN UTILIZATION</div>
-            <div style="height:8px;background:var(--bdr);border-radius:2px">
-              <div id="mg-tse-bar" style="height:100%;background:var(--cyn);width:0%;border-radius:2px;transition:width .5s"></div>
-            </div>
-            <div style="display:flex;justify-content:space-between;font-size:9px;margin-top:2px">
-              <span id="mg-tse-util" class="dim">—</span>
-              <span id="mg-tse-status" style="font-weight:700">—</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <!-- Center: leverage & buying power -->
-    <div class="win" style="flex:1;border-right:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">LEVERAGE &amp; BUYING POWER</span></div></div>
-      <div style="padding:10px;display:flex;flex-direction:column;gap:6px" id="mg-leverage-panel">
-        <div class="loading">—</div>
-      </div>
-    </div>
-    <!-- Right: liquidation risk -->
-    <div class="win" style="width:260px">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">LIQUIDATION RISK</span></div></div>
-      <div style="padding:10px;font-size:11px" id="mg-liq-panel">
-        <div class="loading">—</div>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- ATTRIBUTION VIEW -->
 <div class="pf-view" id="pv-attr" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
     <div class="win" style="width:300px;border-right:0">
@@ -248,24 +189,15 @@ window.pfTab=function(el){
     if(el.dataset.t==='risk')   renderRisk();
     if(el.dataset.t==='stress') renderStress();
     if(el.dataset.t==='attr')   renderAttribution();
-    if(el.dataset.t==='margin') loadMargin();
   }
 };
 
 window.loadPF=async function(){
   document.getElementById('pf-holds').innerHTML='<div class="loading">LOADING</div>';
-  const [r, tseR] = await Promise.all([
-    api('/api/portfolio'),
-    api('/api/tse/account'),
-  ]);
+  const r=await api('/api/portfolio');
   if(!r.ok){ document.getElementById('pf-holds').innerHTML=`<div class="alert err">${r.d.detail||'Auth failed'}</div>`; return; }
   _pf=r.d;
   const holds=_pf.holdings||[], bal=_pf.balance||0, res=_pf.reserved_balance||0;
-
-  // TSE equity
-  const tseEq = tseR.ok ? (tseR.d?.equity||tseR.d?.total_equity||tseR.d?.account_value||0) : 0;
-  const tseCash = tseR.ok ? (tseR.d?.cash_balance||tseR.d?.balance||tseR.d?.available_funds||0) : 0;
-  window._tsePfData = tseR.ok ? tseR.d : null;
 
   await Promise.all(holds.map(async h=>{
     const r2=await api(`/api/analytics/price_history/${h.ticker}?days=90`);
@@ -274,9 +206,6 @@ window.loadPF=async function(){
 
   const S=(id,v,c)=>{ const e=document.getElementById(id); if(!e) return; e.textContent=v; if(c) e.style.color=c; };
   S('pf-cash',f(bal)); S('pf-res',f(res)); S('pf-eq',f(_pf.total_equity)); S('pf-av',f(bal-res));
-  S('pf-tse-eq',tseEq?f(tseEq):'N/A', tseEq?'var(--cyn)':'var(--txt3)');
-  const combined=(_pf.total_equity||0)+(tseEq||0);
-  S('pf-combined',f(combined));
   const totalPNL=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
   S('pf-pnl-tot',(totalPNL>=0?'+':'')+f(totalPNL),gc(totalPNL));
   const health=calcHealth(holds,bal,_pf.total_equity);
@@ -623,104 +552,6 @@ function renderAttribution() {
       "pp" = percentage points of equity. A +2pp contribution means that holding added 2% to your total portfolio value.
     </div>`;
 }
-
-window.loadMargin = async function() {
-  // Fetch both accounts
-  const [nerR, tseR, tsePfR] = await Promise.all([
-    api('/api/portfolio'),
-    api('/api/tse/account'),
-    api('/api/tse/portfolio'),
-  ]);
-
-  // ── NER panel ──
-  const ner = nerR.ok ? nerR.d : null;
-  const nerCash = ner?.balance||0;
-  const nerEq = ner?.total_equity||0;
-  const nerReserved = ner?.reserved_balance||0;
-  const nerInvested = nerEq - nerCash;
-  const nerLeverage = nerCash>0 ? (nerInvested/nerEq) : 0;
-  const nerUtil = nerEq>0 ? (nerInvested/nerEq*100) : 0;
-  const nerStatusColor = nerUtil<50?'var(--up)':nerUtil<75?'var(--yel)':'var(--dn)';
-  const nerStatusTxt = nerUtil<50?'HEALTHY':nerUtil<75?'MODERATE':'HIGH EXPOSURE';
-
-  document.getElementById('mg-ner-rows').innerHTML=`
-    <div class="rm"><span class="k">CASH</span><span class="v wht">${f(nerCash)}</span></div>
-    <div class="rm"><span class="k">INVESTED</span><span class="v">${f(nerInvested)}</span></div>
-    <div class="rm"><span class="k">TOTAL EQUITY</span><span class="v wht">${f(nerEq)}</span></div>
-    <div class="rm"><span class="k">RESERVED</span><span class="v dim">${f(nerReserved)}</span></div>
-    <div class="rm"><span class="k">AVAILABLE</span><span class="v up">${f(nerCash-nerReserved)}</span></div>`;
-  const nerBar = document.getElementById('mg-ner-bar');
-  if(nerBar){ nerBar.style.width=Math.min(nerUtil,100)+'%'; nerBar.style.background=nerStatusColor; }
-  const nu = document.getElementById('mg-ner-util'); if(nu) nu.textContent=nerUtil.toFixed(1)+'% invested';
-  const ns = document.getElementById('mg-ner-status'); if(ns){ns.textContent=nerStatusTxt;ns.style.color=nerStatusColor;}
-
-  // ── TSE panel ──
-  const tse = tseR.ok ? tseR.d : null;
-  const tseCash = tse?.cash_balance||tse?.balance||tse?.available_funds||0;
-  const tseEq = tse?.equity||tse?.total_equity||tse?.account_value||0;
-  const tseMarginUsed = tse?.margin_used||tse?.borrowed||0;
-  const tseMarginAvail = tse?.margin_available||tse?.buying_power||0;
-  const tseLeverage = tseEq>0 ? ((tseEq+tseMarginUsed)/tseEq) : 1;
-  const tseUtil = (tseMarginAvail+tseMarginUsed)>0 ? (tseMarginUsed/(tseMarginAvail+tseMarginUsed)*100) : 0;
-  const tseStatusColor = tseUtil<40?'var(--cyn)':tseUtil<70?'var(--yel)':'var(--dn)';
-  const tseStatusTxt = tseUtil<40?'HEALTHY':tseUtil<70?'ELEVATED':'DANGER';
-
-  document.getElementById('mg-tse-rows').innerHTML=`
-    <div class="rm"><span class="k">CASH</span><span class="v wht">${f(tseCash)}</span></div>
-    <div class="rm"><span class="k">EQUITY</span><span class="v cyn">${f(tseEq)}</span></div>
-    <div class="rm"><span class="k">MARGIN USED</span><span class="v ${tseMarginUsed>0?'yel':'dim'}">${f(tseMarginUsed)}</span></div>
-    <div class="rm"><span class="k">MARGIN AVAIL</span><span class="v up">${f(tseMarginAvail)}</span></div>
-    <div class="rm"><span class="k">LEVERAGE</span><span class="v" style="color:${tseLeverage>1.5?'var(--dn)':tseLeverage>1.2?'var(--yel)':'var(--up)'}">${tseLeverage.toFixed(2)}x</span></div>`;
-  const tseBar = document.getElementById('mg-tse-bar');
-  if(tseBar){ tseBar.style.width=Math.min(tseUtil,100)+'%'; tseBar.style.background=tseStatusColor; }
-  const tu = document.getElementById('mg-tse-util'); if(tu) tu.textContent=tseUtil.toFixed(1)+'% margin used';
-  const ts = document.getElementById('mg-tse-status'); if(ts){ts.textContent=tseStatusTxt;ts.style.color=tseStatusColor;}
-
-  // ── Leverage panel ──
-  const combinedEq = nerEq + tseEq;
-  const combinedInvested = nerInvested + (tseEq - tseCash);
-  const combinedLev = combinedEq>0 ? (combinedInvested/combinedEq) : 0;
-  const nerBP = nerCash - nerReserved;
-  const tseBP = tseCash + tseMarginAvail;
-  const combinedBP = nerBP + tseBP;
-  document.getElementById('mg-leverage-panel').innerHTML=`
-    <div style="background:var(--bg2);border:1px solid var(--bdr);padding:10px;margin-bottom:2px">
-      <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:6px">COMBINED BUYING POWER</div>
-      <div style="font-size:26px;font-weight:700;color:var(--up)">${f(combinedBP)}</div>
-      <div style="font-size:9px;color:var(--txt3);margin-top:2px">NER: ${f(nerBP)} · TSE: ${f(tseBP)}</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-      <div style="padding:8px;border:1px solid var(--bdr)"><div style="font-size:8px;color:var(--txt3)">COMBINED EQUITY</div><div style="font-size:15px;font-weight:700;color:var(--wht)">${f(combinedEq)}</div></div>
-      <div style="padding:8px;border:1px solid var(--bdr);border-left:0"><div style="font-size:8px;color:var(--txt3)">PORTFOLIO LEVERAGE</div><div style="font-size:15px;font-weight:700;color:${combinedLev>0.8?'var(--yel)':'var(--up)'}">${(combinedLev*100).toFixed(1)}%</div></div>
-      <div style="padding:8px;border:1px solid var(--bdr);border-top:0"><div style="font-size:8px;color:var(--txt3)">NER INVESTED</div><div style="font-size:14px;font-weight:700;color:var(--org)">${f(nerInvested)}</div></div>
-      <div style="padding:8px;border:1px solid var(--bdr);border-top:0;border-left:0"><div style="font-size:8px;color:var(--txt3)">TSE MARGIN USED</div><div style="font-size:14px;font-weight:700;color:${tseMarginUsed>0?'var(--yel)':'var(--cyn)'}">${f(tseMarginUsed)}</div></div>
-    </div>
-    <div style="margin-top:6px;font-size:9px;color:var(--txt3);line-height:1.6">
-      Max 2x leverage on TSE. Margin rates are dynamic based on pool utilization.<br>
-      Combined buying power = NER available + TSE cash + TSE margin facility.
-    </div>`;
-
-  // ── Liquidation risk ──
-  const nerHolds = ner?.holdings||[];
-  const liqDist = tseMarginUsed > 0 ? (tseEq > 0 ? ((tseEq - tseMarginUsed)/tseEq*100) : 0) : null;
-  const liqColor = liqDist===null?'var(--up)':liqDist>30?'var(--up)':liqDist>15?'var(--yel)':'var(--dn)';
-  document.getElementById('mg-liq-panel').innerHTML=`
-    <div class="rm"><span class="k">TSE LIQ. DISTANCE</span><span class="v" style="color:${liqColor}">${liqDist!==null?liqDist.toFixed(1)+'%':'N/A — No margin'}</span></div>
-    <div class="rm"><span class="k">TSE MARGIN USED</span><span class="v ${tseMarginUsed>0?'yel':'dim'}">${f(tseMarginUsed)}</span></div>
-    <div class="rm"><span class="k">NER HOLDINGS</span><span class="v wht">${nerHolds.length}</span></div>
-    <div class="rm"><span class="k">NER CONCENTRATION</span><span class="v">${nerHolds.length?((Math.max(...nerHolds.map(h=>(h.market_value||0)/Math.max(nerEq,1)*100),0)).toFixed(1))+'% top':'—'}</span></div>
-    <div style="margin-top:12px;padding:8px;background:${liqDist!==null&&liqDist<15?'rgba(244,67,54,.08)':tseMarginUsed>0?'rgba(255,214,0,.06)':'rgba(0,200,83,.05)'};border:1px solid ${liqDist!==null&&liqDist<15?'rgba(244,67,54,.2)':tseMarginUsed>0?'rgba(255,214,0,.15)':'rgba(0,200,83,.15)'}">
-      <div style="font-size:9px;font-weight:700;color:${liqColor};margin-bottom:4px">
-        ${liqDist!==null&&liqDist<15?'⚠ LIQUIDATION RISK':tseMarginUsed>0?'● MARGIN ACTIVE':'✓ NO MARGIN RISK'}
-      </div>
-      <div style="font-size:9px;color:var(--txt3);line-height:1.6">
-        ${liqDist!==null&&liqDist<15?'TSE equity is close to margin call threshold. Consider reducing leveraged positions.':tseMarginUsed>0?'TSE margin is active. Monitor health indicator and maintain buffer above liquidation threshold.':'No margin borrowing detected on either exchange. Liquidation risk is low.'}
-      </div>
-    </div>
-    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.5">
-      Liquidation distance = (equity − margin used) / equity. Below 15% triggers automated liquidation engine on TSE.
-    </div>`;
-};
 
 window.pfQuickOrder = function(ticker, side) {
   sw('ord');
