@@ -289,12 +289,31 @@ const gcIW = n => {
     });
   };
 
-  // Clear any legacy persisted layout data from old versions
-  try { localStorage.removeItem('bb_sz3'); localStorage.removeItem('bb_sz4'); } catch {}
+  // Wipe ALL bb layout keys from localStorage (covers any key name from any old version)
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('bb_'))
+      .forEach(k => localStorage.removeItem(k));
+  } catch {}
+
+  // Force-clear inline sizes on ALL panels immediately.
+  // This fixes corrupted styles baked in before this version was deployed.
+  function clearAllPanelSizes() {
+    document.querySelectorAll('.win, .wcol').forEach(el => {
+      el.style.width = '';
+      el.style.height = '';
+      el.style.flex = '';
+    });
+  }
 
   // First run after initial page load
-  if (document.readyState === 'loading')
-    document.addEventListener('DOMContentLoaded', () => setTimeout(window.initResize, 500));
-  else
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      clearAllPanelSizes();
+      setTimeout(window.initResize, 500);
+    });
+  } else {
+    clearAllPanelSizes();
     setTimeout(window.initResize, 500);
+  }
 })();
