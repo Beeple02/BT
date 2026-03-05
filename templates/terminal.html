@@ -196,20 +196,25 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Nuke ALL inline sizes and handles on every switch — pages always open at CSS defaults
-  document.querySelectorAll('.bb-handle').forEach(h => h.remove());
-  document.querySelectorAll('.win, .wcol').forEach(el => {
-    el.style.width = ''; el.style.height = ''; el.style.flex = '';
-  });
+  // 1. Save the layout of the page we're leaving (isolated per page)
+  const leaving = document.querySelector('.panel.active');
+  if (leaving && window.bbSaveLayout) bbSaveLayout(leaving.id);
+
+  // 2. Switch active states
   document.querySelectorAll('.fk').forEach(f=>f.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelector(`[data-p="${id}"]`).classList.add('active');
   document.getElementById(`p-${id}`).classList.add('active');
   BB.activePanel = id;
+
+  // 3. Load page HTML if not yet loaded
   await loadPage(id);
   if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
-  setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
+
+  // 4. Restore this page's own isolated layout (or defaults if first visit)
+  setTimeout(()=>{ if(window.bbRestoreLayout) bbRestoreLayout(`p-${id}`); }, 120);
 }
+
 
 // ── Wire FK clicks ────────────────────────────────────────────────────────────
 document.querySelectorAll('.fk').forEach(fk=>{
