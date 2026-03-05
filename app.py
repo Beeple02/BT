@@ -299,6 +299,96 @@ def tse_market(symbol):
     s, d = tse_get(f"/api/v1/market/{symbol}", ttl=10)
     return jsonify(d), s
 
+@app.route("/api/tse/leaderboard")
+def tse_leaderboard():
+    """TSE trader leaderboard."""
+    limit = request.args.get("limit", "50")
+    s, d = tse_get("/api/v1/leaderboard", params={"limit": int(limit)}, ttl=30)
+    return jsonify(d), s
+
+@app.route("/api/tse/account")
+def tse_account():
+    """TSE account info — balance, equity."""
+    try:
+        r = _session.get(f"{TSE_BASE}/api/v1/account", headers=TSE_H, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 503
+
+@app.route("/api/tse/portfolio")
+def tse_portfolio():
+    """TSE portfolio — positions, cash, equity."""
+    try:
+        r = _session.get(f"{TSE_BASE}/api/v1/portfolio", headers=TSE_H, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 503
+
+@app.route("/api/tse/orders")
+def tse_orders_open():
+    """TSE open orders."""
+    try:
+        r = _session.get(f"{TSE_BASE}/api/v1/orders", headers=TSE_H, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 503
+
+@app.route("/api/tse/orders/history")
+def tse_orders_history():
+    """TSE order history."""
+    limit = request.args.get("limit", "50")
+    try:
+        r = _session.get(f"{TSE_BASE}/api/v1/orders/history",
+                         headers=TSE_H, params={"limit": int(limit)}, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 503
+
+def tse_post(path, payload):
+    """POST to TSE API with auth header."""
+    try:
+        r = _session.post(f"{TSE_BASE}{path}",
+                          headers={**TSE_H, "Content-Type": "application/json"},
+                          json=payload, timeout=(4, 15))
+        try:
+            return r.status_code, r.json()
+        except Exception:
+            return r.status_code, {"detail": r.text}
+    except Exception as ex:
+        return 503, {"detail": str(ex)}
+
+@app.route("/api/tse/orders/buy_limit", methods=["POST"])
+def tse_buy_limit():
+    s, d = tse_post("/api/v1/orders/buy_limit", request.json)
+    return jsonify(d), s
+
+@app.route("/api/tse/orders/sell_limit", methods=["POST"])
+def tse_sell_limit():
+    s, d = tse_post("/api/v1/orders/sell_limit", request.json)
+    return jsonify(d), s
+
+@app.route("/api/tse/orders/buy_market", methods=["POST"])
+def tse_buy_market():
+    s, d = tse_post("/api/v1/orders/buy_market", request.json)
+    return jsonify(d), s
+
+@app.route("/api/tse/orders/sell_market", methods=["POST"])
+def tse_sell_market():
+    s, d = tse_post("/api/v1/orders/sell_market", request.json)
+    return jsonify(d), s
+
+@app.route("/api/tse/orders/<order_id>", methods=["DELETE"])
+def tse_cancel_order(order_id):
+    """Cancel a TSE open order."""
+    try:
+        r = _session.delete(f"{TSE_BASE}/api/v1/orders/{order_id}", headers=TSE_H, timeout=8)
+        try:
+            return jsonify(r.json()), r.status_code
+        except Exception:
+            return jsonify({"detail": r.text}), r.status_code
+    except Exception as ex:
+        return jsonify({"detail": str(ex)}), 503
+
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
     s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
@@ -1146,7 +1236,7 @@ def sse_state():
 def index():           return render_template("terminal.html")
 @app.route("/page/<name>")
 def page(name):
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","block"]
+    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news"]
     if name not in allowed: return "Not found", 404
     return render_template(f"pages/{name}.html")
 
