@@ -27,7 +27,7 @@
 .nf-card.cat-order  {border-left-color:var(--sel)}
 .nf-card.cat-concentration{border-left-color:var(--mag)}
 .nf-card.cat-cross  {border-left-color:#00bcd4}
-.nf-card.cat-alert  {border-left-color:var(--dn)}
+.nf-card.cat-filing {border-left-color:#00bfa5}
 
 .nf-icon{font-size:16px;flex-shrink:0;width:22px;text-align:center;margin-top:1px}
 .nf-content{flex:1;min-width:0}
@@ -42,6 +42,7 @@
 .nf-tag.move.neg{border-color:var(--dn);color:var(--dn)}
 .nf-tag.order  {border-color:var(--sel);color:var(--sel)}
 .nf-tag.alert  {border-color:var(--dn);color:var(--dn)}
+.nf-tag.filing {border-color:var(--teal);color:var(--teal)}
 .nf-time{font-size:8px;color:var(--txt3);margin-left:auto}
 
 /* Sidebar */
@@ -83,6 +84,7 @@
     <button class="nf-flt"    data-cat="spread"        onclick="nfFilter(this,'spread')">↔ SPREAD</button>
     <button class="nf-flt"    data-cat="order"         onclick="nfFilter(this,'order')">📋 ORDER BOOK</button>
     <button class="nf-flt"    data-cat="concentration" onclick="nfFilter(this,'concentration')">🔒 CONCENTRATION</button>
+    <button class="nf-flt"    data-cat="filing"        onclick="nfFilter(this,'filing')">📄 TSE FILINGS</button>
   </div>
   <span class="nf-status" id="nf-status">Initializing…</span>
   <button class="btn btn-xs" onclick="nfRefresh()" style="margin-left:8px">↻ REFRESH</button>
@@ -135,15 +137,17 @@ window.nfRefresh = async function(){
   _items = [];
 
   // Parallel fetch all data sources
-  const [secsR, obR, txR] = await Promise.all([
+  const [secsR, obR, txR, filingsR] = await Promise.all([
     api('/api/securities'),
     api('/api/orderbook'),
     api('/api/transactions?type=Trade&limit=100'),
+    api('/api/tse/filings?limit=30'),
   ]);
 
   const secs = secsR.ok && Array.isArray(secsR.d) ? secsR.d : [];
   const allOb = obR.ok  && Array.isArray(obR.d)   ? obR.d  : [];
   const txs   = txR.ok  && Array.isArray(txR.d)   ? txR.d  : [];
+  const filings = filingsR.ok && Array.isArray(filingsR.d) ? filingsR.d : [];
 
   // Fetch shareholders for each ticker (use parallel but cap at 5 at a time)
   const shMap = {};
@@ -302,6 +306,28 @@ window.nfRefresh = async function(){
     }
   });
 
+  // 7. TSE CORPORATE FILINGS
+  filings.forEach(f => {
+    const symbol = f.symbol || f.ticker || '';
+    const title  = f.title  || f.filing_type || 'Filing';
+    const body   = f.content || f.description || f.summary || '';
+    const ftype  = (f.filing_type || '').toUpperCase();
+    const icon   = ftype.includes('ANNUAL') ? '📑' : ftype.includes('QUARTER') ? '📊' : ftype.includes('INSIDER') ? '👤' : '📄';
+    const ts     = f.filed_at ? new Date(f.filed_at).getTime() : now;
+    const age    = Math.round((now - ts) / 60000); // minutes
+    const ageStr = age < 60 ? age+'m ago' : Math.round(age/60)+'h ago';
+    _items.push({
+      cat: 'filing', icon,
+      headline: `[TSE] ${symbol ? symbol+' — ' : ''}${title}`,
+      detail: body ? body.slice(0,120)+(body.length>120?'…':'') : `Filed at ${ageStr} · ${ftype||'CORPORATE FILING'}`,
+      ticker: symbol || null,
+      ts,
+      priority: 1,
+      tags: [ftype || 'FILING', 'TSE'],
+      _ageStr: ageStr,
+    });
+  });
+
   // Sort by priority descending, dedup similar items
   _items.sort((a,b) => b.priority - a.priority);
 
@@ -413,7 +439,7 @@ function renderFeed() {
     const catCls = item.cat + (item.neg ? ' neg' : '');
     const tagCls = item.cat + (item.neg ? ' neg' : '');
     const timeAgo = Math.round((Date.now() - item.ts) / 1000);
-    const timeStr = timeAgo < 5 ? 'just now' : timeAgo < 60 ? timeAgo+'s ago' : Math.round(timeAgo/60)+'m ago';
+    const timeStr = item._ageStr || (timeAgo < 5 ? 'just now' : timeAgo < 60 ? timeAgo+'s ago' : Math.round(timeAgo/60)+'m ago');
     return `<div class="nf-card cat-${catCls}" onclick="nfCardClick('${item.ticker}')">
       <div class="nf-icon">${item.icon}</div>
       <div class="nf-content">
