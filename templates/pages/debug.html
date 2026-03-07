@@ -1,0 +1,398 @@
+<!-- DEBUG: Atlas API Inspector -->
+<style>
+.dbg-wrap{display:flex;flex-direction:column;height:100%;overflow:hidden;font-family:var(--font)}
+.dbg-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0;flex-wrap:wrap}
+.dbg-toolbar label{font-size:9px;color:var(--txt3);letter-spacing:1px}
+.dbg-btn{background:var(--bg2);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:3px 10px;cursor:pointer;letter-spacing:.5px}
+.dbg-btn:hover{background:var(--sel);color:var(--wht)}
+.dbg-btn.active{background:var(--org);color:#000;border-color:var(--org);font-weight:700}
+.dbg-btn.ok{border-color:var(--up);color:var(--up)}
+.dbg-btn.err{border-color:var(--dn);color:var(--dn)}
+.dbg-body{display:flex;flex:1;overflow:hidden}
+.dbg-sidebar{width:220px;flex-shrink:0;border-right:1px solid var(--bdr);overflow-y:auto;background:var(--bg2)}
+.dbg-sidebar-section{padding:4px 0;border-bottom:1px solid var(--bdr)}
+.dbg-sidebar-title{font-size:9px;color:var(--txt3);letter-spacing:1.5px;padding:6px 10px 3px}
+.dbg-ep{display:flex;align-items:center;padding:4px 10px;cursor:pointer;font-size:10px;color:var(--txt2);gap:6px;border-left:2px solid transparent}
+.dbg-ep:hover{background:var(--sel);color:var(--wht)}
+.dbg-ep.active{background:var(--sel);color:var(--org);border-left-color:var(--org)}
+.dbg-ep .method{font-size:8px;color:var(--up);letter-spacing:.5px;width:28px;flex-shrink:0}
+.dbg-ep .status-dot{width:6px;height:6px;border-radius:50%;background:var(--bdr2);flex-shrink:0;margin-left:auto}
+.dbg-ep .status-dot.ok{background:var(--up)}
+.dbg-ep .status-dot.err{background:var(--dn)}
+.dbg-ep .status-dot.loading{background:var(--yel);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.dbg-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.dbg-request-bar{padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.dbg-url{font-size:10px;font-family:var(--font);color:var(--cyn);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dbg-params{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dbg-params input{background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 6px;width:90px;outline:none}
+.dbg-params input:focus{border-color:var(--org)}
+.dbg-params label{font-size:9px;color:var(--txt3)}
+.dbg-run{background:var(--org);color:#000;border:none;font-family:var(--font);font-size:10px;font-weight:700;padding:4px 14px;cursor:pointer;letter-spacing:.5px}
+.dbg-run:hover{background:#ff9500}
+.dbg-output{flex:1;overflow:auto;padding:10px}
+.dbg-meta{display:flex;gap:16px;margin-bottom:8px;font-size:10px;flex-wrap:wrap}
+.dbg-meta span{color:var(--txt3)}
+.dbg-meta strong{color:var(--wht)}
+.dbg-status-ok{color:var(--up);font-weight:700}
+.dbg-status-err{color:var(--dn);font-weight:700}
+.dbg-json{font-family:"Courier New",monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:#ccc}
+.dbg-json .key{color:#7ec8e3}
+.dbg-json .str{color:#a8d8a8}
+.dbg-json .num{color:#ffd97d}
+.dbg-json .bool{color:#ff9d9d}
+.dbg-json .null{color:#888}
+.dbg-copy{background:var(--bg2);border:1px solid var(--bdr2);color:var(--txt3);font-family:var(--font);font-size:9px;padding:2px 8px;cursor:pointer;margin-left:auto}
+.dbg-copy:hover{color:var(--wht);border-color:var(--txt2)}
+.dbg-copy.copied{color:var(--up);border-color:var(--up)}
+.dbg-run-all{background:var(--bg2);border:1px solid var(--org);color:var(--org);font-family:var(--font);font-size:9px;font-weight:700;padding:3px 10px;cursor:pointer;letter-spacing:.5px}
+.dbg-run-all:hover{background:var(--org);color:#000}
+.dbg-empty{padding:40px;text-align:center;color:var(--txt3);font-size:11px}
+.dbg-shape{margin-top:10px;padding:8px 10px;background:var(--bg3);border:1px solid var(--bdr);font-size:10px}
+.dbg-shape-title{color:var(--txt3);font-size:9px;letter-spacing:1px;margin-bottom:4px}
+.dbg-shape-item{color:var(--txt2);padding:1px 0}
+.dbg-shape-item .field{color:var(--cyn)}
+.dbg-shape-item .type{color:var(--yel);margin-left:6px}
+</style>
+
+<div class="dbg-wrap">
+
+  <!-- Toolbar -->
+  <div class="dbg-toolbar">
+    <span style="font-size:10px;font-weight:700;color:var(--org);letter-spacing:1px">ATLAS DEBUG</span>
+    <span style="color:var(--bdr2);font-size:12px">|</span>
+    <div style="font-size:9px;color:var(--txt3)">BASE <span id="dbg-base" style="color:var(--cyn);font-family:'Courier New'"></span></div>
+    <span style="color:var(--bdr2);font-size:12px">|</span>
+    <div style="font-size:9px;color:var(--txt3)">KEY <span id="dbg-key-display" style="color:var(--txt2);font-family:'Courier New'"></span></div>
+    <button class="dbg-run-all" onclick="runAll()">▶ RUN ALL</button>
+    <button class="dbg-copy" id="dbg-export-btn" onclick="exportAll()" style="margin-left:4px">EXPORT ALL RESULTS</button>
+  </div>
+
+  <div class="dbg-body">
+
+    <!-- Sidebar: endpoint list -->
+    <div class="dbg-sidebar">
+      <div class="dbg-sidebar-section">
+        <div class="dbg-sidebar-title">MARKET DATA</div>
+        <div class="dbg-ep" data-ep="securities" onclick="selectEp(this)">
+          <span class="method">GET</span>/securities<span class="status-dot" id="dot-securities"></span>
+        </div>
+        <div class="dbg-ep" data-ep="securities_ticker" onclick="selectEp(this)">
+          <span class="method">GET</span>/securities/{ticker}<span class="status-dot" id="dot-securities_ticker"></span>
+        </div>
+        <div class="dbg-ep" data-ep="price" onclick="selectEp(this)">
+          <span class="method">GET</span>/price/{ticker}<span class="status-dot" id="dot-price"></span>
+        </div>
+        <div class="dbg-ep" data-ep="orderbook_all" onclick="selectEp(this)">
+          <span class="method">GET</span>/orderbook<span class="status-dot" id="dot-orderbook_all"></span>
+        </div>
+        <div class="dbg-ep" data-ep="orderbook_ticker" onclick="selectEp(this)">
+          <span class="method">GET</span>/orderbook/{ticker}<span class="status-dot" id="dot-orderbook_ticker"></span>
+        </div>
+        <div class="dbg-ep" data-ep="history" onclick="selectEp(this)">
+          <span class="method">GET</span>/history/{ticker}<span class="status-dot" id="dot-history"></span>
+        </div>
+        <div class="dbg-ep" data-ep="ohlcv" onclick="selectEp(this)">
+          <span class="method">GET</span>/ohlcv/{ticker}<span class="status-dot" id="dot-ohlcv"></span>
+        </div>
+        <div class="dbg-ep" data-ep="shareholders" onclick="selectEp(this)">
+          <span class="method">GET</span>/shareholders/{ticker}<span class="status-dot" id="dot-shareholders"></span>
+        </div>
+      </div>
+      <div class="dbg-sidebar-section">
+        <div class="dbg-sidebar-title">DERIVED</div>
+        <div class="dbg-ep" data-ep="derived_all" onclick="selectEp(this)">
+          <span class="method">GET</span>/derived<span class="status-dot" id="dot-derived_all"></span>
+        </div>
+        <div class="dbg-ep" data-ep="derived_ticker" onclick="selectEp(this)">
+          <span class="method">GET</span>/derived/{ticker}<span class="status-dot" id="dot-derived_ticker"></span>
+        </div>
+      </div>
+      <div class="dbg-sidebar-section">
+        <div class="dbg-sidebar-title">ANALYTICS</div>
+        <div class="dbg-ep" data-ep="analytics_ohlcv" onclick="selectEp(this)">
+          <span class="method">GET</span>/analytics/ohlcv/{ticker}<span class="status-dot" id="dot-analytics_ohlcv"></span>
+        </div>
+        <div class="dbg-ep" data-ep="analytics_ticker_stats" onclick="selectEp(this)">
+          <span class="method">GET</span>/analytics/ticker_stats/{ticker}<span class="status-dot" id="dot-analytics_ticker_stats"></span>
+        </div>
+        <div class="dbg-ep" data-ep="holder_intel" onclick="selectEp(this)">
+          <span class="method">GET</span>/holder_intel/{ticker}<span class="status-dot" id="dot-holder_intel"></span>
+        </div>
+      </div>
+      <div class="dbg-sidebar-section">
+        <div class="dbg-sidebar-title">MARKET</div>
+        <div class="dbg-ep" data-ep="market_summary" onclick="selectEp(this)">
+          <span class="method">GET</span>/market/summary<span class="status-dot" id="dot-market_summary"></span>
+        </div>
+        <div class="dbg-ep" data-ep="market_breadth" onclick="selectEp(this)">
+          <span class="method">GET</span>/market/breadth<span class="status-dot" id="dot-market_breadth"></span>
+        </div>
+        <div class="dbg-ep" data-ep="transactions" onclick="selectEp(this)">
+          <span class="method">GET</span>/transactions<span class="status-dot" id="dot-transactions"></span>
+        </div>
+        <div class="dbg-ep" data-ep="status" onclick="selectEp(this)">
+          <span class="method">GET</span>/status<span class="status-dot" id="dot-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main panel -->
+    <div class="dbg-main">
+      <div class="dbg-request-bar" id="dbg-req-bar">
+        <span class="dbg-url" id="dbg-url-display">← select an endpoint</span>
+        <div class="dbg-params" id="dbg-params-area"></div>
+        <button class="dbg-run" id="dbg-run-btn" onclick="runCurrent()" disabled>▶ RUN</button>
+      </div>
+      <div class="dbg-output" id="dbg-output">
+        <div class="dbg-empty">Select an endpoint from the sidebar, set params if needed, and hit RUN.<br><br>Or hit <strong style="color:var(--org)">RUN ALL</strong> to test every endpoint at once and export the results.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+
+const ATLAS_BASE = 'https://atlas-production-ce6d.up.railway.app';
+const ATLAS_KEY  = 'atl_bloomberg_terminal_mMx1azUAKFulsaZqdDmAf2VZfCPbkZfs';
+
+document.getElementById('dbg-base').textContent = ATLAS_BASE.replace('https://','');
+document.getElementById('dbg-key-display').textContent = ATLAS_KEY.slice(0,24) + '…';
+
+// ── Endpoint definitions ───────────────────────────────────────────────────────
+const EPS = {
+  securities:           { path: () => '/securities',                         params: [] },
+  securities_ticker:    { path: (p) => `/securities/${p.ticker}`,            params: ['ticker'] },
+  price:                { path: (p) => `/price/${p.ticker}`,                  params: ['ticker'] },
+  orderbook_all:        { path: () => '/orderbook',                          params: [] },
+  orderbook_ticker:     { path: (p) => `/orderbook/${p.ticker}`,             params: ['ticker'] },
+  history:              { path: (p) => `/history/${p.ticker}`,               params: ['ticker', 'days'] },
+  ohlcv:                { path: (p) => `/ohlcv/${p.ticker}`,                 params: ['ticker', 'days'] },
+  shareholders:         { path: (p) => `/shareholders/${p.ticker}`,          params: ['ticker'] },
+  derived_all:          { path: () => '/derived',                            params: [] },
+  derived_ticker:       { path: (p) => `/derived/${p.ticker}`,               params: ['ticker'] },
+  analytics_ohlcv:      { path: (p) => `/analytics/ohlcv/${p.ticker}`,       params: ['ticker', 'days'] },
+  analytics_ticker_stats:{ path:(p) => `/analytics/ticker_stats/${p.ticker}`,params: ['ticker', 'days'] },
+  holder_intel:         { path: (p) => `/holder_intel/${p.ticker}`,          params: ['ticker'] },
+  market_summary:       { path: () => '/market/summary',                     params: [] },
+  market_breadth:       { path: (p) => `/market/breadth`,                    params: ['days'] },
+  transactions:         { path: () => '/transactions',                       params: ['ticker', 'limit'] },
+  status:               { path: () => '/status',                             params: [] },
+};
+
+// Default param values
+const DEFAULTS = { ticker: 'RTG', days: '30', limit: '20' };
+
+let _current = null;
+let _params  = { ...DEFAULTS };
+let _results  = {};
+
+// ── Sidebar select ─────────────────────────────────────────────────────────────
+window.selectEp = function(el) {
+  document.querySelectorAll('.dbg-ep').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  _current = el.dataset.ep;
+  renderRequestBar();
+  // Show cached result if exists
+  if (_results[_current]) renderResult(_current, _results[_current]);
+  else document.getElementById('dbg-output').innerHTML = '<div class="dbg-empty">Hit RUN to call this endpoint.</div>';
+};
+
+// ── Request bar ────────────────────────────────────────────────────────────────
+function renderRequestBar() {
+  if (!_current) return;
+  const ep = EPS[_current];
+  const path = ep.path(_params);
+  document.getElementById('dbg-url-display').textContent = ATLAS_BASE + path;
+  document.getElementById('dbg-run-btn').disabled = false;
+
+  const area = document.getElementById('dbg-params-area');
+  area.innerHTML = '';
+  ep.params.forEach(p => {
+    const lbl = document.createElement('label');
+    lbl.textContent = p.toUpperCase();
+    const inp = document.createElement('input');
+    inp.value = _params[p] || '';
+    inp.placeholder = DEFAULTS[p] || p;
+    inp.oninput = () => {
+      _params[p] = inp.value || DEFAULTS[p];
+      document.getElementById('dbg-url-display').textContent = ATLAS_BASE + EPS[_current].path(_params);
+    };
+    area.appendChild(lbl);
+    area.appendChild(inp);
+  });
+}
+
+// ── Run single ─────────────────────────────────────────────────────────────────
+window.runCurrent = async function() {
+  if (!_current) return;
+  await runEp(_current);
+};
+
+async function runEp(epKey) {
+  const ep = EPS[epKey];
+  const path = ep.path(_params);
+
+  // Mark loading
+  const dot = document.getElementById(`dot-${epKey}`);
+  if (dot) { dot.className = 'status-dot loading'; }
+
+  const t0 = performance.now();
+  let status = null, data = null, error = null;
+
+  try {
+    // Build URL with query params for breadth/transactions/history/ohlcv
+    let url = ATLAS_BASE + path;
+    const qp = [];
+    if (epKey === 'history' || epKey === 'ohlcv' || epKey === 'analytics_ohlcv' || epKey === 'analytics_ticker_stats') {
+      if (_params.days) qp.push(`days=${_params.days}`);
+    }
+    if (epKey === 'market_breadth' && _params.days) qp.push(`days=${_params.days}`);
+    if (epKey === 'transactions') {
+      if (_params.ticker) qp.push(`ticker=${_params.ticker}`);
+      if (_params.limit)  qp.push(`limit=${_params.limit}`);
+    }
+    if (qp.length) url += '?' + qp.join('&');
+
+    const res = await fetch(url, { headers: { 'X-Atlas-Key': ATLAS_KEY } });
+    status = res.status;
+    data = await res.json();
+  } catch(e) {
+    error = e.message;
+    status = 0;
+  }
+
+  const ms = Math.round(performance.now() - t0);
+  const result = { status, data, error, ms, path: EPS[epKey].path(_params), ts: new Date().toISOString() };
+  _results[epKey] = result;
+
+  // Update dot
+  if (dot) dot.className = 'status-dot ' + (status === 200 ? 'ok' : 'err');
+
+  // Render if this is the selected endpoint
+  if (_current === epKey) renderResult(epKey, result);
+
+  return result;
+}
+
+// ── Run all ────────────────────────────────────────────────────────────────────
+window.runAll = async function() {
+  const btn = document.querySelector('.dbg-run-all');
+  btn.textContent = '⏳ RUNNING…';
+  btn.disabled = true;
+
+  for (const epKey of Object.keys(EPS)) {
+    await runEp(epKey);
+  }
+
+  btn.textContent = '▶ RUN ALL';
+  btn.disabled = false;
+
+  // Auto-select first ep and show export prompt
+  if (!_current) {
+    const first = document.querySelector('.dbg-ep');
+    if (first) selectEp(first);
+  }
+};
+
+// ── Render result ──────────────────────────────────────────────────────────────
+function renderResult(epKey, result) {
+  const { status, data, error, ms, path, ts } = result;
+  const ok = status === 200;
+
+  // Analyze shape
+  const shape = analyzeShape(data);
+
+  const out = document.getElementById('dbg-output');
+  out.innerHTML = `
+    <div class="dbg-meta">
+      <span>ENDPOINT <strong>${path}</strong></span>
+      <span>STATUS <strong class="${ok ? 'dbg-status-ok' : 'dbg-status-err'}">${status || 'ERR'}</strong></span>
+      <span>TIME <strong>${ms}ms</strong></span>
+      <span>AT <strong>${ts.replace('T',' ').slice(0,19)}</strong></span>
+      <button class="dbg-copy" id="copy-btn" onclick="copyResult('${epKey}')">COPY JSON</button>
+    </div>
+    ${shape ? `<div class="dbg-shape"><div class="dbg-shape-title">SHAPE</div>${shape}</div>` : ''}
+    <div style="margin-top:10px;border-top:1px solid var(--bdr);padding-top:10px">
+      <div class="dbg-json">${error ? `<span style="color:var(--dn)">${error}</span>` : syntaxHighlight(JSON.stringify(data, null, 2))}</div>
+    </div>
+  `;
+}
+
+// ── Shape analyzer ─────────────────────────────────────────────────────────────
+function analyzeShape(data) {
+  if (!data) return null;
+  let lines = [];
+
+  function typeStr(val) {
+    if (val === null) return '<span class="type">null</span>';
+    if (Array.isArray(val)) return `<span class="type">array[${val.length}]</span>`;
+    return `<span class="type">${typeof val}</span>`;
+  }
+
+  if (Array.isArray(data)) {
+    lines.push(`<div class="dbg-shape-item">Root: <span class="field">array</span> <span class="type">[${data.length} items]</span></div>`);
+    if (data.length > 0 && typeof data[0] === 'object') {
+      Object.entries(data[0]).forEach(([k, v]) => {
+        lines.push(`<div class="dbg-shape-item" style="padding-left:12px"><span class="field">${k}</span>${typeStr(v)}</div>`);
+      });
+    }
+  } else if (typeof data === 'object') {
+    Object.entries(data).forEach(([k, v]) => {
+      lines.push(`<div class="dbg-shape-item"><span class="field">${k}</span>${typeStr(v)}</div>`);
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object') {
+        Object.entries(v[0]).forEach(([k2, v2]) => {
+          lines.push(`<div class="dbg-shape-item" style="padding-left:16px"><span class="field">${k2}</span>${typeStr(v2)}</div>`);
+        });
+      }
+    });
+  }
+
+  return lines.slice(0, 30).join('');
+}
+
+// ── Copy / Export ──────────────────────────────────────────────────────────────
+window.copyResult = function(epKey) {
+  const r = _results[epKey];
+  if (!r) return;
+  navigator.clipboard.writeText(JSON.stringify(r.data, null, 2));
+  const btn = document.getElementById('copy-btn');
+  if (btn) { btn.textContent = 'COPIED ✓'; btn.classList.add('copied'); setTimeout(()=>{ btn.textContent='COPY JSON'; btn.classList.remove('copied'); }, 2000); }
+};
+
+window.exportAll = function() {
+  const out = {};
+  Object.keys(_results).forEach(k => {
+    out[k] = {
+      path: _results[k].path,
+      status: _results[k].status,
+      ms: _results[k].ms,
+      data: _results[k].data,
+    };
+  });
+  const txt = JSON.stringify(out, null, 2);
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById('dbg-export-btn');
+    btn.textContent = 'COPIED ✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'EXPORT ALL RESULTS'; btn.classList.remove('copied'); }, 2500);
+  });
+};
+
+// ── JSON syntax highlight ──────────────────────────────────────────────────────
+function syntaxHighlight(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (m) => {
+      let cls = 'num';
+      if (/^"/.test(m)) cls = /:$/.test(m) ? 'key' : 'str';
+      else if (/true|false/.test(m)) cls = 'bool';
+      else if (/null/.test(m)) cls = 'null';
+      return `<span class="${cls}">${m}</span>`;
+    });
+}
+
+})();
+</script>
