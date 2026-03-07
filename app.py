@@ -1185,7 +1185,7 @@ def sse_state():
 def index():           return render_template("terminal.html")
 @app.route("/page/<name>")
 def page(name):
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news"]
+    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug"]
     if name not in allowed: return "Not found", 404
     return render_template(f"pages/{name}.html")
 
