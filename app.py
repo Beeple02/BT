@@ -20,8 +20,11 @@ app = Flask(
     static_folder=_STAT_DIR,
 )
 
-NER_BASE = "http://150.230.117.88:8082"
-TSE_BASE = "https://market.installe.us"
+NER_BASE   = "http://150.230.117.88:8082"
+TSE_BASE   = "https://market.installe.us"
+ATLAS_BASE = "https://atlas-production-ce6d.up.railway.app"
+ATLAS_KEY  = os.environ.get("ATLAS_API_KEY", "atl_bloomberg_terminal_mMx1azUAKFulsaZqdDmAf2VZfCPbkZfs")
+ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
 TSE_KEY  = os.environ.get("TSE_API_KEY", "exch_live_dfe5e4f0820de420c525a8e8057493e865ac3b654e1fd3a65b60cde9ea183d35")
 TSE_H    = {"X-API-Key": TSE_KEY}
 
@@ -117,23 +120,57 @@ def cached_get(path, params=None, auth=False, ttl=15):
         _cache[key] = {"ts": time.time(), "s": result[0], "d": result[1]}
     return result
 
+# ── Atlas cache + helper ──────────────────────────────────────────────────────
+# All public market-data reads (securities, prices, OHLCV, history, orderbooks,
+# shareholders) now route through Atlas instead of hitting NER directly.
+# Atlas runs its own caching layer, so TTLs here are intentionally short.
+_atlas_cache: dict = {}
+
+def atlas_get(path, params=None, ttl=30):
+    """GET from Atlas data service with local short-circuit cache."""
+    key = path + str(params or {})
+    e = _atlas_cache.get(key)
+    if e and time.time() - e["ts"] < ttl:
+        return e["s"], e["d"]
+    try:
+        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H,
+                         params=params, timeout=10)
+        if r.status_code == 200:
+            d = r.json()
+            _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
+            return 200, d
+        # On Atlas error fall back to NER so the terminal never goes dark
+        print(f"[atlas] {path} → HTTP {r.status_code}, falling back to NER")
+        return cached_get(path, params=params, ttl=ttl)
+    except Exception as ex:
+        print(f"[atlas] {path} exception: {ex}, falling back to NER")
+        if e:
+            return e["s"], e["d"]
+        return cached_get(path, params=params, ttl=ttl)
+
 # Bulk orderbook cache — one call, filter by ticker in Python
 _ob_cache = {"ts": 0, "data": None}
 _OB_TTL = 10  # seconds
 
 def get_all_orderbooks():
-    """Single /orderbook call that returns all tickers. Shared across all routes."""
+    """Single /orderbook call that returns all tickers — routed through Atlas."""
     global _ob_cache
     if time.time() - _ob_cache["ts"] < _OB_TTL and _ob_cache["data"] is not None:
         return _ob_cache["data"]
     try:
-        r = _session.get(f"{NER_BASE}/orderbook", headers=PUB_H, timeout=8)
+        r = _session.get(f"{ATLAS_BASE}/orderbook", headers=ATLAS_H, timeout=10)
         if r.status_code == 200:
             data = r.json()
             _ob_cache = {"ts": time.time(), "data": data}
             return data
-    except Exception:
-        pass
+        # fallback to NER
+        r2 = _session.get(f"{NER_BASE}/orderbook", headers=PUB_H, timeout=8)
+        if r2.status_code == 200:
+            data = r2.json()
+            _ob_cache = {"ts": time.time(), "data": data}
+            return data
+    except Exception as ex:
+        print(f"[orderbook] exception: {ex}")
     return _ob_cache["data"]  # stale is better than nothing
 
 def get_ticker_orderbook(ticker):
@@ -163,7 +200,14 @@ def get_ticker_shareholders(ticker):
         time.sleep(0.2 - gap)
     _sh_last_fetch = time.time()
     try:
-        # Try with X-API-Key for better compatibility
+        # Route through Atlas — falls back to NER automatically inside atlas_get
+        s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
+        if s_atl == 200:
+            holders = data_atl if isinstance(data_atl, list) else data_atl.get("shareholders", [])
+            if holders:
+                _sh_ticker_cache[ticker] = {"ts": time.time(), "data": holders}
+                return holders
+        # Direct NER fallback
         r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
                          params={"ticker": ticker}, timeout=6)
         if r.status_code == 200:
@@ -205,7 +249,7 @@ _DUAL_LISTED = {"GCC"}
 @app.route("/api/securities")
 def securities():
     """Merged NER + TSE securities list. TSE adds exchange field to all entries."""
-    s, ner = cached_get("/securities", ttl=60)
+    s, ner = atlas_get("/securities", ttl=60)
     if s != 200:
         return jsonify(ner), s
 
@@ -299,99 +343,9 @@ def tse_market(symbol):
     s, d = tse_get(f"/api/v1/market/{symbol}", ttl=10)
     return jsonify(d), s
 
-@app.route("/api/tse/leaderboard")
-def tse_leaderboard():
-    """TSE trader leaderboard."""
-    limit = request.args.get("limit", "50")
-    s, d = tse_get("/api/v1/leaderboard", params={"limit": int(limit)}, ttl=30)
-    return jsonify(d), s
-
-@app.route("/api/tse/account")
-def tse_account():
-    """TSE account info — balance, equity."""
-    try:
-        r = _session.get(f"{TSE_BASE}/api/v1/account", headers=TSE_H, timeout=8)
-        return jsonify(r.json()), r.status_code
-    except Exception as ex:
-        return jsonify({"error": str(ex)}), 503
-
-@app.route("/api/tse/portfolio")
-def tse_portfolio():
-    """TSE portfolio — positions, cash, equity."""
-    try:
-        r = _session.get(f"{TSE_BASE}/api/v1/portfolio", headers=TSE_H, timeout=8)
-        return jsonify(r.json()), r.status_code
-    except Exception as ex:
-        return jsonify({"error": str(ex)}), 503
-
-@app.route("/api/tse/orders")
-def tse_orders_open():
-    """TSE open orders."""
-    try:
-        r = _session.get(f"{TSE_BASE}/api/v1/orders", headers=TSE_H, timeout=8)
-        return jsonify(r.json()), r.status_code
-    except Exception as ex:
-        return jsonify({"error": str(ex)}), 503
-
-@app.route("/api/tse/orders/history")
-def tse_orders_history():
-    """TSE order history."""
-    limit = request.args.get("limit", "50")
-    try:
-        r = _session.get(f"{TSE_BASE}/api/v1/orders/history",
-                         headers=TSE_H, params={"limit": int(limit)}, timeout=8)
-        return jsonify(r.json()), r.status_code
-    except Exception as ex:
-        return jsonify({"error": str(ex)}), 503
-
-def tse_post(path, payload):
-    """POST to TSE API with auth header."""
-    try:
-        r = _session.post(f"{TSE_BASE}{path}",
-                          headers={**TSE_H, "Content-Type": "application/json"},
-                          json=payload, timeout=(4, 15))
-        try:
-            return r.status_code, r.json()
-        except Exception:
-            return r.status_code, {"detail": r.text}
-    except Exception as ex:
-        return 503, {"detail": str(ex)}
-
-@app.route("/api/tse/orders/buy_limit", methods=["POST"])
-def tse_buy_limit():
-    s, d = tse_post("/api/v1/orders/buy_limit", request.json)
-    return jsonify(d), s
-
-@app.route("/api/tse/orders/sell_limit", methods=["POST"])
-def tse_sell_limit():
-    s, d = tse_post("/api/v1/orders/sell_limit", request.json)
-    return jsonify(d), s
-
-@app.route("/api/tse/orders/buy_market", methods=["POST"])
-def tse_buy_market():
-    s, d = tse_post("/api/v1/orders/buy_market", request.json)
-    return jsonify(d), s
-
-@app.route("/api/tse/orders/sell_market", methods=["POST"])
-def tse_sell_market():
-    s, d = tse_post("/api/v1/orders/sell_market", request.json)
-    return jsonify(d), s
-
-@app.route("/api/tse/orders/<order_id>", methods=["DELETE"])
-def tse_cancel_order(order_id):
-    """Cancel a TSE open order."""
-    try:
-        r = _session.delete(f"{TSE_BASE}/api/v1/orders/{order_id}", headers=TSE_H, timeout=8)
-        try:
-            return jsonify(r.json()), r.status_code
-        except Exception:
-            return jsonify({"detail": r.text}), r.status_code
-    except Exception as ex:
-        return jsonify({"detail": str(ex)}), 503
-
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
-    s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
+    s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify(d), s
 
 @app.route("/api/shareholders")
 def shareholders():
@@ -415,14 +369,14 @@ def orderbook():
 
 @app.route("/api/analytics/price_history/<ticker>")
 def price_history(ticker):
-    s, d = cached_get(f"/analytics/price_history/{ticker}",
-                      params={"days": request.args.get("days", 30)}, ttl=120)
+    s, d = atlas_get(f"/history/{ticker}",
+                     params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
 @app.route("/api/analytics/ohlcv/<ticker>")
 def ohlcv(ticker):
-    s, d = cached_get(f"/analytics/ohlcv/{ticker}",
-                      params={"days": request.args.get("days", 30)}, ttl=120)
+    s, d = atlas_get(f"/ohlcv/{ticker}",
+                     params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
 @app.route("/api/portfolio")
@@ -536,7 +490,7 @@ def _downside_vol(closes):
 @app.route("/api/ticker_stats/<ticker>")
 def ticker_stats(ticker):
     days = int(request.args.get("days", 60))
-    s, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
+    s, raw = atlas_get(f"/ohlcv/{ticker}", params={"days": days}, ttl=60)
     if s != 200: return jsonify({"detail": raw.get("detail","API error"), "status": s}), s
     candles = raw.get("candles", [])
     if not candles: return jsonify({"detail": "No candle data available"}), 404
@@ -616,7 +570,7 @@ def compare():
     days    = int(request.args.get("days", 30))
     result  = {}
     for t in tickers:
-        s, raw = cached_get(f"/analytics/price_history/{t}", params={"days": days}, ttl=60)
+        s, raw = atlas_get(f"/history/{t}", params={"days": days}, ttl=60)
         if s != 200 or not raw or not isinstance(raw, list) or len(raw) == 0:
             continue
         base = raw[0]["price"]
@@ -628,13 +582,13 @@ def compare():
 @app.route("/api/market_breadth")
 def market_breadth():
     days = int(request.args.get("days", 7))
-    s, secs = cached_get("/securities", ttl=60)
+    s, secs = atlas_get("/securities", ttl=60)
     if s != 200: return jsonify({"detail": "Cannot fetch securities"}), s
 
     results = []
     for sec in secs:
         ticker = sec["ticker"]
-        os2, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
+        os2, raw = atlas_get(f"/ohlcv/{ticker}", params={"days": days}, ttl=180)
         if os2 != 200 or not raw.get("candles"): continue
         cs = raw["candles"]
         closes  = [c["close"]  for c in cs]
@@ -696,7 +650,7 @@ def market_breadth():
 # ── GLOBAL ORDERBOOK AGGREGATOR ───────────────────────────────────────────────
 @app.route("/api/market_orderbook")
 def market_orderbook():
-    s_secs, secs = cached_get("/securities", ttl=60)
+    s_secs, secs = atlas_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
     all_ob = get_all_orderbooks(); s_ob = 200 if all_ob else 503
     if s_ob != 200 or not isinstance(all_ob, list):
@@ -752,7 +706,7 @@ def market_orderbook():
 @app.route("/api/exchange_analytics")
 def exchange_analytics():
     days = int(request.args.get("days", 7))
-    s_secs, secs = cached_get("/securities", ttl=60)
+    s_secs, secs = atlas_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
     ticker_data = []
@@ -761,7 +715,7 @@ def exchange_analytics():
 
     for sec in secs:
         t = sec["ticker"]
-        os2, raw = cached_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=180)
+        os2, raw = atlas_get(f"/ohlcv/{t}", params={"days": days}, ttl=180)
         if os2 != 200 or not raw.get("candles"): continue
         cs = raw["candles"]
         closes  = [c["close"]  for c in cs]
@@ -824,7 +778,7 @@ def liquidity_lab(ticker):
     ob = get_ticker_orderbook(ticker)
     if ob is None:
         return jsonify({"detail": "Orderbook unavailable"}), 503
-    s_sec, secs_data = cached_get("/securities", ttl=60)
+    s_sec, secs_data = atlas_get("/securities", ttl=60)
     sec = next((s for s in (secs_data if isinstance(secs_data, list) else []) if s["ticker"]==ticker), {})
     total_shares = sec.get("total_shares", 1) or 1
     s_ob = 200  # we got data from bulk cache
@@ -900,7 +854,7 @@ def liquidity_lab(ticker):
 @app.route("/api/holder_intel")
 def holder_intel():
     """Exchange-wide shareholder intelligence."""
-    s_secs, secs = cached_get("/securities", ttl=60)
+    s_secs, secs = atlas_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
     all_data = []
@@ -973,7 +927,7 @@ def holder_intel_ticker(ticker):
     holders = get_ticker_shareholders(ticker)
     if not isinstance(holders, list) or not holders:
         return jsonify({"detail": "No holders found for ticker"}), 404
-    _, sec_list = cached_get("/securities", ttl=60)
+    _, sec_list = atlas_get("/securities", ttl=60)
     sec = next((s for s in (sec_list if isinstance(sec_list,list) else []) if s["ticker"]==ticker), {})
     total_shares = sec.get("total_shares", 0)
     total_held   = sum(h["quantity"] for h in holders) if holders else 0
@@ -1017,7 +971,7 @@ def backtest():
     body=request.json or {}
     ticker=body.get("ticker",""); days=min(int(body.get("days",90)),365)
     strategy=body.get("strategy","buy_hold"); params=body.get("params",{})
-    status,raw=cached_get(f"/analytics/ohlcv/{ticker}",params={"days":days},ttl=60)
+    status,raw=atlas_get(f"/ohlcv/{ticker}", params={"days":days}, ttl=60)
     if status!=200: return jsonify(raw),status
     candles=raw.get("candles",[])
     if len(candles)<3: return jsonify({"detail":"Not enough data"}),400
@@ -1250,7 +1204,7 @@ def page(name):
 def fundamentals(ticker):
     s, d = cached_get(f"/securities/{ticker}/stats", ttl=180)
     if s != 200: return jsonify({"detail": d.get("detail","Not found")}), s
-    s2, sec = cached_get(f"/securities/{ticker}", ttl=60)
+    s2, sec = atlas_get(f"/securities/{ticker}", ttl=60)
     sec = sec if s2 == 200 else {}
     return jsonify({
         "ticker":       ticker,
@@ -1304,8 +1258,8 @@ def rolling_correlation():
     days   = int(request.args.get("days", 60))
     window = int(request.args.get("window", 14))
     if not t1 or not t2: return jsonify({"detail":"t1 and t2 required"}), 400
-    _, r1 = cached_get(f"/analytics/ohlcv/{t1}", params={"days":days}, ttl=60)
-    _, r2 = cached_get(f"/analytics/ohlcv/{t2}", params={"days":days}, ttl=60)
+    _, r1 = atlas_get(f"/ohlcv/{t1}", params={"days":days}, ttl=60)
+    _, r2 = atlas_get(f"/ohlcv/{t2}", params={"days":days}, ttl=60)
     c1 = [c["close"] for c in r1.get("candles",[])]
     c2 = [c["close"] for c in r2.get("candles",[])]
     dates = [c["date"] for c in r1.get("candles",[])]
@@ -1353,12 +1307,12 @@ def rolling_correlation():
 @app.route("/api/correlation_matrix")
 def correlation_matrix():
     days = int(request.args.get("days", 30))
-    _, secs_data = cached_get("/securities", ttl=60)
+    _, secs_data = atlas_get("/securities", ttl=60)
     tickers = [s["ticker"] for s in (secs_data if isinstance(secs_data,list) else [])][:20]  # cap at 20
     # Fetch closes for all
     closes_map = {}
     for t in tickers:
-        _, raw = cached_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=180)
+        _, raw = atlas_get(f"/ohlcv/{t}", params={"days":days}, ttl=180)
         cs = [c["close"] for c in raw.get("candles",[])]
         if len(cs) >= 5: closes_map[t] = cs
     valid = list(closes_map.keys())
@@ -1395,7 +1349,7 @@ def monte_carlo():
     body = request.json or {}
     ticker = body.get("ticker",""); days = int(body.get("days",60))
     n_sims = min(int(body.get("sims",1000)),2000); horizon = int(body.get("horizon",30))
-    _, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
+    _, raw = atlas_get(f"/ohlcv/{ticker}", params={"days":days}, ttl=60)
     cs = [c["close"] for c in raw.get("candles",[])]
     if len(cs) < 5: return jsonify({"detail":"Not enough data"}), 404
     rets = [(cs[i]-cs[i-1])/cs[i-1] for i in range(1,len(cs))]
@@ -1448,7 +1402,7 @@ def param_sensitivity():
     body = request.json or {}
     ticker = body.get("ticker",""); days = int(body.get("days",90))
     strategy = body.get("strategy","sma_cross")
-    _, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=180)
+    _, raw = atlas_get(f"/ohlcv/{ticker}", params={"days":days}, ttl=180)
     cs = [c["close"] for c in raw.get("candles",[])]
     if len(cs) < 30: return jsonify({"detail":"Not enough data"}), 404
     def run_sma(fast,slow):
@@ -1518,7 +1472,7 @@ def portfolio_analytics():
     # Fetch price histories
     hist_data = {}
     for h in holdings:
-        _, raw = cached_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=180)
+        _, raw = atlas_get(f"/ohlcv/{h['ticker']}", params={"days":days}, ttl=180)
         cs = [c["close"] for c in raw.get("candles",[])]
         if cs: hist_data[h["ticker"]] = cs
     if not hist_data: return jsonify({"detail":"No price data"}), 200
