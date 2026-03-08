@@ -983,83 +983,192 @@ def holder_intel_ticker(ticker):
     })
 
 # ── BACKTEST ──────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BACKTEST ENGINE v2  —  clean rewrite
+# Core invariant: buy_hold equity curve MUST track price * (10000/price[0])
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _bt_run(closes, dates, signals, sl_pct=0.0, tp_pct=0.0):
+    """
+    Pure simulation. Returns (equity_curve, trades).
+    signals[i] in {-1, 0, 1}  (1=buy, -1=sell/short-exit)
+    No fractional shares, commission = 0.5% per side, deducted from proceeds/cost.
+    Key fix: qty = floor((cash * 0.995) / price)  so commission never exceeds residual cash.
+    """
+    COMMISSION = 0.005          # 0.5 % per trade
+    cash   = 10_000.0
+    shares = 0
+    pos    = False
+    entry  = 0.0
+    equity = []
+    trades = []
+
+    for i, price in enumerate(closes):
+        if price is None or price <= 0:
+            equity.append(round(cash + shares * (closes[i-1] if i else 0), 4))
+            continue
+
+        sig = signals[i]
+
+        # ── Stop-loss / take-profit ──────────────────────────────────────────
+        if pos and entry > 0:
+            hit_sl = sl_pct > 0 and price <= entry * (1 - sl_pct)
+            hit_tp = tp_pct > 0 and price >= entry * (1 + tp_pct)
+            if hit_sl or hit_tp:
+                proceeds     = shares * price * (1 - COMMISSION)
+                cash        += proceeds
+                action       = "STOP" if hit_sl else "TP"
+                trades.append({"date": dates[i], "action": action,
+                                "price": round(price, 4), "qty": shares,
+                                "value": round(proceeds, 2)})
+                shares = 0; pos = False; entry = 0.0
+
+        # ── Entry ────────────────────────────────────────────────────────────
+        if sig == 1 and not pos:
+            # Buy as many shares as cash allows AFTER commission
+            qty = int(cash / (price * (1 + COMMISSION)))
+            if qty > 0:
+                cost    = qty * price * (1 + COMMISSION)
+                cash   -= cost
+                shares  = qty
+                pos     = True
+                entry   = price
+                trades.append({"date": dates[i], "action": "BUY",
+                                "price": round(price, 4), "qty": qty,
+                                "value": round(cost, 2)})
+
+        # ── Exit ─────────────────────────────────────────────────────────────
+        elif sig == -1 and pos and shares > 0:
+            proceeds     = shares * price * (1 - COMMISSION)
+            cash        += proceeds
+            trades.append({"date": dates[i], "action": "SELL",
+                            "price": round(price, 4), "qty": shares,
+                            "value": round(proceeds, 2)})
+            shares = 0; pos = False; entry = 0.0
+
+        equity.append(round(cash + shares * price, 4))
+
+    return equity, trades
+
+
+def _bt_metrics(equity, closes, trades):
+    start_eq = equity[0] if equity else 10_000
+    end_eq   = equity[-1] if equity else 10_000
+    total_ret  = round((end_eq - 10_000) / 10_000 * 100, 2)
+    bh_ret     = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if len(closes) >= 2 and closes[0] else 0
+    max_dd     = _max_drawdown(equity)
+    sharpe_val = _sharpe(equity)
+    calmar     = round(abs(total_ret / max_dd), 3) if max_dd > 0 else 0
+
+    # Win rate: pair BUY→SELL/STOP/TP
+    buys   = [t for t in trades if t["action"] == "BUY"]
+    exits  = [t for t in trades if t["action"] in ("SELL", "STOP", "TP")]
+    pairs  = list(zip(buys, exits))
+    wins   = sum(1 for b, e in pairs if e["price"] > b["price"])
+    win_rt = round(wins / len(pairs) * 100, 1) if pairs else 0.0
+
+    return {
+        "total_return_pct":    total_ret,
+        "benchmark_return_pct": bh_ret,
+        "alpha_pct":           round(total_ret - bh_ret, 2),
+        "max_drawdown_pct":    max_dd,
+        "sharpe_ratio":        sharpe_val,
+        "calmar_ratio":        calmar,
+        "num_trades":          len(trades),
+        "win_rate":            win_rt,
+        "final_equity":        round(end_eq, 2),
+    }
+
+
 @app.route("/api/backtest", methods=["POST"])
 def backtest():
-    body=request.json or {}
-    ticker=body.get("ticker",""); days=min(int(body.get("days",90)),365)
-    strategy=body.get("strategy","buy_hold"); params=body.get("params",{})
-    status,raw=atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
-    if status!=200: return jsonify(raw),status
-    candles=_norm_candles(raw.get("candles",[]), days=days)
-    if len(candles)<3: return jsonify({"detail":"Not enough data"}),400
-    closes=[c["close"] for c in candles]; dates=[c["date"] for c in candles]
-    highs=[c["high"] for c in candles]; lows=[c["low"] for c in candles]
+    body     = request.json or {}
+    ticker   = body.get("ticker", "").upper()
+    days     = min(int(body.get("days", 90)), 365)
+    strategy = body.get("strategy", "buy_hold")
+    params   = body.get("params", {})
 
-    signals=[0]*len(closes)
-    if strategy=="sma_cross":
-        f2=_sma(closes,int(params.get("fast",5))); sl=_sma(closes,int(params.get("slow",20)))
-        for i in range(1,len(closes)):
-            if f2[i] and sl[i] and f2[i-1] and sl[i-1]:
-                if f2[i]>sl[i] and f2[i-1]<=sl[i-1]: signals[i]=1
-                elif f2[i]<sl[i] and f2[i-1]>=sl[i-1]: signals[i]=-1
-    elif strategy=="rsi":
-        p=int(params.get("rsi_period",14)); ob=float(params.get("overbought",70)); os_=float(params.get("oversold",30))
-        rsi=_rsi(closes,p)
-        for i in range(1,len(closes)):
+    if not ticker:
+        return jsonify({"detail": "ticker required"}), 400
+
+    status, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
+    if status != 200:
+        return jsonify(raw), status
+
+    candles = _norm_candles(raw.get("candles", []), days=days)
+    if len(candles) < 3:
+        return jsonify({"detail": f"Not enough data ({len(candles)} candles)"}), 400
+
+    closes = [float(c["close"]) for c in candles]
+    dates  = [c["date"]         for c in candles]
+    highs  = [float(c.get("high",  c["close"])) for c in candles]
+    lows   = [float(c.get("low",   c["close"])) for c in candles]
+
+    # ── Signal generation ────────────────────────────────────────────────────
+    signals = [0] * len(closes)
+
+    if strategy == "buy_hold":
+        # One buy on day 0, never sell — equity tracks price exactly
+        signals[0] = 1
+
+    elif strategy == "sma_cross":
+        fast = int(params.get("fast", 5))
+        slow = int(params.get("slow", 20))
+        f_ma = _sma(closes, fast)
+        s_ma = _sma(closes, slow)
+        for i in range(1, len(closes)):
+            if f_ma[i] and s_ma[i] and f_ma[i-1] and s_ma[i-1]:
+                if f_ma[i] > s_ma[i] and f_ma[i-1] <= s_ma[i-1]:  signals[i] =  1
+                elif f_ma[i] < s_ma[i] and f_ma[i-1] >= s_ma[i-1]: signals[i] = -1
+
+    elif strategy == "rsi":
+        p   = int(params.get("rsi_period", 14))
+        ob  = float(params.get("overbought", 70))
+        os_ = float(params.get("oversold",   30))
+        rsi = _rsi(closes, p)
+        for i in range(1, len(closes)):
             if rsi[i] and rsi[i-1]:
-                if rsi[i]<os_ and rsi[i-1]>=os_: signals[i]=1
-                elif rsi[i]>ob and rsi[i-1]<=ob: signals[i]=-1
-    elif strategy=="macd":
-        ml,sl2,_=_macd(closes,int(params.get("fast",12)),int(params.get("slow",26)),int(params.get("signal",9)))
-        for i in range(1,len(closes)):
-            if ml[i]>sl2[i] and ml[i-1]<=sl2[i-1]: signals[i]=1
-            elif ml[i]<sl2[i] and ml[i-1]>=sl2[i-1]: signals[i]=-1
-    elif strategy=="bb_reversal":
-        bb_u,bb_m,bb_l=_bollinger(closes)
-        for i in range(1,len(closes)):
-            if bb_l[i] and closes[i]<bb_l[i] and closes[i-1]>=bb_l[i-1]: signals[i]=1
-            elif bb_u[i] and closes[i]>bb_u[i] and closes[i-1]<=bb_u[i-1]: signals[i]=-1
-    elif strategy=="buy_hold":
-        # Buy at first candle with meaningful price action (skip flat seed candles at start)
-        bh_start = 0
-        for _i in range(len(closes)-1):
-            if closes[_i] != closes[_i+1]:
-                bh_start = _i; break
-        signals[bh_start] = 1
+                if   rsi[i] < os_ and rsi[i-1] >= os_: signals[i] =  1
+                elif rsi[i] > ob  and rsi[i-1] <= ob:  signals[i] = -1
 
-    sl_pct  = float(params.get("stop_loss_pct",  0)) / 100
-    tp_pct  = float(params.get("take_profit_pct",0)) / 100
-    cash=10000.0; shares=0; equity=[]; trades=[]; pos=False; entry_px=0
-    for i,(sig,price) in enumerate(zip(signals,closes)):
-        # Stop loss / take profit
-        if pos and entry_px > 0:
-            if sl_pct > 0 and price <= entry_px*(1-sl_pct):
-                cash+=shares*price*0.995; trades.append({"date":dates[i],"action":"STOP","price":price,"qty":shares}); shares=0; pos=False
-            elif tp_pct > 0 and price >= entry_px*(1+tp_pct):
-                cash+=shares*price*0.995; trades.append({"date":dates[i],"action":"TP","price":price,"qty":shares}); shares=0; pos=False
-        if sig==1 and not pos and cash>price:
-            qty=int(cash/price); cost=qty*price*1.005
-            if cost<=cash: cash-=cost; shares=qty; pos=True; entry_px=price; trades.append({"date":dates[i],"action":"BUY","price":price,"qty":qty})
-        elif sig==-1 and pos and shares>0:
-            cash+=shares*price*0.995; trades.append({"date":dates[i],"action":"SELL","price":price,"qty":shares}); shares=0; pos=False; entry_px=0
-        equity.append(round(cash+shares*price,4))
+    elif strategy == "macd":
+        ml, sl2, _ = _macd(closes,
+                            int(params.get("fast", 12)),
+                            int(params.get("slow", 26)),
+                            int(params.get("signal", 9)))
+        for i in range(1, len(closes)):
+            if ml[i] and sl2[i] and ml[i-1] and sl2[i-1]:
+                if   ml[i] > sl2[i] and ml[i-1] <= sl2[i-1]: signals[i] =  1
+                elif ml[i] < sl2[i] and ml[i-1] >= sl2[i-1]: signals[i] = -1
 
-    end_eq=equity[-1] if equity else 10000
-    total_ret=(end_eq-10000)/10000*100
-    # Benchmark: price change from first trade entry to last close (not from seed candle)
-    first_buy = next((t for t in trades if t["action"]=="BUY"), None)
-    bh_entry  = first_buy["price"] if first_buy else closes[0]
-    bh_ret    = (closes[-1]-bh_entry)/bh_entry*100 if bh_entry and closes else 0
-    max_dd=_max_drawdown(equity); sharpe_val=_sharpe(equity)
-    win_trades=[t for t in zip(trades[::2],trades[1::2]) if t[1]["price"]>t[0]["price"]]
-    calmar = round(abs(total_ret/max_dd),2) if max_dd > 0 else 0
+    elif strategy == "bb_reversal":
+        bb_u, _, bb_l = _bollinger(closes)
+        for i in range(1, len(closes)):
+            if bb_l[i] and closes[i] < bb_l[i] and closes[i-1] >= bb_l[i-1]:  signals[i] =  1
+            elif bb_u[i] and closes[i] > bb_u[i] and closes[i-1] <= bb_u[i-1]: signals[i] = -1
 
-    return jsonify({"ticker":ticker,"strategy":strategy,"days":days,"candles":candles,
-        "signals":signals,"equity_curve":equity,"dates":dates,"trades":trades,
-        "metrics":{"total_return_pct":round(total_ret,2),"benchmark_return_pct":round(bh_ret,2),
-            "max_drawdown_pct":max_dd,"sharpe_ratio":sharpe_val,"calmar_ratio":calmar,
-            "num_trades":len(trades),"win_rate":round(len(win_trades)/max(len(trades)//2,1)*100,1),
-            "final_equity":round(end_eq,2)}})
+    # ── Simulate ─────────────────────────────────────────────────────────────
+    sl_pct = float(params.get("stop_loss_pct",   0)) / 100
+    tp_pct = float(params.get("take_profit_pct", 0)) / 100
+    equity, trades = _bt_run(closes, dates, signals, sl_pct=sl_pct, tp_pct=tp_pct)
+    metrics        = _bt_metrics(equity, closes, trades)
+
+    # Buy-and-hold reference curve (always correct regardless of strategy)
+    bh_curve = [round(10_000 * p / closes[0], 2) for p in closes]
+
+    return jsonify({
+        "ticker":      ticker,
+        "strategy":    strategy,
+        "days":        days,
+        "dates":       dates,
+        "closes":      closes,
+        "equity_curve": equity,
+        "bh_curve":    bh_curve,
+        "signals":     signals,
+        "trades":      trades,
+        "metrics":     metrics,
+    })
 
 
 # ══════════════════════════════════════════════════════════════════════════════
