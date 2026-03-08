@@ -154,6 +154,10 @@
         <option value="0.8">80 / 20</option>
       </select></div>
     <button class="btn on" onclick="runWF()">RUN WALK-FORWARD</button>
+    <div id="wf-param-badge" style="display:none;align-self:flex-end;padding-bottom:4px;font-size:9px;color:var(--txt3);margin-left:4px">
+      PARAMS: <span id="wf-param-label" style="color:var(--yel);font-weight:700"></span>
+      <span onclick="wfClearParams()" style="cursor:pointer;color:var(--txt3);margin-left:4px" title="Clear injected params">✕</span>
+    </div>
   </div>
 
   <div class="sstrip" id="wf-strip" style="display:none">
@@ -476,9 +480,37 @@ window.runMulti = async function () {
 /* ══════════════════════════════════════════════════════════════════════════
    TAB 3 — WALK-FORWARD
 ══════════════════════════════════════════════════════════════════════════ */
+
+// Injected params from Param Sensitivity tab
+let _wfInjected = null;  // { strategy, params, label }
+
+window.wfInjectParams = function (strategy, params, label, ticker) {
+  _wfInjected = { strategy, params, label };
+  // Switch to WF tab
+  const tab = document.querySelector('.bt-tab[data-t="wf"]');
+  if (tab) btTab(tab);
+  // Pre-fill ticker + strategy selector (display only — actual value comes from _wfInjected)
+  if (ticker) document.getElementById('wf-tk').value = ticker;
+  document.getElementById('wf-str').value = strategy;
+  document.getElementById('wf-str').disabled = true;  // locked to injected strategy
+  // Show badge
+  document.getElementById('wf-param-badge').style.display = 'flex';
+  document.getElementById('wf-param-badge').style.alignItems = 'flex-end';
+  document.getElementById('wf-param-label').textContent = label;
+};
+
+window.wfClearParams = function () {
+  _wfInjected = null;
+  document.getElementById('wf-param-badge').style.display = 'none';
+  document.getElementById('wf-param-label').textContent = '';
+  document.getElementById('wf-str').disabled = false;
+};
+
 window.runWF = async function () {
   const ticker    = document.getElementById('wf-tk').value; if (!ticker) return;
-  const strat     = document.getElementById('wf-str').value;
+  // Use injected strategy+params if present, otherwise defaults
+  const strat     = _wfInjected ? _wfInjected.strategy : document.getElementById('wf-str').value;
+  const wfParams  = _wfInjected ? _wfInjected.params   : {};
   const totalDays = +document.getElementById('wf-days').value;
   const split     = parseFloat(document.getElementById('wf-split').value);
   const trainDays = Math.round(totalDays * split);
@@ -487,8 +519,8 @@ window.runWF = async function () {
   document.getElementById('wf-report').innerHTML = '<div class="loading">RUNNING…</div>';
 
   const [trainR, testR] = await Promise.all([
-    apiPost('/api/backtest', { ticker, days: trainDays, strategy: strat, params: {} }),
-    apiPost('/api/backtest', { ticker, days: testDays,  strategy: strat, params: {} }),
+    apiPost('/api/backtest', { ticker, days: trainDays, strategy: strat, params: wfParams }),
+    apiPost('/api/backtest', { ticker, days: testDays,  strategy: strat, params: wfParams }),
   ]);
 
   if (!trainR.ok || !testR.ok) {
@@ -679,7 +711,7 @@ window.runSens = async function () {
 
   const d = r.d;
   document.getElementById('sens-sub').textContent =
-    ` — ${ticker} · ${strategy.replace('_',' ').toUpperCase()} · B&H: ${fp(d.bh_return)}`;
+    ` — ${ticker} · ${strategy.replace('_',' ').toUpperCase()} · B&H: ${fp(d.bh_return)} · ${d.candles} candles`;
 
   /* heatmap */
   const rows = d.rows, cols = d.cols, rowsData = d.rows_data || [];
@@ -734,10 +766,39 @@ window.runSens = async function () {
       Robustness: <span style="color:${+robustness>50?'var(--up)':'var(--dn)'}">${robustness}%</span>
     </div>
     <div style="font-size:9px;color:var(--txt3)">&#9888; In-sample only. Use Walk-Forward to validate.</div>
+    <div style="margin-top:10px">
+      <button class="btn on" id="sens-wf-btn" onclick="sensValidateWF()" style="width:100%;font-size:9px;letter-spacing:1px">
+        VALIDATE IN WALK-FORWARD &#8594;
+      </button>
+    </div>
     </div>`;
+
+  // Store for WF bridge
+  _lastSens = { d, best, ticker, strategy };
 
   document.getElementById('sens-status').textContent =
     `${rows.length}x${cols.length} grid complete`;
+};
+
+/* ── Sens → WF bridge ──────────────────────────────────────────────────────── */
+let _lastSens = null;  // { d, best, ticker, strategy }
+
+window.sensValidateWF = function () {
+  if (!_lastSens) return;
+  const { d, best, ticker, strategy } = _lastSens;
+
+  // Build params object for the winning combination
+  let params = {};
+  let label  = '';
+  if (strategy === 'sma_cross') {
+    params = { fast: best.row, slow: best.col };
+    label  = `Fast=${best.row} Slow=${best.col}`;
+  } else if (strategy === 'rsi') {
+    params = { rsi_period: best.row, overbought: best.col, oversold: 100 - best.col };
+    label  = `Period=${best.row} OB=${best.col}`;
+  }
+
+  wfInjectParams(strategy, params, label, ticker);
 };
 
 })();
