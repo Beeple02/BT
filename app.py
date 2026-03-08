@@ -140,14 +140,22 @@ def atlas_get(path, params=None, ttl=30):
         if e: return e["s"], e["d"]
     return cached_get(path, params=params, ttl=ttl)
 
-def _norm_candles(candles):
-    """Sort candles oldest-first and fix Atlas DD-MM-YY date format."""
+def _norm_candles(candles, days=None):
+    """Sort candles oldest-first, fix Atlas DD-MM-YY dates, enforce days cutoff.
+    Atlas ignores the days param and returns all candles — we filter here."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = None
+    if days:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
     out = []
     for cv in candles:
         d = cv.get("date", "")
+        # Fix DD-MM-YY → YYYY-MM-DD (e.g. "30-12-25" → "2025-12-30")
         if d and len(d) == 8 and d[2] == "-" and d[5] == "-":
             p = d.split("-")
             d = f"20{p[2]}-{p[1]}-{p[0]}"
+        if cutoff and d and d < cutoff:
+            continue
         out.append({**cv, "date": d})
     out.sort(key=lambda x: x.get("date", ""))
     return out
@@ -982,7 +990,7 @@ def backtest():
     strategy=body.get("strategy","buy_hold"); params=body.get("params",{})
     status,raw=atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
     if status!=200: return jsonify(raw),status
-    candles=_norm_candles(raw.get("candles",[]))
+    candles=_norm_candles(raw.get("candles",[]), days=days)
     if len(candles)<3: return jsonify({"detail":"Not enough data"}),400
     closes=[c["close"] for c in candles]; dates=[c["date"] for c in candles]
     highs=[c["high"] for c in candles]; lows=[c["low"] for c in candles]
@@ -1011,7 +1019,13 @@ def backtest():
         for i in range(1,len(closes)):
             if bb_l[i] and closes[i]<bb_l[i] and closes[i-1]>=bb_l[i-1]: signals[i]=1
             elif bb_u[i] and closes[i]>bb_u[i] and closes[i-1]<=bb_u[i-1]: signals[i]=-1
-    elif strategy=="buy_hold": signals[0]=1
+    elif strategy=="buy_hold":
+        # Buy at first candle with meaningful price action (skip flat seed candles at start)
+        bh_start = 0
+        for _i in range(len(closes)-1):
+            if closes[_i] != closes[_i+1]:
+                bh_start = _i; break
+        signals[bh_start] = 1
 
     sl_pct  = float(params.get("stop_loss_pct",  0)) / 100
     tp_pct  = float(params.get("take_profit_pct",0)) / 100
@@ -1031,7 +1045,11 @@ def backtest():
         equity.append(round(cash+shares*price,4))
 
     end_eq=equity[-1] if equity else 10000
-    total_ret=(end_eq-10000)/10000*100; bh_ret=(closes[-1]-closes[0])/closes[0]*100 if closes else 0
+    total_ret=(end_eq-10000)/10000*100
+    # Benchmark: price change from first trade entry to last close (not from seed candle)
+    first_buy = next((t for t in trades if t["action"]=="BUY"), None)
+    bh_entry  = first_buy["price"] if first_buy else closes[0]
+    bh_ret    = (closes[-1]-bh_entry)/bh_entry*100 if bh_entry and closes else 0
     max_dd=_max_drawdown(equity); sharpe_val=_sharpe(equity)
     win_trades=[t for t in zip(trades[::2],trades[1::2]) if t[1]["price"]>t[0]["price"]]
     calmar = round(abs(total_ret/max_dd),2) if max_dd > 0 else 0
