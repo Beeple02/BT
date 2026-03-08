@@ -1181,6 +1181,13 @@ def sse_state():
 
 
 # ── PAGES ─────────────────────────────────────────────────────────────────────
+@app.route("/api/atlas-proxy")
+def atlas_proxy():
+    path   = request.args.get("path", "/status")
+    params = {k: v for k, v in request.args.items() if k != "path"}
+    s, d   = atlas_get(path, params=params or None, ttl=10)
+    return jsonify(d), s
+
 @app.route("/")
 def index():           return render_template("terminal.html")
 @app.route("/page/<name>")
