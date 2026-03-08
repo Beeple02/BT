@@ -156,10 +156,10 @@
 (function(){
 
 const ATLAS_BASE = 'https://atlas-production-ce6d.up.railway.app';
-const ATLAS_KEY  = 'atl_bloomberg_terminal_mMx1azUAKFulsaZqdDmAf2VZfCPbkZfs';
+const PROXY_BASE = '/api/atlas-proxy';
 
 document.getElementById('dbg-base').textContent = ATLAS_BASE.replace('https://','');
-document.getElementById('dbg-key-display').textContent = ATLAS_KEY.slice(0,24) + '…';
+document.getElementById('dbg-key-display').textContent = '(server-side via proxy)';
 
 // ── Endpoint definitions ───────────────────────────────────────────────────────
 const EPS = {
@@ -243,20 +243,18 @@ async function runEp(epKey) {
   let status = null, data = null, error = null;
 
   try {
-    // Build URL with query params for breadth/transactions/history/ohlcv
-    let url = ATLAS_BASE + path;
-    const qp = [];
-    if (epKey === 'history' || epKey === 'ohlcv' || epKey === 'analytics_ohlcv' || epKey === 'analytics_ticker_stats') {
+    // Route through server-side proxy to avoid CORS
+    const qp = [`path=${encodeURIComponent(path)}`];
+    if (['history','ohlcv','analytics_ohlcv','analytics_ticker_stats'].includes(epKey)) {
       if (_params.days) qp.push(`days=${_params.days}`);
     }
     if (epKey === 'market_breadth' && _params.days) qp.push(`days=${_params.days}`);
     if (epKey === 'transactions') {
-      if (_params.ticker) qp.push(`ticker=${_params.ticker}`);
+      if (_params.ticker) qp.push(`ticker=${encodeURIComponent(_params.ticker)}`);
       if (_params.limit)  qp.push(`limit=${_params.limit}`);
     }
-    if (qp.length) url += '?' + qp.join('&');
-
-    const res = await fetch(url, { headers: { 'X-Atlas-Key': ATLAS_KEY } });
+    const url = PROXY_BASE + '?' + qp.join('&');
+    const res = await fetch(url);
     status = res.status;
     data = await res.json();
   } catch(e) {
