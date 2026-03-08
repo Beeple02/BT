@@ -32,7 +32,7 @@
 <div class="wrow" style="flex:1">
 
   <!-- LEFT: Securities table -->
-  <div class="win" style="width:460px;border-right:0">
+  <div class="win" style="flex:1;min-width:360px;border-right:0">
     <div class="wbar">
       <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SECURITIES</span></div>
       <div class="wbar-r">
@@ -43,7 +43,7 @@
         <span class="wbtn" onclick="loadBreadth()">↻</span>
       </div>
     </div>
-    <div class="scroll" id="mkt-seclist"><div class="loading">LOADING…</div></div>
+    <div class="scroll" id="mkt-seclist" style="overflow-x:auto"><div class="loading">LOADING…</div></div>
   </div>
 
   <!-- MIDDLE: Chart + OB -->
@@ -63,7 +63,7 @@
     </div>
 
     <!-- Live print feed + volume flow -->
-    <div class="win" style="flex:1;min-height:40px">
+    <div class="win" style="flex:1;min-min-height:40px">
       <div class="wbar">
         <div class="wbar-l"><span class="wnum">3</span><span class="wtitle">LIVE PRINTS</span><span class="live-dot" style="margin-left:5px"></span><span class="wsub" id="mkt-print-ct"></span></div>
         <div class="wbar-r" style="gap:6px">
@@ -138,17 +138,17 @@ function set(id, val, cls='') {
 
 function renderSecTable(secs) {
   const el=document.getElementById('mkt-seclist');
-  el.innerHTML=`<table class="dt" id="mkt-tbl"><thead><tr>
-    <th data-col="ticker">TICKER</th>
-    <th data-col="name" style="max-width:100px">NAME</th>
-    <th class="r" data-col="last_price">PRICE</th>
-    <th class="r" data-col="chg_pct">CHG%</th>
-    <th class="r" data-col="volatility">VOL</th>
-    <th class="r" data-col="sharpe">SHRP</th>
-    <th class="r" data-col="market_cap">MCAP</th>
-    <th class="r" data-col="hi52">PRD HI%</th>
-    <th class="r" data-col="vol_spike">VOL SPIKE</th>
-    <th class="c" data-col="frozen">ST</th><th>ACT</th>
+  el.innerHTML=`<table class="dt" id="mkt-tbl" style="min-width:820px;table-layout:auto"><thead><tr>
+    <th data-col="ticker" style="white-space:nowrap">TICKER</th>
+    <th data-col="name" style="min-width:110px">NAME</th>
+    <th class="r" data-col="last_price" style="white-space:nowrap">PRICE</th>
+    <th class="r" data-col="chg_pct" style="white-space:nowrap">CHG%</th>
+    <th class="r" data-col="volatility" style="white-space:nowrap">VOL</th>
+    <th class="r" data-col="sharpe" style="white-space:nowrap">SHRP</th>
+    <th class="r" data-col="market_cap" style="white-space:nowrap">MCAP</th>
+    <th class="r" data-col="hi52" style="white-space:nowrap">PRD HI%</th>
+    <th class="r" data-col="vol_spike" style="white-space:nowrap">VOL SPIKE</th>
+    <th class="c" data-col="frozen" style="white-space:nowrap">ST</th><th style="white-space:nowrap">ACT</th>
   </tr></thead><tbody id="mkt-tbody"></tbody></table>`;
   document.querySelectorAll('#mkt-tbl th').forEach(th=>{
     th.addEventListener('click',()=>sortMktTable(th.dataset.col));
@@ -180,7 +180,7 @@ function fillMktRows(secs) {
     tr.className=s.chg_pct>2?'up-row':s.chg_pct<-2?'dn-row':'';
     tr.innerHTML=`
       <td><strong class="wht">${s.ticker}</strong></td>
-      <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis">${s.name}</td>
+      <td class="dim" style="min-width:110px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name}</td>
       <td class="r wht">${f(s.last_price)}</td>
       <td class="r" style="color:${gcI(s.chg_pct)};font-weight:${gcIW(s.chg_pct)}">${fp(s.chg_pct)}</td>
       <td class="r yel">${s.volatility?s.volatility.toFixed(1)+'%':'—'}</td>
