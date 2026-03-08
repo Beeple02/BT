@@ -269,38 +269,19 @@ _DUAL_LISTED = {"GCC"}
 
 @app.route("/api/securities")
 def securities():
-    """Merged NER + TSE securities list. TSE adds exchange field to all entries."""
-    s, ner = atlas_get("/securities", ttl=60)
+    """Merged NER + TSE securities list from Atlas (single source of truth).
+    Atlas already contains TSE tickers with source='tse' and ticker='TSE:XXX'.
+    We just tag exchange field from source to avoid duplicates."""
+    s, secs = atlas_get("/securities", ttl=60)
     if s != 200:
-        return jsonify(ner), s
+        return jsonify(secs), s
 
-    # Tag NER securities
-    for sec in ner:
-        sec["exchange"] = "NER"
+    # Tag exchange from source field — Atlas is the single source of truth
+    for sec in secs:
+        src_field = sec.get("source", "ner")
+        sec["exchange"] = "TSE" if src_field == "tse" else "NER"
 
-    # Fetch TSE stocks
-    ts, tse_stocks = tse_get("/api/v1/stocks", ttl=60)
-    if ts == 200 and isinstance(tse_stocks, list):
-        ner_tickers = {sec["ticker"] for sec in ner}
-        for stk in tse_stocks:
-            sym = stk.get("symbol", "")
-            if not sym:
-                continue
-            # Dual-listed: keep NER entry, just tag it; add TSE as separate entry with suffix
-            if sym in ner_tickers:
-                if sym in _DUAL_LISTED:
-                    # Add TSE variant with exchange tag — ticker stays same, exchange differs
-                    tse_entry = _tse_stock_to_sec(stk)
-                    tse_entry["exchange"] = "TSE"
-                    tse_entry["_dual"] = True
-                    ner.append(tse_entry)
-                # else: same ticker not in dual list — skip TSE to avoid confusion
-            else:
-                entry = _tse_stock_to_sec(stk)
-                entry["exchange"] = "TSE"
-                ner.append(entry)
-
-    return jsonify(ner), 200
+    return jsonify(secs), 200
 
 def _tse_stock_to_sec(stk):
     """Normalize TSE StockResponse to NER securities format."""
@@ -821,6 +802,7 @@ def exchange_analytics():
 
     for sec in secs:
         t = sec["ticker"]
+        if t.startswith("TSE:"): continue  # NER-only analytics
         os2, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=180)
         if os2 != 200 or not raw.get("candles"): continue
         cs = raw["candles"]
