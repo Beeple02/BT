@@ -591,6 +591,7 @@ def market_breadth():
     if s_atl == 200:
         # Atlas may return flat list or {summary,securities} — normalise both
         raw_secs = d_atl if isinstance(d_atl, list) else d_atl.get("securities", d_atl.get("data", []))
+        if not isinstance(raw_secs, list): raw_secs = []  # guard against null/unexpected shape
         _, sec_list = atlas_get("/securities", ttl=60)
         sec_meta = {s["ticker"]: s for s in (sec_list if isinstance(sec_list, list) else [])}
         enriched = []
