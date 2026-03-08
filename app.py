@@ -140,6 +140,18 @@ def atlas_get(path, params=None, ttl=30):
         if e: return e["s"], e["d"]
     return cached_get(path, params=params, ttl=ttl)
 
+def _norm_candles(candles):
+    """Sort candles oldest-first and fix Atlas DD-MM-YY date format."""
+    out = []
+    for cv in candles:
+        d = cv.get("date", "")
+        if d and len(d) == 8 and d[2] == "-" and d[5] == "-":
+            p = d.split("-")
+            d = f"20{p[2]}-{p[1]}-{p[0]}"
+        out.append({**cv, "date": d})
+    out.sort(key=lambda x: x.get("date", ""))
+    return out
+
 # Bulk orderbook cache — one call, filter by ticker in Python
 _ob_cache = {"ts": 0, "data": None}
 _OB_TTL = 10  # seconds
@@ -476,7 +488,7 @@ def ticker_stats(ticker):
     days = int(request.args.get("days", 60))
     s, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
     if s != 200: return jsonify({"detail": raw.get("detail","API error"), "status": s}), s
-    candles = raw.get("candles", [])
+    candles = _norm_candles(raw.get("candles", []))
     if not candles: return jsonify({"detail": "No candle data available"}), 404
 
     closes  = [c["close"]  for c in candles]
@@ -970,7 +982,7 @@ def backtest():
     strategy=body.get("strategy","buy_hold"); params=body.get("params",{})
     status,raw=atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
     if status!=200: return jsonify(raw),status
-    candles=raw.get("candles",[])
+    candles=_norm_candles(raw.get("candles",[]))
     if len(candles)<3: return jsonify({"detail":"Not enough data"}),400
     closes=[c["close"] for c in candles]; dates=[c["date"] for c in candles]
     highs=[c["high"] for c in candles]; lows=[c["low"] for c in candles]
@@ -1269,9 +1281,9 @@ def rolling_correlation():
     if not t1 or not t2: return jsonify({"detail":"t1 and t2 required"}), 400
     _, r1 = atlas_get(f"/analytics/ohlcv/{t1}", params={"days":days}, ttl=60)
     _, r2 = atlas_get(f"/analytics/ohlcv/{t2}", params={"days":days}, ttl=60)
-    c1 = [c["close"] for c in r1.get("candles",[])]
-    c2 = [c["close"] for c in r2.get("candles",[])]
-    dates = [c["date"] for c in r1.get("candles",[])]
+    c1 = [c["close"] for c in _norm_candles(r1.get("candles",[]))]
+    c2 = [c["close"] for c in _norm_candles(r2.get("candles",[]))]
+    dates = [c["date"] for c in _norm_candles(r1.get("candles",[]))]
     n = min(len(c1), len(c2)); c1=c1[-n:]; c2=c2[-n:]; dates=dates[-n:]
     if n < window+2: return jsonify({"detail":"Not enough data","dates":[],"corr":[],"spread":[],"spread_z":[]}), 200
     # Daily returns
@@ -1322,7 +1334,7 @@ def correlation_matrix():
     closes_map = {}
     for t in tickers:
         _, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=180)
-        cs = [c["close"] for c in raw.get("candles",[])]
+        cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
         if len(cs) >= 5: closes_map[t] = cs
     valid = list(closes_map.keys())
     # Align lengths
@@ -1359,7 +1371,7 @@ def monte_carlo():
     ticker = body.get("ticker",""); days = int(body.get("days",60))
     n_sims = min(int(body.get("sims",1000)),2000); horizon = int(body.get("horizon",30))
     _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
-    cs = [c["close"] for c in raw.get("candles",[])]
+    cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
     if len(cs) < 5: return jsonify({"detail":"Not enough data"}), 404
     rets = [(cs[i]-cs[i-1])/cs[i-1] for i in range(1,len(cs))]
     mu  = sum(rets)/len(rets)
@@ -1412,7 +1424,7 @@ def param_sensitivity():
     ticker = body.get("ticker",""); days = int(body.get("days",90))
     strategy = body.get("strategy","sma_cross")
     _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=180)
-    cs = [c["close"] for c in raw.get("candles",[])]
+    cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
     if len(cs) < 30: return jsonify({"detail":"Not enough data"}), 404
     def run_sma(fast,slow):
         if fast>=slow: return None
@@ -1482,7 +1494,7 @@ def portfolio_analytics():
     hist_data = {}
     for h in holdings:
         _, raw = atlas_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=180)
-        cs = [c["close"] for c in raw.get("candles",[])]
+        cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
         if cs: hist_data[h["ticker"]] = cs
     if not hist_data: return jsonify({"detail":"No price data"}), 200
     # Build portfolio return series (weighted daily returns)
