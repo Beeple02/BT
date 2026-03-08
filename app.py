@@ -594,10 +594,10 @@ def market_breadth():
         _, sec_list = atlas_get("/securities", ttl=60)
         sec_meta = {s["ticker"]: s for s in (sec_list if isinstance(sec_list, list) else [])}
         enriched = []
-        for s in raw_secs:
-            ticker = s.get("ticker", "")
+        for sec_item in raw_secs:
+            ticker = sec_item.get("ticker", "")
             meta   = sec_meta.get(ticker, {})
-            last_price = s.get("last_price") or s.get("price") or s.get("close")
+            last_price = sec_item.get("last_price") or sec_item.get("price") or sec_item.get("close")
             if last_price is None:
                 _, oraw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
                 cs = _norm_candles(oraw.get("candles", []))
@@ -607,19 +607,19 @@ def market_breadth():
                     chg = round((closes[-1]-closes[0])/closes[0]*100,2) if len(closes)>1 else 0
                     ann_v = _ann_vol(closes)
                     avg_vol = sum(volumes[:-1])/max(len(volumes)-1,1) if len(volumes)>1 else volumes[0]
-                    s.update({"last_price":last_price,"chg_pct":chg,"volatility":ann_v,
+                    sec_item.update({"last_price":last_price,"chg_pct":chg,"volatility":ann_v,
                                "sharpe":_sharpe(closes),"prd_hi_pct":round((closes[-1]-max(closes))/max(closes)*100,2),
                                "vol_spike":round(volumes[-1]/avg_vol,2) if avg_vol>0 else None,
                                "volume":sum(volumes),"market_cap":round(last_price*meta.get("total_shares",0),2)})
-            if not s.get("name"):    s["name"]   = meta.get("full_name", ticker)
-            if "frozen" not in s:    s["frozen"]  = meta.get("frozen", False)
-            if "chg_pct" not in s:   s["chg_pct"] = s.get("change_pct", s.get("change", 0)) or 0
-            enriched.append(s)
+            if not sec_item.get("name"):    sec_item["name"]   = meta.get("full_name", ticker)
+            if "frozen" not in sec_item:    sec_item["frozen"]  = meta.get("frozen", False)
+            if "chg_pct" not in sec_item:   sec_item["chg_pct"] = sec_item.get("change_pct", sec_item.get("change", 0)) or 0
+            enriched.append(sec_item)
         chgs = [e.get("chg_pct",0) for e in enriched]
         ups  = [e for e in enriched if (e.get("chg_pct") or 0)>0]
         dns  = [e for e in enriched if (e.get("chg_pct") or 0)<0]
         flt  = [e for e in enriched if (e.get("chg_pct") or 0)==0]
-        vols = [e["volatility"] for e in enriched if e.get("volatility") and e["volatility"]>0]
+        vols = [e["volatility"] for e in enriched if e.get("volatility") is not None and isinstance(e["volatility"], (int,float)) and e["volatility"]>0]
         return jsonify({"securities": enriched, "summary": {
             "total": len(enriched), "advancing": len(ups), "declining": len(dns), "unchanged": len(flt),
             "adv_dec_ratio": round(len(ups)/max(len(dns),1),2),
