@@ -22,7 +22,7 @@ app = Flask(
 
 NER_BASE   = "http://150.230.117.88:8082"
 TSE_BASE   = "https://market.installe.us"
-ATLAS_BASE = "https://atlas-production-ce6d.up.railway.app"
+ATLAS_BASE = "https://atlas-production-1438.up.railway.app"
 ATLAS_KEY  = os.environ.get("ATLAS_API_KEY", "atl_bloomberg_terminal_mMx1azUAKFulsaZqdDmAf2VZfCPbkZfs")
 ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
 TSE_KEY  = os.environ.get("TSE_API_KEY", "exch_live_dfe5e4f0820de420c525a8e8057493e865ac3b654e1fd3a65b60cde9ea183d35")
