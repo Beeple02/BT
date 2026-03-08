@@ -1,311 +1,744 @@
-<!-- F5: BACKTEST v2 — Single Ticker -->
+<!-- F5: BACKTEST v2 -->
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
 
-<!-- ── Tab bar (single tab for now) ── -->
+<!-- ── Tab bar ── -->
 <div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
-  <span class="bt-tab active" data-t="single">SINGLE TICKER</span>
+  <span class="bt-tab active" data-t="single"  onclick="btTab(this)">SINGLE TICKER</span>
+  <span class="bt-tab"        data-t="multi"   onclick="btTab(this)">MULTI-TICKER</span>
+  <span class="bt-tab"        data-t="wf"      onclick="btTab(this)">WALK-FORWARD</span>
+  <span class="bt-tab"        data-t="mc"      onclick="btTab(this)">MONTE CARLO</span>
+  <span class="bt-tab"        data-t="sens"    onclick="btTab(this)">PARAM SENSITIVITY</span>
 </div>
 
-<!-- ── Controls ── -->
-<div class="frow" id="bt-controls">
-  <div class="ff">
-    <label>TICKER</label>
-    <select id="bt-tk" style="min-width:160px"><option value="">SELECT</option></select>
-  </div>
-  <div class="ff">
-    <label>DAYS</label>
-    <select id="bt-days">
-      <option value="30">30D</option>
-      <option value="60">60D</option>
-      <option value="90" selected>90D</option>
-      <option value="180">180D</option>
-      <option value="365">365D</option>
-    </select>
-  </div>
-  <div class="ff">
-    <label>STRATEGY</label>
-    <select id="bt-str" onchange="btParamShow()">
-      <option value="buy_hold">BUY &amp; HOLD</option>
-      <option value="sma_cross">SMA CROSS</option>
-      <option value="rsi">RSI REVERSAL</option>
-      <option value="macd">MACD</option>
-      <option value="bb_reversal">BB REVERSAL</option>
-    </select>
-  </div>
-
-  <!-- SMA params -->
-  <div id="btp-sma" class="bt-pg" style="display:none">
-    <div class="ff"><label>FAST</label><input type="number" id="btp-sf" value="5"  style="width:46px"></div>
-    <div class="ff"><label>SLOW</label><input type="number" id="btp-ss" value="20" style="width:46px"></div>
-  </div>
-  <!-- RSI params -->
-  <div id="btp-rsi" class="bt-pg" style="display:none">
-    <div class="ff"><label>PERIOD</label><input type="number" id="btp-rp" value="14" style="width:46px"></div>
-    <div class="ff"><label>OB</label>    <input type="number" id="btp-ob" value="70" style="width:46px"></div>
-    <div class="ff"><label>OS</label>    <input type="number" id="btp-os" value="30" style="width:46px"></div>
-  </div>
-  <!-- MACD params -->
-  <div id="btp-macd" class="bt-pg" style="display:none">
-    <div class="ff"><label>FAST</label>   <input type="number" id="btp-mf" value="12" style="width:46px"></div>
-    <div class="ff"><label>SLOW</label>   <input type="number" id="btp-ms" value="26" style="width:46px"></div>
-    <div class="ff"><label>SIGNAL</label> <input type="number" id="btp-mg" value="9"  style="width:46px"></div>
-  </div>
-
-  <!-- SL/TP (all strategies) -->
-  <div class="ff"><label>STOP%</label><input type="number" id="btp-sl" value="0" step="0.5" style="width:50px" placeholder="off"></div>
-  <div class="ff"><label>TP%</label>  <input type="number" id="btp-tp" value="0" step="0.5" style="width:50px" placeholder="off"></div>
-
-  <button class="btn on" id="bt-run-btn" onclick="runBT()">RUN</button>
-</div>
-
-<!-- ── Metrics strip ── -->
-<div class="sstrip" id="bt-strip" style="display:none">
-  <div class="ss"><div class="ss-l">RETURN</div>    <div class="ss-v" id="bm-ret">—</div></div>
-  <div class="ss"><div class="ss-l">BENCHMARK</div> <div class="ss-v" id="bm-bh">—</div></div>
-  <div class="ss"><div class="ss-l">ALPHA</div>     <div class="ss-v" id="bm-alpha">—</div></div>
-  <div class="ss"><div class="ss-l">MAX DD</div>    <div class="ss-v dn" id="bm-dd">—</div></div>
-  <div class="ss"><div class="ss-l">SHARPE</div>    <div class="ss-v" id="bm-sharpe">—</div></div>
-  <div class="ss"><div class="ss-l">CALMAR</div>    <div class="ss-v" id="bm-calmar">—</div></div>
-  <div class="ss"><div class="ss-l">TRADES</div>    <div class="ss-v" id="bm-trades">—</div></div>
-  <div class="ss"><div class="ss-l">WIN RATE</div>  <div class="ss-v" id="bm-wr">—</div></div>
-  <div class="ss"><div class="ss-l">FINAL EQ</div>  <div class="ss-v" id="bm-eq">—</div></div>
-</div>
-
-<!-- ── Main panels ── -->
-<div class="wrow" style="flex:1;min-height:0">
-  <!-- Equity curve -->
-  <div class="win" style="flex:1;border-right:0">
-    <div class="wbar">
-      <div class="wbar-l">
-        <span class="wnum">1</span>
-        <span class="wtitle">EQUITY CURVE</span>
-        <span class="wsub" id="bt-chart-sub"></span>
-      </div>
-      <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
-        <span style="color:var(--org)">—</span> Strategy &nbsp;
-        <span style="color:#555">- -</span> Buy&amp;Hold
-      </div>
+<!-- ════════════════════════════════════════════════════════════
+     TAB 1 — SINGLE TICKER
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view active" id="bv-single">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="bt-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>DAYS</label>
+      <select id="bt-days">
+        <option value="30">30D</option><option value="60">60D</option>
+        <option value="90" selected>90D</option><option value="180">180D</option>
+        <option value="365">365D</option>
+      </select></div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="bt-str" onchange="btParamShow()">
+        <option value="buy_hold">BUY &amp; HOLD</option>
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+        <option value="bb_reversal">BB REVERSAL</option>
+      </select></div>
+    <div id="btp-sma" class="bt-pg" style="display:none">
+      <div class="ff"><label>FAST</label><input type="number" id="btp-sf" value="5"  style="width:46px"></div>
+      <div class="ff"><label>SLOW</label><input type="number" id="btp-ss" value="20" style="width:46px"></div>
     </div>
-    <div class="chart-wrap"><canvas id="bt-eq-c"></canvas></div>
+    <div id="btp-rsi" class="bt-pg" style="display:none">
+      <div class="ff"><label>PERIOD</label><input type="number" id="btp-rp" value="14" style="width:46px"></div>
+      <div class="ff"><label>OB</label>    <input type="number" id="btp-ob" value="70" style="width:46px"></div>
+      <div class="ff"><label>OS</label>    <input type="number" id="btp-os" value="30" style="width:46px"></div>
+    </div>
+    <div id="btp-macd" class="bt-pg" style="display:none">
+      <div class="ff"><label>FAST</label>  <input type="number" id="btp-mf" value="12" style="width:46px"></div>
+      <div class="ff"><label>SLOW</label>  <input type="number" id="btp-ms" value="26" style="width:46px"></div>
+      <div class="ff"><label>SIG</label>   <input type="number" id="btp-mg" value="9"  style="width:46px"></div>
+    </div>
+    <div class="ff"><label>STOP%</label><input type="number" id="btp-sl" value="0" step="0.5" style="width:50px" placeholder="off"></div>
+    <div class="ff"><label>TP%</label>  <input type="number" id="btp-tp" value="0" step="0.5" style="width:50px" placeholder="off"></div>
+    <button class="btn on" id="bt-run-btn" onclick="runBT()">RUN</button>
   </div>
 
-  <!-- Trade log -->
+  <div class="sstrip" id="bt-strip" style="display:none">
+    <div class="ss"><div class="ss-l">RETURN</div>   <div class="ss-v" id="bm-ret">—</div></div>
+    <div class="ss"><div class="ss-l">BENCHMARK</div><div class="ss-v" id="bm-bh">—</div></div>
+    <div class="ss"><div class="ss-l">ALPHA</div>    <div class="ss-v" id="bm-alpha">—</div></div>
+    <div class="ss"><div class="ss-l">MAX DD</div>   <div class="ss-v dn" id="bm-dd">—</div></div>
+    <div class="ss"><div class="ss-l">SHARPE</div>   <div class="ss-v" id="bm-sharpe">—</div></div>
+    <div class="ss"><div class="ss-l">CALMAR</div>   <div class="ss-v" id="bm-calmar">—</div></div>
+    <div class="ss"><div class="ss-l">TRADES</div>   <div class="ss-v" id="bm-trades">—</div></div>
+    <div class="ss"><div class="ss-l">WIN RATE</div> <div class="ss-v" id="bm-wr">—</div></div>
+    <div class="ss"><div class="ss-l">FINAL EQ</div> <div class="ss-v" id="bm-eq">—</div></div>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">EQUITY CURVE</span><span class="wsub" id="bt-chart-sub"></span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--org)">—</span> Strategy &nbsp;<span style="color:#555">- -</span> Buy&amp;Hold
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="bt-eq-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">TRADE LOG</span></div></div>
+      <div class="scroll" id="bt-log"><div class="loading">RUN A BACKTEST</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     TAB 2 — MULTI-TICKER
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-multi" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>STRATEGY</label>
+      <select id="mt-str">
+        <option value="buy_hold">BUY &amp; HOLD</option>
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+      </select></div>
+    <div class="ff"><label>DAYS</label>
+      <select id="mt-days">
+        <option value="30">30D</option><option value="60">60D</option>
+        <option value="90" selected>90D</option><option value="180">180D</option>
+      </select></div>
+    <div class="ff"><label>RANK BY</label>
+      <select id="mt-rank">
+        <option value="total_return_pct">RETURN</option>
+        <option value="sharpe_ratio">SHARPE</option>
+        <option value="alpha_pct">ALPHA</option>
+        <option value="calmar_ratio">CALMAR</option>
+        <option value="win_rate">WIN RATE</option>
+        <option value="max_drawdown_pct">MAX DD (asc)</option>
+      </select></div>
+    <button class="btn on" onclick="runMulti()">RUN ALL TICKERS</button>
+    <span id="mt-prog" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
   <div class="win" style="flex:1">
     <div class="wbar">
-      <div class="wbar-l">
-        <span class="wnum">2</span>
-        <span class="wtitle">TRADE LOG</span>
-      </div>
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">MULTI-TICKER RANKING</span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--txt3)" id="mt-sub"></div>
     </div>
-    <div class="scroll" id="bt-log" style="height:100%">
-      <div class="loading">RUN A BACKTEST</div>
+    <div class="scroll">
+      <table class="dt">
+        <thead><tr>
+          <th>TICKER</th><th>NAME</th>
+          <th class="r">RETURN</th><th class="r">BENCHMARK</th><th class="r">ALPHA</th>
+          <th class="r">MAX DD</th><th class="r">SHARPE</th><th class="r">CALMAR</th>
+          <th class="r">TRADES</th><th class="r">WIN%</th><th class="r">FINAL EQ</th>
+        </tr></thead>
+        <tbody id="mt-tbody"><tr><td colspan="11" class="loading">SELECT STRATEGY AND RUN</td></tr></tbody>
+      </table>
     </div>
   </div>
 </div>
 
-</div><!-- /outer flex -->
+<!-- ════════════════════════════════════════════════════════════
+     TAB 3 — WALK-FORWARD
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-wf" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="wf-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="wf-str">
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+        <option value="bb_reversal">BB REVERSAL</option>
+      </select></div>
+    <div class="ff"><label>TOTAL DAYS</label>
+      <select id="wf-days">
+        <option value="60">60D</option><option value="90">90D</option>
+        <option value="180" selected>180D</option><option value="365">365D</option>
+      </select></div>
+    <div class="ff"><label>TRAIN / TEST</label>
+      <select id="wf-split">
+        <option value="0.5">50 / 50</option>
+        <option value="0.6">60 / 40</option>
+        <option value="0.7" selected>70 / 30</option>
+        <option value="0.8">80 / 20</option>
+      </select></div>
+    <button class="btn on" onclick="runWF()">RUN WALK-FORWARD</button>
+  </div>
 
+  <div class="sstrip" id="wf-strip" style="display:none">
+    <div class="ss"><div class="ss-l">TRAIN RET</div>  <div class="ss-v" id="wf-tr">—</div></div>
+    <div class="ss"><div class="ss-l">TEST RET</div>   <div class="ss-v" id="wf-te">—</div></div>
+    <div class="ss"><div class="ss-l">DEGRADATION</div><div class="ss-v" id="wf-deg">—</div></div>
+    <div class="ss"><div class="ss-l">TEST SHARPE</div><div class="ss-v" id="wf-tsh">—</div></div>
+    <div class="ss"><div class="ss-l">TEST MAX DD</div><div class="ss-v dn" id="wf-tdd">—</div></div>
+    <div class="ss"><div class="ss-l">OVERFIT RISK</div><div class="ss-v" id="wf-ovf">—</div></div>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">EQUITY CURVE — TRAIN vs TEST</span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--org)">—</span> Train &nbsp;
+          <span style="color:#00e5ff">—</span> Test &nbsp;
+          <span style="color:#444">- -</span> Buy&amp;Hold
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="wf-c"></canvas></div>
+    </div>
+    <div class="win" style="width:300px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">VALIDATION REPORT</span></div></div>
+      <div class="scroll" id="wf-report"><div class="loading">RUN WALK-FORWARD</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     TAB 4 — MONTE CARLO
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-mc" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="mc-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>HISTORY DAYS</label>
+      <select id="mc-days">
+        <option value="30">30D</option><option value="60" selected>60D</option>
+        <option value="90">90D</option><option value="180">180D</option>
+      </select></div>
+    <div class="ff"><label>HORIZON DAYS</label>
+      <select id="mc-hor">
+        <option value="10">10D</option><option value="20">20D</option>
+        <option value="30" selected>30D</option><option value="60">60D</option>
+      </select></div>
+    <div class="ff"><label>SIMULATIONS</label>
+      <select id="mc-sims">
+        <option value="500">500</option><option value="1000" selected>1000</option>
+        <option value="2000">2000</option>
+      </select></div>
+    <button class="btn on" onclick="runMC()">&#9654; SIMULATE</button>
+    <span id="mc-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
+
+  <div class="sstrip" id="mc-strip" style="display:none">
+    <div class="ss"><div class="ss-l">P5 (BEAR)</div>  <div class="ss-v dn" id="mc-p5">—</div></div>
+    <div class="ss"><div class="ss-l">P25</div>         <div class="ss-v" id="mc-p25">—</div></div>
+    <div class="ss"><div class="ss-l">MEDIAN P50</div>  <div class="ss-v wht" id="mc-p50">—</div></div>
+    <div class="ss"><div class="ss-l">P75</div>         <div class="ss-v" id="mc-p75">—</div></div>
+    <div class="ss"><div class="ss-l">P95 (BULL)</div>  <div class="ss-v up" id="mc-p95">—</div></div>
+    <div class="ss"><div class="ss-l">PROB PROFIT</div> <div class="ss-v" id="mc-pp">—</div></div>
+    <div class="ss"><div class="ss-l">PROB DD&gt;20%</div><div class="ss-v dn" id="mc-pdd">—</div></div>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SIMULATION PATHS</span><span class="wsub" id="mc-sub"></span></div>
+      </div>
+      <div class="chart-wrap"><canvas id="mc-paths-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">OUTCOME DISTRIBUTION</span></div></div>
+      <div class="chart-wrap"><canvas id="mc-hist-c"></canvas></div>
+    </div>
+    <div class="win" style="width:200px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERCENTILES</span></div></div>
+      <div class="scroll" id="mc-detail"><div class="loading">Run simulation</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     TAB 5 — PARAM SENSITIVITY
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-sens" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="sens-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="sens-str">
+        <option value="sma_cross">SMA CROSSOVER</option>
+        <option value="rsi">RSI REVERSAL</option>
+      </select></div>
+    <div class="ff"><label>DAYS</label>
+      <select id="sens-days">
+        <option value="60">60D</option><option value="90" selected>90D</option>
+        <option value="180">180D</option>
+      </select></div>
+    <button class="btn on" onclick="runSens()">&#9654; SCAN PARAMS</button>
+    <span id="sens-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PARAMETER HEATMAP</span><span class="wsub" id="sens-sub"></span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--up)">&#9632;</span> Beats B&amp;H &nbsp;
+          <span style="color:var(--dn)">&#9632;</span> Below B&amp;H
+        </div>
+      </div>
+      <div class="scroll" style="padding:12px" id="sens-heatmap"><div class="loading">Run scan first</div></div>
+    </div>
+    <div class="win" style="width:260px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">BEST PARAMETERS</span></div></div>
+      <div class="scroll" id="sens-detail"><div class="loading">Run scan first</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ STYLES ════════ -->
 <style>
 .bt-tab {
-  padding: 4px 14px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  cursor: pointer;
-  color: var(--txt3);
-  border-right: 1px solid var(--bdr);
-  border-bottom: 2px solid transparent;
+  padding: 4px 14px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  cursor: pointer; color: var(--txt3);
+  border-right: 1px solid var(--bdr); border-bottom: 2px solid transparent;
 }
 .bt-tab:hover  { color: var(--txt); background: var(--bg4); }
 .bt-tab.active { color: var(--wht); border-bottom-color: var(--org); background: var(--bg4); }
-.bt-pg { display: flex; gap: 6px; }
+.bt-view { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.bt-pg   { display: flex; gap: 6px; }
 </style>
 
+<!-- ════════ SCRIPT ════════ -->
 <script>
 (function () {
-  let _btChart = null;
 
-  /* ── Lifecycle ─────────────────────────────────────────────────────────── */
-  window.PAGE_bt_onShow = function () {
-    populateSel('bt-tk');
+/* chart registry — destroy before re-creating */
+const _C = {};
+function kc(id) { if (_C[id]) { _C[id].destroy(); delete _C[id]; } }
+
+/* ── tab switching ────────────────────────────────────────────────────────── */
+window.btTab = function (el) {
+  document.querySelectorAll('.bt-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.bt-view').forEach(v => v.style.display = 'none');
+  el.classList.add('active');
+  const v = document.getElementById('bv-' + el.dataset.t);
+  if (v) v.style.display = 'flex';
+};
+
+/* ── lifecycle ────────────────────────────────────────────────────────────── */
+window.PAGE_bt_onShow = function () {
+  ['bt-tk','wf-tk','mc-tk','sens-tk'].forEach(id => populateSel(id));
+};
+
+/* ── strategy param show/hide ─────────────────────────────────────────────── */
+window.btParamShow = function () {
+  ['sma','rsi','macd'].forEach(k => {
+    const el = document.getElementById('btp-' + k);
+    if (el) el.style.display = 'none';
+  });
+  const map = { sma_cross: 'sma', rsi: 'rsi', macd: 'macd' };
+  const v = map[document.getElementById('bt-str').value];
+  if (v) document.getElementById('btp-' + v).style.display = 'flex';
+};
+
+function getSingleParams() {
+  const s = document.getElementById('bt-str').value;
+  const p = {
+    stop_loss_pct:   +document.getElementById('btp-sl').value || 0,
+    take_profit_pct: +document.getElementById('btp-tp').value || 0,
   };
+  if (s === 'sma_cross') { p.fast = +document.getElementById('btp-sf').value; p.slow = +document.getElementById('btp-ss').value; }
+  if (s === 'rsi')       { p.rsi_period = +document.getElementById('btp-rp').value; p.overbought = +document.getElementById('btp-ob').value; p.oversold = +document.getElementById('btp-os').value; }
+  if (s === 'macd')      { p.fast = +document.getElementById('btp-mf').value; p.slow = +document.getElementById('btp-ms').value; p.signal = +document.getElementById('btp-mg').value; }
+  return p;
+}
 
-  /* ── Strategy param visibility ─────────────────────────────────────────── */
-  window.btParamShow = function () {
-    ['sma','rsi','macd'].forEach(k => {
-      const el = document.getElementById('btp-' + k);
-      if (el) el.style.display = 'none';
-    });
-    const strat = document.getElementById('bt-str').value;
-    const map = { sma_cross: 'sma', rsi: 'rsi', macd: 'macd' };
-    if (map[strat]) document.getElementById('btp-' + map[strat]).style.display = 'flex';
-  };
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 1 — SINGLE TICKER
+══════════════════════════════════════════════════════════════════════════ */
+window.runBT = async function () {
+  const ticker = document.getElementById('bt-tk').value; if (!ticker) return;
+  const strat  = document.getElementById('bt-str').value;
+  const days   = +document.getElementById('bt-days').value;
+  const btn    = document.getElementById('bt-run-btn');
 
-  /* ── Collect strategy params ────────────────────────────────────────────── */
-  function getParams() {
-    const strat = document.getElementById('bt-str').value;
-    const p = {
-      stop_loss_pct:   +document.getElementById('btp-sl').value || 0,
-      take_profit_pct: +document.getElementById('btp-tp').value || 0,
-    };
-    if (strat === 'sma_cross') {
-      p.fast = +document.getElementById('btp-sf').value;
-      p.slow = +document.getElementById('btp-ss').value;
-    }
-    if (strat === 'rsi') {
-      p.rsi_period  = +document.getElementById('btp-rp').value;
-      p.overbought  = +document.getElementById('btp-ob').value;
-      p.oversold    = +document.getElementById('btp-os').value;
-    }
-    if (strat === 'macd') {
-      p.fast   = +document.getElementById('btp-mf').value;
-      p.slow   = +document.getElementById('btp-ms').value;
-      p.signal = +document.getElementById('btp-mg').value;
-    }
-    return p;
+  btn.textContent = '…'; btn.disabled = true;
+  document.getElementById('bt-log').innerHTML = '<div class="loading">RUNNING…</div>';
+
+  const r = await apiPost('/api/backtest', { ticker, days, strategy: strat, params: getSingleParams() });
+  btn.textContent = 'RUN'; btn.disabled = false;
+
+  if (!r.ok) {
+    document.getElementById('bt-log').innerHTML = `<div class="alert err">${r.d?.detail || 'Error'}</div>`;
+    return;
   }
 
-  /* ── Main run ───────────────────────────────────────────────────────────── */
-  window.runBT = async function () {
-    const ticker = document.getElementById('bt-tk').value;
-    if (!ticker) return;
+  const d = r.d, m = d.metrics;
 
-    const strat = document.getElementById('bt-str').value;
-    const days  = +document.getElementById('bt-days').value;
+  /* metrics strip */
+  document.getElementById('bt-strip').style.display = 'flex';
+  document.getElementById('bt-chart-sub').textContent = ` — ${ticker} · ${strat.replace(/_/g,' ').toUpperCase()} · ${days}D`;
 
-    const btn = document.getElementById('bt-run-btn');
-    btn.textContent = '…';
-    btn.disabled = true;
-    document.getElementById('bt-log').innerHTML = '<div class="loading">RUNNING…</div>';
+  function sm(id, val, isP) {
+    const el = document.getElementById(id);
+    el.textContent = isP ? (val >= 0 ? '+' : '') + val + '%' : val;
+    if (typeof val === 'number') el.style.color = gc(val);
+  }
+  sm('bm-ret',   m.total_return_pct,     true);
+  sm('bm-bh',    m.benchmark_return_pct, true);
+  sm('bm-alpha', m.alpha_pct,            true);
+  document.getElementById('bm-dd').textContent     = '-' + m.max_drawdown_pct + '%';
+  sm('bm-sharpe', m.sharpe_ratio, false);
+  document.getElementById('bm-calmar').textContent = m.calmar_ratio;
+  document.getElementById('bm-trades').textContent = m.num_trades;
+  document.getElementById('bm-wr').textContent     = m.win_rate + '%';
+  document.getElementById('bm-eq').textContent     = f(m.final_equity);
 
-    const r = await apiPost('/api/backtest', {
+  /* equity chart */
+  kc('bt-eq-c');
+  _C['bt-eq-c'] = new Chart(document.getElementById('bt-eq-c'), {
+    type: 'line',
+    data: {
+      labels: d.dates,
+      datasets: [
+        { label: 'Strategy', data: d.equity_curve, borderColor: '#cc9900', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2 },
+        { label: 'Buy&Hold', data: d.bh_curve,     borderColor: '#444',    borderWidth: 1.5, borderDash: [5,4], pointRadius: 0, fill: false, tension: 0.2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...TT } },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { maxTicksLimit: 8, maxRotation: 0, color: '#444' } },
+        y: { grid: { color: '#1a1a1a' }, position: 'right', ticks: { color: '#444' } },
+      },
+    },
+  });
+
+  /* trade log */
+  if (!d.trades.length) {
+    document.getElementById('bt-log').innerHTML = '<div class="loading">NO TRADES</div>';
+    return;
+  }
+  const ac = a => a === 'BUY' ? 'var(--up)' : a === 'SELL' ? 'var(--dn)' : 'var(--yel)';
+  document.getElementById('bt-log').innerHTML = `
+    <table class="dt"><thead><tr>
+      <th>#</th><th>DATE</th><th>ACTION</th>
+      <th class="r">PRICE</th><th class="r">QTY</th><th class="r">VALUE</th>
+    </tr></thead><tbody>
+    ${d.trades.map((t, i) => `<tr>
+      <td class="dim">${i+1}</td><td>${t.date}</td>
+      <td style="color:${ac(t.action)};font-weight:700">${t.action}</td>
+      <td class="r wht">${f(t.price)}</td>
+      <td class="r dim">${t.qty.toLocaleString()}</td>
+      <td class="r">${f(t.value)}</td>
+    </tr>`).join('')}
+    </tbody></table>`;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 2 — MULTI-TICKER
+══════════════════════════════════════════════════════════════════════════ */
+window.runMulti = async function () {
+  const strat   = document.getElementById('mt-str').value;
+  const days    = +document.getElementById('mt-days').value;
+  const rankBy  = document.getElementById('mt-rank').value;
+  const tickers = (BB.secs || []).map(s => s.ticker);
+  const tb      = document.getElementById('mt-tbody');
+
+  tb.innerHTML = `<tr><td colspan="11" class="loading">RUNNING ON ${tickers.length} TICKERS…</td></tr>`;
+  document.getElementById('mt-prog').textContent = '0/' + tickers.length;
+
+  const results = []; let done = 0;
+  await Promise.all(tickers.map(async ticker => {
+    const r = await apiPost('/api/backtest', { ticker, days, strategy: strat, params: {} });
+    done++;
+    document.getElementById('mt-prog').textContent = done + '/' + tickers.length;
+    if (r.ok) results.push({
       ticker,
-      days,
-      strategy: strat,
-      params: getParams(),
+      m: r.d.metrics,
+      name: (BB.secs.find(s => s.ticker === ticker) || {}).full_name || '',
     });
+  }));
 
-    btn.textContent = 'RUN';
-    btn.disabled = false;
+  const asc = ['max_drawdown_pct'].includes(rankBy);
+  results.sort((a, b) => asc ? a.m[rankBy] - b.m[rankBy] : b.m[rankBy] - a.m[rankBy]);
 
-    if (!r.ok) {
-      document.getElementById('bt-log').innerHTML =
-        `<div class="alert err">${r.d?.detail || 'Error'}</div>`;
-      return;
-    }
+  document.getElementById('mt-sub').textContent =
+    `${results.length} tickers · ranked by ${rankBy.replace(/_/g,' ').toUpperCase()}`;
+  document.getElementById('mt-prog').textContent = '';
 
-    const d = r.d;
-    const m = d.metrics;
+  tb.innerHTML = '';
+  results.forEach(res => {
+    const m = res.m;
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.innerHTML = `
+      <td><strong class="wht">${res.ticker}</strong></td>
+      <td class="dim" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${res.name}</td>
+      <td class="r ${m.total_return_pct  >= 0 ? 'up' : 'dn'}">${fp(m.total_return_pct)}</td>
+      <td class="r dim">${fp(m.benchmark_return_pct)}</td>
+      <td class="r ${m.alpha_pct         >= 0 ? 'up' : 'dn'}">${fp(m.alpha_pct)}</td>
+      <td class="r dn">-${m.max_drawdown_pct}%</td>
+      <td class="r ${m.sharpe_ratio      >= 0 ? 'up' : 'dn'}">${f(m.sharpe_ratio,2)}</td>
+      <td class="r ${m.calmar_ratio      >= 0 ? 'up' : 'dn'}">${f(m.calmar_ratio,2)}</td>
+      <td class="r dim">${m.num_trades}</td>
+      <td class="r">${m.win_rate}%</td>
+      <td class="r wht">${f(m.final_equity)}</td>`;
+    tr.onclick = () => { sw('tkr'); setTimeout(() => PAGE_tkr_load && PAGE_tkr_load(res.ticker), 200); };
+    tb.appendChild(tr);
+  });
+};
 
-    /* ── Metrics strip ─────────────────────────────────────────────────── */
-    document.getElementById('bt-strip').style.display = 'flex';
-    document.getElementById('bt-chart-sub').textContent =
-      ` — ${ticker} · ${strat.replace(/_/g,' ').toUpperCase()} · ${days}D`;
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 3 — WALK-FORWARD
+══════════════════════════════════════════════════════════════════════════ */
+window.runWF = async function () {
+  const ticker    = document.getElementById('wf-tk').value; if (!ticker) return;
+  const strat     = document.getElementById('wf-str').value;
+  const totalDays = +document.getElementById('wf-days').value;
+  const split     = parseFloat(document.getElementById('wf-split').value);
+  const trainDays = Math.round(totalDays * split);
+  const testDays  = totalDays - trainDays;
 
-    function setMetric(id, val, isPercent) {
-      const el = document.getElementById(id);
-      const display = isPercent
-        ? (val >= 0 ? '+' : '') + val + '%'
-        : val;
-      el.textContent = display;
-      if (typeof val === 'number') el.style.color = gc(val);
-    }
+  document.getElementById('wf-report').innerHTML = '<div class="loading">RUNNING…</div>';
 
-    setMetric('bm-ret',    m.total_return_pct,    true);
-    setMetric('bm-bh',     m.benchmark_return_pct, true);
-    setMetric('bm-alpha',  m.alpha_pct,            true);
-    document.getElementById('bm-dd').textContent = '-' + m.max_drawdown_pct + '%';
-    setMetric('bm-sharpe', m.sharpe_ratio,         false);
-    document.getElementById('bm-calmar').textContent = m.calmar_ratio;
-    document.getElementById('bm-trades').textContent = m.num_trades;
-    document.getElementById('bm-wr').textContent     = m.win_rate + '%';
-    document.getElementById('bm-eq').textContent     = f(m.final_equity);
+  const [trainR, testR] = await Promise.all([
+    apiPost('/api/backtest', { ticker, days: trainDays, strategy: strat, params: {} }),
+    apiPost('/api/backtest', { ticker, days: testDays,  strategy: strat, params: {} }),
+  ]);
 
-    /* ── Chart ─────────────────────────────────────────────────────────── */
-    if (_btChart) { _btChart.destroy(); _btChart = null; }
+  if (!trainR.ok || !testR.ok) {
+    document.getElementById('wf-report').innerHTML = '<div class="alert err">Failed to fetch data</div>';
+    return;
+  }
 
-    _btChart = new Chart(document.getElementById('bt-eq-c'), {
-      type: 'line',
-      data: {
-        labels: d.dates,
-        datasets: [
-          {
-            label: 'Strategy',
-            data: d.equity_curve,
-            borderColor: '#cc9900',
-            borderWidth: 2,
-            pointRadius: 0,
-            fill: false,
-            tension: 0.2,
-          },
-          {
-            label: 'Buy & Hold',
-            data: d.bh_curve,
-            borderColor: '#444',
-            borderWidth: 1.5,
-            borderDash: [5, 4],
-            pointRadius: 0,
-            fill: false,
-            tension: 0.2,
-          },
-        ],
+  const tm = trainR.d.metrics, te = testR.d.metrics;
+  const deg    = +(tm.total_return_pct - te.total_return_pct).toFixed(2);
+  const overfit = deg > 20 ? 'HIGH' : deg > 10 ? 'MODERATE' : 'LOW';
+  const ofColor = deg > 20 ? 'var(--dn)' : deg > 10 ? 'var(--yel)' : 'var(--up)';
+
+  document.getElementById('wf-strip').style.display = 'flex';
+  const S = (id, v, c) => { const el = document.getElementById(id); el.textContent = v; if (c) el.style.color = c; };
+  S('wf-tr',  fp(tm.total_return_pct),  gc(tm.total_return_pct));
+  S('wf-te',  fp(te.total_return_pct),  gc(te.total_return_pct));
+  S('wf-deg', fp(deg),                  deg > 10 ? 'var(--dn)' : 'var(--up)');
+  S('wf-tsh', f(te.sharpe_ratio, 2),    gc(te.sharpe_ratio));
+  S('wf-tdd', '-' + te.max_drawdown_pct + '%');
+  S('wf-ovf', overfit, ofColor);
+
+  /* stitch curves: train runs from 10000, test rescaled to continue from train end */
+  const trainEnd     = trainR.d.equity_curve.at(-1) ?? 10000;
+  const testEqScaled = testR.d.equity_curve.map(v => +(v * trainEnd / 10000).toFixed(2));
+  const allDates     = [...trainR.d.dates, ...testR.d.dates];
+  const trainEq      = [...trainR.d.equity_curve, ...new Array(testR.d.dates.length).fill(null)];
+  const testEq       = [...new Array(trainR.d.dates.length).fill(null), ...testEqScaled];
+  const bhBase       = trainR.d.closes[0] || 1;
+  const bhAll        = [
+    ...trainR.d.closes.map(p => +(10000 * p / bhBase).toFixed(2)),
+    ...testR.d.closes.map(p  => +(10000 * p / bhBase).toFixed(2)),
+  ];
+
+  kc('wf-c');
+  _C['wf-c'] = new Chart(document.getElementById('wf-c'), {
+    type: 'line',
+    data: {
+      labels: allDates,
+      datasets: [
+        { label: 'Train', data: trainEq, borderColor: '#ff8c00', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2, spanGaps: false },
+        { label: 'Test',  data: testEq,  borderColor: '#00e5ff', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2, spanGaps: false },
+        { label: 'B&H',   data: bhAll,   borderColor: '#333',    borderWidth: 1, borderDash: [5,4], pointRadius: 0, fill: false, tension: 0.2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...TT } },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { maxTicksLimit: 8, maxRotation: 0, color: '#444' } },
+        y: { grid: { color: '#1a1a1a' }, position: 'right', ticks: { color: '#444' } },
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: { ...TT },
-        },
-        scales: {
-          x: {
-            grid: { color: '#1a1a1a' },
-            ticks: { maxTicksLimit: 8, maxRotation: 0, color: '#444' },
-          },
-          y: {
-            grid: { color: '#1a1a1a' },
-            position: 'right',
-            ticks: { color: '#444' },
-          },
-        },
-      },
-    });
+    },
+  });
 
-    /* ── Trade log ─────────────────────────────────────────────────────── */
-    if (!d.trades.length) {
-      document.getElementById('bt-log').innerHTML = '<div class="loading">NO TRADES</div>';
-      return;
-    }
+  document.getElementById('wf-report').innerHTML = `
+    <div style="padding:10px;font-size:11px">
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:8px">TRAIN PERIOD (${trainDays}D)</div>
+    <div class="rm"><span class="k">RETURN</span> <span class="v" style="color:${gc(tm.total_return_pct)}">${fp(tm.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(tm.sharpe_ratio)}">${f(tm.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span> <span class="v dn">-${tm.max_drawdown_pct}%</span></div>
+    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${tm.num_trades}</span></div>
+    <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">TEST PERIOD (${testDays}D)</div>
+    <div class="rm"><span class="k">RETURN</span> <span class="v" style="color:${gc(te.total_return_pct)}">${fp(te.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(te.sharpe_ratio)}">${f(te.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span> <span class="v dn">-${te.max_drawdown_pct}%</span></div>
+    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${te.num_trades}</span></div>
+    <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">VERDICT</div>
+    <div class="rm"><span class="k">DEGRADATION</span> <span class="v" style="color:${gc(-deg)}">${fp(deg)}</span></div>
+    <div class="rm"><span class="k">OVERFIT RISK</span><span class="v" style="color:${ofColor}">${overfit}</span></div>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">
+      ${overfit==='HIGH' ? 'Significant decay in unseen data — likely overfit.' :
+        overfit==='MODERATE' ? 'Moderate decay — use caution in live deployment.' :
+        'Strategy generalises well to unseen data.'}
+    </div>
+    </div>`;
+};
 
-    const actionColor = a =>
-      a === 'BUY'  ? 'var(--up)'  :
-      a === 'SELL' ? 'var(--dn)'  :
-      a === 'STOP' ? 'var(--dn)'  :
-      'var(--yel)';
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 4 — MONTE CARLO
+══════════════════════════════════════════════════════════════════════════ */
+window.runMC = async function () {
+  const ticker  = document.getElementById('mc-tk').value; if (!ticker) return;
+  const days    = +document.getElementById('mc-days').value;
+  const horizon = +document.getElementById('mc-hor').value;
+  const sims    = +document.getElementById('mc-sims').value;
 
-    const rows = d.trades.map((t, i) => `
-      <tr>
-        <td class="dim">${i + 1}</td>
-        <td>${t.date}</td>
-        <td style="color:${actionColor(t.action)};font-weight:700">${t.action}</td>
-        <td class="r wht">${f(t.price)}</td>
-        <td class="r dim">${t.qty.toLocaleString()}</td>
-        <td class="r">${f(t.value)}</td>
-      </tr>`).join('');
+  document.getElementById('mc-status').textContent = 'Simulating…';
+  document.getElementById('mc-detail').innerHTML   = '<div class="loading">Running…</div>';
 
-    document.getElementById('bt-log').innerHTML = `
-      <table class="dt">
-        <thead>
-          <tr>
-            <th>#</th><th>DATE</th><th>ACTION</th>
-            <th class="r">PRICE</th><th class="r">QTY</th><th class="r">VALUE</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`;
+  const r = await apiPost('/api/monte_carlo', { ticker, days, horizon, sims });
+  if (!r.ok) {
+    document.getElementById('mc-status').textContent = 'Error: ' + (r.d?.detail || 'failed');
+    return;
+  }
+
+  const d = r.d;
+  document.getElementById('mc-strip').style.display = 'flex';
+
+  const setv = (id, val) => {
+    const el = document.getElementById(id);
+    el.textContent = f(val, 4);
+    el.style.color = gc(val - d.start);
   };
+  setv('mc-p5', d.p5); setv('mc-p25', d.p25); setv('mc-p50', d.p50);
+  setv('mc-p75', d.p75); setv('mc-p95', d.p95);
+  document.getElementById('mc-pp').textContent  = d.prob_profit + '%';
+  document.getElementById('mc-pp').style.color  = d.prob_profit > 50 ? 'var(--up)' : 'var(--dn)';
+  document.getElementById('mc-pdd').textContent = d.prob_dd20 + '%';
+  document.getElementById('mc-pdd').style.color = d.prob_dd20 > 30 ? 'var(--dn)' : 'var(--up)';
+  document.getElementById('mc-sub').textContent =
+    ` — ${ticker} · ${d.sims} sims · ${d.horizon}D · μ=${d.mu_daily?.toFixed(3)}% σ=${d.std_daily?.toFixed(3)}%`;
+
+  /* paths chart */
+  kc('mc-paths-c');
+  const labels = Array.from({ length: d.horizon + 1 }, (_, i) => 'D' + i);
+  const pathDS = d.paths.slice(0, 50).map((path, i) => ({
+    data: path,
+    borderColor: `rgba(255,140,0,${i === 0 ? 0.8 : 0.07})`,
+    borderWidth: i === 0 ? 1.5 : 0.8,
+    pointRadius: 0, fill: false, tension: 0.2,
+  }));
+  pathDS.push({ data: Array(d.horizon+1).fill(d.p95),   borderColor: 'rgba(0,200,83,.5)',    borderWidth: 1, borderDash: [4,3], pointRadius: 0, fill: false });
+  pathDS.push({ data: Array(d.horizon+1).fill(d.p50),   borderColor: 'rgba(255,214,0,.7)',   borderWidth: 1.5, borderDash: [3,3], pointRadius: 0, fill: false });
+  pathDS.push({ data: Array(d.horizon+1).fill(d.p5),    borderColor: 'rgba(244,67,54,.5)',   borderWidth: 1, borderDash: [4,3], pointRadius: 0, fill: false });
+  pathDS.push({ data: Array(d.horizon+1).fill(d.start), borderColor: 'rgba(100,100,100,.6)', borderWidth: 1, pointRadius: 0, fill: false });
+  _C['mc-paths-c'] = new Chart(document.getElementById('mc-paths-c'), {
+    type: 'line',
+    data: { labels, datasets: pathDS },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { ...TT } },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { color: '#444', maxTicksLimit: 8 } },
+        y: { grid: { color: '#1a1a1a' }, position: 'right', ticks: { color: '#444' } },
+      },
+    },
+  });
+
+  /* distribution histogram */
+  kc('mc-hist-c');
+  const ends = d.sim_ends || [];
+  const bins = 40, mn = ends[0]||0, mx = ends[ends.length-1]||1, step = (mx-mn)/bins||0.001;
+  const cnts = Array(bins).fill(0);
+  ends.forEach(v => { const bi = Math.min(Math.floor((v-mn)/step), bins-1); cnts[bi]++; });
+  const hlabels = Array.from({ length: bins }, (_, i) => f(mn + i*step, 2));
+  const hColors = hlabels.map(l => parseFloat(l) >= d.start ? 'rgba(0,200,83,.7)' : 'rgba(244,67,54,.7)');
+  _C['mc-hist-c'] = mkBar(document.getElementById('mc-hist-c'), hlabels, cnts, hColors);
+
+  const pct = (v) => { const c = ((v - d.start) / d.start * 100).toFixed(2); return (c>=0?'+':'')+c+'%'; };
+  document.getElementById('mc-detail').innerHTML = `
+    <div style="padding:10px;font-size:10px">
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">PRICE OUTCOMES</div>
+    <div class="rm"><span class="k">START</span>          <span class="v wht">${f(d.start,4)}</span></div>
+    <div class="rm"><span class="k">P5  (bear)</span>    <span class="v dn">${f(d.p5,4)} (${pct(d.p5)})</span></div>
+    <div class="rm"><span class="k">P25</span>            <span class="v">${f(d.p25,4)}</span></div>
+    <div class="rm"><span class="k">P50 (median)</span>  <span class="v yel">${f(d.p50,4)} (${pct(d.p50)})</span></div>
+    <div class="rm"><span class="k">P75</span>            <span class="v">${f(d.p75,4)}</span></div>
+    <div class="rm"><span class="k">P95 (bull)</span>    <span class="v up">${f(d.p95,4)} (${pct(d.p95)})</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0"></div>
+    <div class="rm"><span class="k">PROB PROFIT</span>   <span class="v ${d.prob_profit>50?'up':'dn'}">${d.prob_profit}%</span></div>
+    <div class="rm"><span class="k">PROB DD&gt;20%</span><span class="v ${d.prob_dd20>30?'dn':'up'}">${d.prob_dd20}%</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0"></div>
+    <div class="rm"><span class="k">DAILY μ</span>       <span class="v dim">${d.mu_daily?.toFixed(4)}%</span></div>
+    <div class="rm"><span class="k">DAILY σ</span>       <span class="v dim">${d.std_daily?.toFixed(4)}%</span></div>
+    </div>`;
+
+  document.getElementById('mc-status').textContent = `${d.sims} simulations complete · ${d.horizon}D horizon`;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 5 — PARAM SENSITIVITY
+══════════════════════════════════════════════════════════════════════════ */
+window.runSens = async function () {
+  const ticker   = document.getElementById('sens-tk').value; if (!ticker) return;
+  const strategy = document.getElementById('sens-str').value;
+  const days     = +document.getElementById('sens-days').value;
+
+  document.getElementById('sens-status').textContent = 'Scanning parameters…';
+  document.getElementById('sens-detail').innerHTML   = '<div class="loading">Running…</div>';
+  document.getElementById('sens-heatmap').innerHTML  = '<div class="loading">Running…</div>';
+
+  const r = await apiPost('/api/param_sensitivity', { ticker, strategy, days });
+  if (!r.ok) {
+    document.getElementById('sens-status').textContent = 'Error: ' + (r.d?.detail || 'failed');
+    return;
+  }
+
+  const d = r.d;
+  document.getElementById('sens-sub').textContent =
+    ` — ${ticker} · ${strategy.replace('_',' ').toUpperCase()} · B&H: ${fp(d.bh_return)}`;
+
+  /* heatmap */
+  const rows = d.rows, cols = d.cols, rowsData = d.rows_data || [];
+  const allVals = rowsData.flat().filter(v => v != null);
+  const rng = (Math.max(...allVals) - Math.min(...allVals)) || 1;
+  let best = { ret: -Infinity, row: null, col: null };
+
+  let html = `<table style="border-collapse:collapse;font-size:10px">
+    <thead><tr>
+      <th style="padding:4px 10px;color:var(--txt3);text-align:left">${d.row_label}</th>
+      ${cols.map(c => `<th style="padding:4px 10px;color:var(--txt3);text-align:center">${c}</th>`).join('')}
+    </tr></thead><tbody>`;
+
+  rows.forEach((rowVal, ri) => {
+    html += `<tr><td style="padding:4px 10px;color:var(--txt3);font-weight:700;white-space:nowrap">${rowVal}</td>`;
+    cols.forEach((colVal, ci) => {
+      const v = rowsData[ri]?.[ci];
+      if (v == null) { html += `<td style="padding:6px 10px;background:#111;color:#444;text-align:center">—</td>`; return; }
+      if (v > best.ret) best = { ret: v, row: rowVal, col: colVal };
+      const isPos = v >= d.bh_return;
+      const intensity = Math.min(Math.abs((v - d.bh_return) / rng) * 2, 0.85);
+      const bg = isPos ? `rgba(0,200,83,${intensity})` : `rgba(244,67,54,${intensity})`;
+      html += `<td style="padding:6px 10px;background:${bg};text-align:center;font-weight:700;color:${intensity>0.4?'#fff':'#999'};cursor:pointer"
+        title="${d.row_label}=${rowVal}, ${d.col_label}=${colVal}: ${v}%">${v>=0?'+':''}${v}%</td>`;
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3)">
+      <span style="color:var(--up)">&#9632;</span> Beats B&H (${fp(d.bh_return)})
+      &nbsp;<span style="color:var(--dn)">&#9632;</span> Below B&H &nbsp;· Darker = stronger signal
+    </div>`;
+  document.getElementById('sens-heatmap').innerHTML = html;
+
+  /* best params */
+  const beatBH     = +(best.ret - d.bh_return).toFixed(2);
+  const robustness = allVals.length
+    ? (allVals.filter(v => v > d.bh_return).length / allVals.length * 100).toFixed(0)
+    : 0;
+
+  document.getElementById('sens-detail').innerHTML = `
+    <div style="padding:10px;font-size:10px">
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">OPTIMAL PARAMETERS</div>
+    <div class="rm"><span class="k">${d.row_label}</span>       <span class="v wht">${best.row}</span></div>
+    <div class="rm"><span class="k">${d.col_label}</span>       <span class="v wht">${best.col}</span></div>
+    <div class="rm"><span class="k">STRATEGY RET</span>    <span class="v ${best.ret>=0?'up':'dn'}">${fp(best.ret)}</span></div>
+    <div class="rm"><span class="k">B&amp;H RET</span>         <span class="v dim">${fp(d.bh_return)}</span></div>
+    <div class="rm"><span class="k">ALPHA vs B&amp;H</span>    <span class="v ${beatBH>=0?'up':'dn'}">${fp(beatBH)}</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0;padding-top:8px;font-size:9px;color:var(--txt3)">
+      ${allVals.filter(v => v > d.bh_return).length} / ${allVals.length} combos beat B&H.
+      Robustness: <span style="color:${+robustness>50?'var(--up)':'var(--dn)'}">${robustness}%</span>
+    </div>
+    <div style="font-size:9px;color:var(--txt3)">&#9888; In-sample only. Use Walk-Forward to validate.</div>
+    </div>`;
+
+  document.getElementById('sens-status').textContent =
+    `${rows.length}x${cols.length} grid complete`;
+};
 
 })();
 </script>
