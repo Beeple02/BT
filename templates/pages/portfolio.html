@@ -43,11 +43,11 @@
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">HOLDINGS</span></div></div>
       <div class="scroll" id="pf-holds"><div class="loading">LOADING</div></div>
     </div>
-    <div class="win" style="flex:1;min-width:0;border-right:0">
+    <div class="win" style="flex:1;border-right:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">ALLOCATION</span></div></div>
       <div class="chart-wrap"><canvas id="pf-pie"></canvas></div>
     </div>
-    <div class="win" style="flex:1;min-width:0">
+    <div class="win" style="flex:1">
       <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">P&L BY HOLDING</span></div></div>
       <div class="chart-wrap"><canvas id="pf-pnl"></canvas></div>
     </div>
@@ -200,8 +200,10 @@ window.loadPF=async function(){
   const holds=_pf.holdings||[], bal=_pf.balance||0, res=_pf.reserved_balance||0;
 
   await Promise.all(holds.map(async h=>{
-    const r2=await api(`/api/analytics/price_history/${h.ticker}?days=90`);
-    if(r2.ok&&Array.isArray(r2.d)&&r2.d.length) _histories[h.ticker]=r2.d;
+    const r2=await api(`/api/analytics/ohlcv/${h.ticker}?days=90`);
+    if(r2.ok&&r2.d.candles&&r2.d.candles.length){
+      _histories[h.ticker]=r2.d.candles.map(c=>({timestamp:c.date,price:c.close}));
+    }
   }));
 
   const S=(id,v,c)=>{ const e=document.getElementById(id); if(!e) return; e.textContent=v; if(c) e.style.color=c; };
@@ -310,13 +312,19 @@ function renderRisk(){
 
 function renderEquityCurve(){
   const holds=_pf.holdings||[]; if(!holds.length) return;
-  const allH=holds.map(h=>_histories[h.ticker]).filter(Boolean); if(!allH.length) return;
+  const validHolds=holds.filter(h=>_histories[h.ticker]&&_histories[h.ticker].length>=2);
+  const allH=validHolds.map(h=>_histories[h.ticker]);
+  if(!allH.length){
+    const cw=document.getElementById('pf-eq-c')?.closest('.chart-wrap');
+    if(cw) cw.innerHTML='<div class="loading">Insufficient price history — check back once more candles are available</div>';
+    return;
+  }
   const minLen=Math.min(...allH.map(h=>h.length));
-  const dates=allH[0].slice(-minLen).map(p=>p.timestamp.slice(5,10));
+  const dates=allH[0].slice(-minLen).map(p=>(p.timestamp||'').slice(0,10));
   const cash=_pf.balance||0;
   const eqSeries=dates.map((_,di)=>{
     let mv=0;
-    holds.forEach(h=>{ const hist=_histories[h.ticker]; if(!hist) return; const off=hist.length-minLen; mv+=h.quantity*(hist[off+di]?.price??0); });
+    validHolds.forEach(h=>{ const hist=_histories[h.ticker]; if(!hist) return; const off=hist.length-minLen; mv+=h.quantity*(hist[off+di]?.price??0); });
     return round4(mv+cash);
   });
   let peak=eqSeries[0];
