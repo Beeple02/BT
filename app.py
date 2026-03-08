@@ -589,14 +589,44 @@ def market_breadth():
     days = int(request.args.get("days", 7))
     s_atl, d_atl = atlas_get("/market/breadth", params={"days": days}, ttl=60)
     if s_atl == 200:
-        summary = d_atl.get("summary", {})
-        return jsonify({
-            "advancing":  summary.get("advancing", 0),
-            "declining":  summary.get("declining", 0),
-            "unchanged":  summary.get("unchanged", 0),
-            "total":      summary.get("total", 0),
-            "securities": d_atl.get("securities", []),
-        }), 200
+        # Atlas may return flat list or {summary,securities} — normalise both
+        raw_secs = d_atl if isinstance(d_atl, list) else d_atl.get("securities", d_atl.get("data", []))
+        _, sec_list = atlas_get("/securities", ttl=60)
+        sec_meta = {s["ticker"]: s for s in (sec_list if isinstance(sec_list, list) else [])}
+        enriched = []
+        for s in raw_secs:
+            ticker = s.get("ticker", "")
+            meta   = sec_meta.get(ticker, {})
+            last_price = s.get("last_price") or s.get("price") or s.get("close")
+            if last_price is None:
+                _, oraw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
+                cs = _norm_candles(oraw.get("candles", []))
+                if cs:
+                    closes = [c["close"] for c in cs]; volumes = [c["volume"] for c in cs]
+                    last_price = closes[-1]
+                    chg = round((closes[-1]-closes[0])/closes[0]*100,2) if len(closes)>1 else 0
+                    ann_v = _ann_vol(closes)
+                    avg_vol = sum(volumes[:-1])/max(len(volumes)-1,1) if len(volumes)>1 else volumes[0]
+                    s.update({"last_price":last_price,"chg_pct":chg,"volatility":ann_v,
+                               "sharpe":_sharpe(closes),"prd_hi_pct":round((closes[-1]-max(closes))/max(closes)*100,2),
+                               "vol_spike":round(volumes[-1]/avg_vol,2) if avg_vol>0 else None,
+                               "volume":sum(volumes),"market_cap":round(last_price*meta.get("total_shares",0),2)})
+            if not s.get("name"):    s["name"]   = meta.get("full_name", ticker)
+            if "frozen" not in s:    s["frozen"]  = meta.get("frozen", False)
+            if "chg_pct" not in s:   s["chg_pct"] = s.get("change_pct", s.get("change", 0)) or 0
+            enriched.append(s)
+        chgs = [e.get("chg_pct",0) for e in enriched]
+        ups  = [e for e in enriched if (e.get("chg_pct") or 0)>0]
+        dns  = [e for e in enriched if (e.get("chg_pct") or 0)<0]
+        flt  = [e for e in enriched if (e.get("chg_pct") or 0)==0]
+        vols = [e["volatility"] for e in enriched if e.get("volatility") and e["volatility"]>0]
+        return jsonify({"securities": enriched, "summary": {
+            "total": len(enriched), "advancing": len(ups), "declining": len(dns), "unchanged": len(flt),
+            "adv_dec_ratio": round(len(ups)/max(len(dns),1),2),
+            "avg_return": round(sum(chgs)/len(chgs),2) if chgs else 0,
+            "ew_index_return": round(sum(chgs)/len(chgs),4) if chgs else 0,
+            "vol_dispersion": round(statistics.stdev(vols),2) if len(vols)>1 else 0,
+        }}), 200
     s, secs = atlas_get("/securities", ttl=60)
     if s != 200: return jsonify({"detail": "Cannot fetch securities"}), s
 
