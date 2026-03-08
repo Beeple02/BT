@@ -24,7 +24,7 @@
 
   <div class="win" style="flex:1;border-right:0">
     <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">QUICK CHART</span><span class="wsub" id="wl-ct"></span></div></div>
-    <div class="chart-wrap" id="wl-chart-wrap" style="display:flex;flex-direction:column"><canvas id="wl-c"></canvas><div id="wl-c-hint" style="display:flex;align-items:center;justify-content:center;flex:1;color:var(--txt3);font-size:10px;letter-spacing:2px">CLICK A TICKER TO CHART</div></div>
+    <div class="chart-wrap"><canvas id="wl-c"></canvas></div>
   </div>
 
   <div class="wcol" style="width:230px">
@@ -77,18 +77,20 @@ window.wlRefresh=async function(){
     const sec=BB.secs.find(s=>s.ticker===w.ticker);
     w.prev=w.price;
     w.price=sec?.market_price??w.price;
-    // Fetch RSI from 30D stats (cached)
+    // Fetch RSI + period chg% from 30D stats (cached)
     if(!_rsiCache[w.ticker]||Date.now()-_rsiCache[w.ticker].ts>60000){
       const r=await api(`/api/ticker_stats/${w.ticker}?days=30`);
       if(r.ok&&r.d.rsi14){
         const rsiArr=r.d.rsi14.filter(v=>v!=null);
         w.rsi=rsiArr.length?rsiArr[rsiArr.length-1]:null;
         w.annVol=r.d.volatility_ann_pct||null;
-        _rsiCache[w.ticker]={ts:Date.now(),rsi:w.rsi,annVol:w.annVol};
+        w.chgPct=r.d.price_chg_pct??null; // period return from ticker_stats
+        _rsiCache[w.ticker]={ts:Date.now(),rsi:w.rsi,annVol:w.annVol,chgPct:w.chgPct};
       }
     } else {
       w.rsi=_rsiCache[w.ticker].rsi;
       w.annVol=_rsiCache[w.ticker].annVol;
+      w.chgPct=_rsiCache[w.ticker].chgPct??null;
     }
   }));
 
@@ -96,13 +98,11 @@ window.wlRefresh=async function(){
   renderWL();
   renderWLStats();
   renderVolRank();
-  // Auto-load chart for first ticker so QUICK CHART isn't empty
-  if(BB.watchlist.length && !document.getElementById('wl-c')._hasChart) wlLoadChart(BB.watchlist[0].ticker);
 };
 
 function renderWL(){
   document.getElementById('wl-list').innerHTML=BB.watchlist.map((w,i)=>{
-    const chg=w.prev&&w.price?((w.price-w.prev)/w.prev*100):0;
+    const chg=w.chgPct??0; // 30D period return from server
     const aH=w.hi&&w.price>w.hi, aL=w.lo&&w.price<w.lo;
     const aRH=w.rhi!=null&&w.rsi!=null&&w.rsi>w.rhi, aRL=w.rlo!=null&&w.rsi!=null&&w.rsi<w.rlo;
     const anyAlert=aH||aL||aRH||aRL;
@@ -128,7 +128,7 @@ function renderWL(){
 function renderWLStats(){
   const wl=BB.watchlist.filter(w=>w.price);
   if(!wl.length){ document.getElementById('wl-stats').innerHTML='<div class="loading">—</div>'; return; }
-  const chgs=wl.map(w=>w.prev&&w.price?((w.price-w.prev)/w.prev*100):0);
+  const chgs=wl.map(w=>w.chgPct??0);
   const ups=chgs.filter(c=>c>0).length,dns=chgs.filter(c=>c<0).length;
   const avg=chgs.reduce((s,c)=>s+c,0)/chgs.length;
   const alerts=BB.watchlist.filter(w=>(w.hi&&w.price>w.hi)||(w.lo&&w.price<w.lo)||(w.rhi!=null&&w.rsi>w.rhi)||(w.rlo!=null&&w.rsi<w.rlo)).length;
@@ -171,14 +171,13 @@ window.wlDel=function(i){ BB.watchlist.splice(i,1); wlRefresh(); };
 
 window.wlLoadChart=async function(ticker){
   document.getElementById('wl-ct').textContent=' '+ticker;
-  const hint=document.getElementById('wl-c-hint'); if(hint) hint.style.display='none';
-  const r=await api(`/api/analytics/price_history/${ticker}?days=30`);
+  const r=await api(`/api/analytics/ohlcv/${ticker}?days=30`);
   _wlC=dc(_wlC);
-  if(r.ok&&r.d.length){
-    const pts=r.d, chg=(pts[pts.length-1].price-pts[0].price)/pts[0].price*100;
+  if(r.ok&&r.d.candles&&r.d.candles.length){
+    const cs=r.d.candles, chg=(cs[cs.length-1].close-cs[0].close)/cs[0].close*100;
     _wlC=mkLine(document.getElementById('wl-c'),
-      pts.map(p=>p.timestamp.slice(5,10)),
-      [{data:pts.map(p=>p.price),borderColor:chg>=0?'#00c853':'#f44336',borderWidth:1.5,
+      cs.map(c=>c.date.slice(5,10)),
+      [{data:cs.map(c=>c.close),borderColor:chg>=0?'#00c853':'#f44336',borderWidth:1.5,
         pointRadius:0,fill:true,backgroundColor:chg>=0?'rgba(0,200,83,.06)':'rgba(244,67,54,.06)',tension:.2}]);
   }
 };
