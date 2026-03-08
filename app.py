@@ -121,20 +121,15 @@ def cached_get(path, params=None, auth=False, ttl=15):
     return result
 
 # ── Atlas helper ──────────────────────────────────────────────────────────────
-# Only endpoints confirmed live on Atlas:
-#   /securities, /securities/{t}, /orderbook (bulk), /analytics/ohlcv/{t}
-# Everything else stays on NER via cached_get.
 _atlas_cache: dict = {}
 
 def atlas_get(path, params=None, ttl=30):
-    """GET from Atlas. Falls back to NER via cached_get on non-200."""
     key = path + str(params or {})
     e = _atlas_cache.get(key)
     if e and time.time() - e["ts"] < ttl:
         return e["s"], e["d"]
     try:
-        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H,
-                         params=params, timeout=10)
+        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=10)
         if r.status_code == 200:
             d = r.json()
             _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
@@ -192,6 +187,10 @@ def get_ticker_shareholders(ticker):
     _sh_last_fetch = time.time()
     try:
         # Try with X-API-Key for better compatibility
+        s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
+        if s_atl == 200 and isinstance(data_atl, list):
+            _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data_atl}
+            return data_atl
         r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
                          params={"ticker": ticker}, timeout=6)
         if r.status_code == 200:
@@ -329,7 +328,7 @@ def tse_market(symbol):
 
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
-    s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
+    s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify({"market_price": d.get("market_price")} if s==200 else d), s
 
 @app.route("/api/shareholders")
 def shareholders():
@@ -353,8 +352,10 @@ def orderbook():
 
 @app.route("/api/analytics/price_history/<ticker>")
 def price_history(ticker):
-    s, d = cached_get(f"/analytics/price_history/{ticker}",
-                      params={"days": request.args.get("days", 30)}, ttl=120)
+    s, d = atlas_get(f"/history/{ticker}",
+                     params={"days": request.args.get("days", 30)}, ttl=120)
+    if s == 200 and isinstance(d, dict):
+        d = d.get("data", [])
     return jsonify(d), s
 
 @app.route("/api/analytics/ohlcv/<ticker>")
@@ -553,18 +554,29 @@ def compare():
     days    = int(request.args.get("days", 30))
     result  = {}
     for t in tickers:
-        s, raw = cached_get(f"/analytics/price_history/{t}", params={"days": days}, ttl=60)
-        if s != 200 or not raw or not isinstance(raw, list) or len(raw) == 0:
-            continue
-        base = raw[0]["price"]
-        if base == 0: continue
-        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in raw]
+        s, raw = atlas_get(f"/history/{t}", params={"days": days}, ttl=60)
+        if s != 200: continue
+        pts = raw.get("data", raw) if isinstance(raw, dict) else raw
+        if not pts or not isinstance(pts, list) or len(pts) == 0: continue
+        base = pts[0]["price"]
+        if not base or base == 0: continue
+        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in pts]
     return jsonify(result)
 
 # ── MARKET BREADTH ────────────────────────────────────────────────────────────
 @app.route("/api/market_breadth")
 def market_breadth():
     days = int(request.args.get("days", 7))
+    s_atl, d_atl = atlas_get("/market/breadth", params={"days": days}, ttl=60)
+    if s_atl == 200:
+        summary = d_atl.get("summary", {})
+        return jsonify({
+            "advancing":  summary.get("advancing", 0),
+            "declining":  summary.get("declining", 0),
+            "unchanged":  summary.get("unchanged", 0),
+            "total":      summary.get("total", 0),
+            "securities": d_atl.get("securities", []),
+        }), 200
     s, secs = atlas_get("/securities", ttl=60)
     if s != 200: return jsonify({"detail": "Cannot fetch securities"}), s
 
@@ -907,6 +919,8 @@ def holder_intel():
 
 @app.route("/api/holder_intel/<ticker>")
 def holder_intel_ticker(ticker):
+    s_atl, d_atl = atlas_get(f"/holder_intel/{ticker}", ttl=60)
+    if s_atl == 200: return jsonify(d_atl), 200
     holders = get_ticker_shareholders(ticker)
     if not isinstance(holders, list) or not holders:
         return jsonify({"detail": "No holders found for ticker"}), 404
@@ -1192,7 +1206,7 @@ def page(name):
 # ── FUNDAMENTALS (uses /securities/{ticker}/stats) ────────────────────────────
 @app.route("/api/fundamentals/<ticker>")
 def fundamentals(ticker):
-    s, d = cached_get(f"/securities/{ticker}/stats", ttl=180)
+    s, d = atlas_get(f"/analytics/ticker_stats/{ticker}", ttl=180)
     if s != 200: return jsonify({"detail": d.get("detail","Not found")}), s
     s2, sec = atlas_get(f"/securities/{ticker}", ttl=60)
     sec = sec if s2 == 200 else {}
@@ -1213,9 +1227,14 @@ def fundamentals(ticker):
 # ── TRANSACTION HISTORY ────────────────────────────────────────────────────────
 @app.route("/api/transactions")
 def transactions():
-    limit  = request.args.get("limit", 500)
+    limit  = request.args.get("limit", 50)
+    ticker = request.args.get("ticker")
     offset = request.args.get("offset", 0)
     ttype  = request.args.get("type", "")
+    atl_params = {"limit": limit}
+    if ticker: atl_params["ticker"] = ticker
+    s_atl, d_atl = atlas_get("/transactions", params=atl_params, ttl=10)
+    if s_atl == 200: return jsonify(d_atl), 200
     params = {"limit": limit, "offset": offset}
     if ttype: params["type"] = ttype
     s, d = cached_get("/transactions", params=params, auth=True, ttl=10)  # short cache
