@@ -1547,65 +1547,83 @@ def monte_carlo():
 # ── PARAMETER SENSITIVITY HEATMAP ─────────────────────────────────────────────
 @app.route("/api/param_sensitivity", methods=["POST"])
 def param_sensitivity():
-    body = request.json or {}
-    ticker = body.get("ticker",""); days = int(body.get("days",90))
-    strategy = body.get("strategy","sma_cross")
-    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=180)
-    cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
-    if len(cs) < 30: return jsonify({"detail":"Not enough data"}), 404
-    def run_sma(fast,slow):
-        if fast>=slow: return None
-        sma_f=[None if i<fast-1 else sum(cs[i-fast+1:i+1])/fast for i in range(len(cs))]
-        sma_s=[None if i<slow-1 else sum(cs[i-slow+1:i+1])/slow for i in range(len(cs))]
-        pos=0; equity=cs[0]; trades=0
-        for i in range(1,len(cs)):
+    body     = request.json or {}
+    ticker   = body.get("ticker", "")
+    days     = int(body.get("days", 90))
+    strategy = body.get("strategy", "sma_cross")
+
+    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
+    cs = [c["close"] for c in _norm_candles(raw.get("candles", []), days=days)]
+    n  = len(cs)
+    if n < 8:
+        return jsonify({"detail": f"Not enough data ({n} candles, need at least 8)"}), 404
+
+    def run_sma(fast, slow):
+        if fast >= slow or slow >= n: return None
+        sma_f = [None if i < fast-1 else sum(cs[i-fast+1:i+1])/fast for i in range(n)]
+        sma_s = [None if i < slow-1 else sum(cs[i-slow+1:i+1])/slow for i in range(n)]
+        pos = 0; equity = cs[0]
+        for i in range(1, n):
             if sma_f[i] and sma_s[i] and sma_f[i-1] and sma_s[i-1]:
-                if sma_f[i]>sma_s[i] and sma_f[i-1]<=sma_s[i-1] and pos==0:
-                    pos=equity/cs[i]; trades+=1
-                elif sma_f[i]<sma_s[i] and sma_f[i-1]>=sma_s[i-1] and pos>0:
-                    equity=pos*cs[i]; pos=0; trades+=1
-        if pos>0: equity=pos*cs[-1]
-        ret=round((equity-cs[0])/cs[0]*100,2)
-        return ret
-    def run_rsi(period,ob,os_):
-        # RSI strategy: buy when crosses up from oversold, sell when crosses down from overbought
-        def rsi(closes,p):
-            r=[None]*p
-            for i in range(p,len(closes)):
-                g=[max(closes[j]-closes[j-1],0) for j in range(i-p+1,i+1)]
-                l=[max(closes[j-1]-closes[j],0) for j in range(i-p+1,i+1)]
-                ag,al=sum(g)/p,sum(l)/p
-                r.append(100.0 if al==0 else round(100-100/(1+ag/al),2))
-            return r
-        rv=rsi(cs,period); pos=0; equity=cs[0]; trades=0
-        for i in range(1,len(rv)):
-            if rv[i] and rv[i-1]:
-                if rv[i]>os_ and rv[i-1]<=os_ and pos==0:
-                    pos=equity/cs[i]; trades+=1
-                elif rv[i]<ob and rv[i-1]>=ob and pos>0:
-                    equity=pos*cs[i]; pos=0; trades+=1
-        if pos>0: equity=pos*cs[-1]
-        return round((equity-cs[0])/cs[0]*100,2)
-    results = {"strategy":strategy,"ticker":ticker,"rows":[],"cols":[]}
-    if strategy=="sma_cross":
-        fast_range=[3,5,7,10,14,20]; slow_range=[10,14,20,30,50]
-        results["rows"]=fast_range; results["cols"]=slow_range
-        results["row_label"]="Fast SMA"; results["col_label"]="Slow SMA"
-        for fast in fast_range:
-            row=[]
-            for slow in slow_range:
-                row.append(run_sma(fast,slow))
-            results["rows_data"]=results.get("rows_data",[])+[row]
-    elif strategy=="rsi":
-        periods=[7,10,14,20,25]; ob_levels=[65,70,75,80]
-        results["rows"]=periods; results["cols"]=ob_levels
-        results["row_label"]="RSI Period"; results["col_label"]="Overbought Level"
-        for p in periods:
-            row=[]
-            for ob in ob_levels:
-                row.append(run_rsi(p,ob,100-ob))
-            results["rows_data"]=results.get("rows_data",[])+[row]
-    results["bh_return"]=round((cs[-1]-cs[0])/cs[0]*100,2)
+                if sma_f[i] > sma_s[i] and sma_f[i-1] <= sma_s[i-1] and pos == 0:
+                    pos = equity / cs[i]
+                elif sma_f[i] < sma_s[i] and sma_f[i-1] >= sma_s[i-1] and pos > 0:
+                    equity = pos * cs[i]; pos = 0
+        if pos > 0: equity = pos * cs[-1]
+        return round((equity - cs[0]) / cs[0] * 100, 2)
+
+    def run_rsi(period, ob, os_):
+        if period >= n: return None
+        r = [None] * period
+        for i in range(period, n):
+            g = [max(cs[j]-cs[j-1], 0) for j in range(i-period+1, i+1)]
+            l = [max(cs[j-1]-cs[j], 0) for j in range(i-period+1, i+1)]
+            ag, al = sum(g)/period, sum(l)/period
+            r.append(100.0 if al == 0 else round(100 - 100/(1+ag/al), 2))
+        pos = 0; equity = cs[0]
+        for i in range(1, len(r)):
+            if r[i] and r[i-1]:
+                if r[i] > os_ and r[i-1] <= os_ and pos == 0:
+                    pos = equity / cs[i]
+                elif r[i] < ob and r[i-1] >= ob and pos > 0:
+                    equity = pos * cs[i]; pos = 0
+        if pos > 0: equity = pos * cs[-1]
+        return round((equity - cs[0]) / cs[0] * 100, 2)
+
+    # ── Dynamic grid: scale parameter ranges to available candles ────────────
+    # SMA: max slow = floor(n * 0.6), capped at 50; generate ~5 meaningful steps
+    def _steps(lo, hi, count):
+        """Generate `count` evenly-spaced integer steps from lo to hi inclusive."""
+        if hi <= lo: return [lo]
+        step = max(1, (hi - lo) // (count - 1))
+        vals = list(range(lo, hi + 1, step))
+        if vals[-1] != hi: vals.append(hi)
+        return vals[:count]
+
+    results = {"strategy": strategy, "ticker": ticker, "candles": n}
+
+    if strategy == "sma_cross":
+        max_slow = max(4, min(50, int(n * 0.6)))
+        max_fast = max(2, min(20, int(max_slow * 0.5)))
+        slow_range = _steps(max(4, max_slow // 5), max_slow, 5)
+        fast_range = _steps(2, max(3, slow_range[0] - 1), 5)
+        results.update({
+            "rows": fast_range, "cols": slow_range,
+            "row_label": "Fast SMA", "col_label": "Slow SMA",
+            "rows_data": [[run_sma(f, s) for s in slow_range] for f in fast_range],
+        })
+
+    elif strategy == "rsi":
+        max_period = max(4, min(25, int(n * 0.4)))
+        periods   = _steps(3, max_period, 5)
+        ob_levels = [60, 65, 70, 75] if n >= 20 else [65, 70]
+        results.update({
+            "rows": periods, "cols": ob_levels,
+            "row_label": "RSI Period", "col_label": "Overbought Level",
+            "rows_data": [[run_rsi(p, ob, 100-ob) for ob in ob_levels] for p in periods],
+        })
+
+    results["bh_return"] = round((cs[-1] - cs[0]) / cs[0] * 100, 2) if cs[0] else 0
     return jsonify(results)
 
 # ── PORTFOLIO VaR + METRICS ───────────────────────────────────────────────────
