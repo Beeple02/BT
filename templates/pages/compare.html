@@ -146,16 +146,25 @@ function buildPriceChart(mode){
   // If intersection is too small, fall back to union with nulls
   const useDates = commonDates.length >= 2 ? commonDates
     : [...new Set(_statsData.flatMap(sd=>sd.candles.map(c=>c.date)))].sort();
+  // Auto-switch raw→norm when price scales differ >3x (e.g. BB=42 vs GCC=1.1)
+  let effectiveMode = mode;
+  if(mode==='raw' && _statsData.length>=2){
+    const firstPrices=_statsData.map(sd=>{const c=sd.candles.find(c=>c.close>0);return c?c.close:null;}).filter(Boolean);
+    if(firstPrices.length>=2){
+      const ratio=Math.max(...firstPrices)/Math.min(...firstPrices);
+      if(ratio>3) effectiveMode='norm';
+    }
+  }
   const titles={raw:'RAW PRICE',norm:'NORMALISED (rebased 100)',pct:'% RETURN FROM START'};
-  document.getElementById('cmp-chart1-title').textContent=titles[mode]||'PRICE CHART';
+  const autoNote = effectiveMode!==mode ? ' (auto-normalised — prices differ >3x)' : '';
+  document.getElementById('cmp-chart1-title').textContent=(titles[effectiveMode]||'PRICE CHART')+autoNote;
   const datasets=_statsData.map((sd,i)=>{
     const byDate=Object.fromEntries(sd.candles.map(c=>[c.date,c.close]));
     const cs=useDates.map(d=>byDate[d]??null);
-    // For norm/pct find first non-null as base
     const firstVal=cs.find(v=>v!=null)||1;
     let data=cs;
-    if(mode==='norm'){ data=cs.map(v=>v!=null?+(v/firstVal*100).toFixed(4):null); }
-    else if(mode==='pct'){ data=cs.map(v=>v!=null?+((v/firstVal-1)*100).toFixed(4):null); }
+    if(effectiveMode==='norm'){ data=cs.map(v=>v!=null?+(v/firstVal*100).toFixed(4):null); }
+    else if(effectiveMode==='pct'){ data=cs.map(v=>v!=null?+((v/firstVal-1)*100).toFixed(4):null); }
     return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2,spanGaps:false};
   });
   const allDates=useDates;
