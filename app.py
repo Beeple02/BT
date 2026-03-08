@@ -120,11 +120,14 @@ def cached_get(path, params=None, auth=False, ttl=15):
         _cache[key] = {"ts": time.time(), "s": result[0], "d": result[1]}
     return result
 
-# ── Atlas cache + helper ──────────────────────────────────────────────────────
+# ── Atlas helper ──────────────────────────────────────────────────────────────
+# Only endpoints confirmed live on Atlas:
+#   /securities, /securities/{t}, /orderbook (bulk), /analytics/ohlcv/{t}
+# Everything else stays on NER via cached_get.
 _atlas_cache: dict = {}
 
 def atlas_get(path, params=None, ttl=30):
-    """GET from Atlas. Auto-falls back to NER via cached_get on error."""
+    """GET from Atlas. Falls back to NER via cached_get on non-200."""
     key = path + str(params or {})
     e = _atlas_cache.get(key)
     if e and time.time() - e["ts"] < ttl:
@@ -139,8 +142,7 @@ def atlas_get(path, params=None, ttl=30):
         print(f"[atlas] {path} → HTTP {r.status_code}, falling back to NER")
     except Exception as ex:
         print(f"[atlas] {path} exception: {ex}")
-        if e:
-            return e["s"], e["d"]
+        if e: return e["s"], e["d"]
     return cached_get(path, params=params, ttl=ttl)
 
 # Bulk orderbook cache — one call, filter by ticker in Python
@@ -190,12 +192,6 @@ def get_ticker_shareholders(ticker):
     _sh_last_fetch = time.time()
     try:
         # Try with X-API-Key for better compatibility
-        s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
-        if s_atl == 200:
-            holders = data_atl if isinstance(data_atl, list) else data_atl.get("shareholders", [])
-            if holders:
-                _sh_ticker_cache[ticker] = {"ts": time.time(), "data": holders}
-                return holders
         r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
                          params={"ticker": ticker}, timeout=6)
         if r.status_code == 200:
@@ -333,7 +329,7 @@ def tse_market(symbol):
 
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
-    s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify(d), s
+    s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
 
 @app.route("/api/shareholders")
 def shareholders():
@@ -357,19 +353,13 @@ def orderbook():
 
 @app.route("/api/analytics/price_history/<ticker>")
 def price_history(ticker):
-    # Atlas /history returns {ticker, count, data:[{id,price,timestamp,volume}]}
-    # Normalize to flat list [{price, timestamp}] for backwards compat
-    s, d = atlas_get(f"/history/{ticker}",
-                     params={"days": request.args.get("days", 30)}, ttl=120)
-    if s == 200:
-        raw = d.get("data", d) if isinstance(d, dict) else d
-        return jsonify(raw), 200
+    s, d = cached_get(f"/analytics/price_history/{ticker}",
+                      params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
 @app.route("/api/analytics/ohlcv/<ticker>")
 def ohlcv(ticker):
-    s, d = cached_get(f"/analytics/ohlcv/{ticker}",
-                      params={"days": request.args.get("days", 30)}, ttl=120)
+    s, d = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
 @app.route("/api/portfolio")
@@ -483,7 +473,7 @@ def _downside_vol(closes):
 @app.route("/api/ticker_stats/<ticker>")
 def ticker_stats(ticker):
     days = int(request.args.get("days", 60))
-    s, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
+    s, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
     if s != 200: return jsonify({"detail": raw.get("detail","API error"), "status": s}), s
     candles = raw.get("candles", [])
     if not candles: return jsonify({"detail": "No candle data available"}), 404
@@ -563,14 +553,12 @@ def compare():
     days    = int(request.args.get("days", 30))
     result  = {}
     for t in tickers:
-        s, raw = atlas_get(f"/history/{t}", params={"days": days}, ttl=60)
-        if s != 200: continue
-        # Atlas returns {ticker, count, data:[{price, timestamp}]}
-        pts = raw.get("data", raw) if isinstance(raw, dict) else raw
-        if not pts or not isinstance(pts, list) or len(pts) == 0: continue
-        base = pts[0]["price"]
-        if not base or base == 0: continue
-        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in pts]
+        s, raw = cached_get(f"/analytics/price_history/{t}", params={"days": days}, ttl=60)
+        if s != 200 or not raw or not isinstance(raw, list) or len(raw) == 0:
+            continue
+        base = raw[0]["price"]
+        if base == 0: continue
+        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in raw]
     return jsonify(result)
 
 # ── MARKET BREADTH ────────────────────────────────────────────────────────────
@@ -583,7 +571,7 @@ def market_breadth():
     results = []
     for sec in secs:
         ticker = sec["ticker"]
-        os2, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
+        os2, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
         if os2 != 200 or not raw.get("candles"): continue
         cs = raw["candles"]
         closes  = [c["close"]  for c in cs]
@@ -710,7 +698,7 @@ def exchange_analytics():
 
     for sec in secs:
         t = sec["ticker"]
-        os2, raw = cached_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=180)
+        os2, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=180)
         if os2 != 200 or not raw.get("candles"): continue
         cs = raw["candles"]
         closes  = [c["close"]  for c in cs]
@@ -966,7 +954,7 @@ def backtest():
     body=request.json or {}
     ticker=body.get("ticker",""); days=min(int(body.get("days",90)),365)
     strategy=body.get("strategy","buy_hold"); params=body.get("params",{})
-    status,raw=cached_get(f"/analytics/ohlcv/{ticker}",params={"days":days},ttl=60)
+    status,raw=atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
     if status!=200: return jsonify(raw),status
     candles=raw.get("candles",[])
     if len(candles)<3: return jsonify({"detail":"Not enough data"}),400
@@ -1260,8 +1248,8 @@ def rolling_correlation():
     days   = int(request.args.get("days", 60))
     window = int(request.args.get("window", 14))
     if not t1 or not t2: return jsonify({"detail":"t1 and t2 required"}), 400
-    _, r1 = cached_get(f"/analytics/ohlcv/{t1}", params={"days":days}, ttl=60)
-    _, r2 = cached_get(f"/analytics/ohlcv/{t2}", params={"days":days}, ttl=60)
+    _, r1 = atlas_get(f"/analytics/ohlcv/{t1}", params={"days":days}, ttl=60)
+    _, r2 = atlas_get(f"/analytics/ohlcv/{t2}", params={"days":days}, ttl=60)
     c1 = [c["close"] for c in r1.get("candles",[])]
     c2 = [c["close"] for c in r2.get("candles",[])]
     dates = [c["date"] for c in r1.get("candles",[])]
@@ -1314,7 +1302,7 @@ def correlation_matrix():
     # Fetch closes for all
     closes_map = {}
     for t in tickers:
-        _, raw = cached_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=180)
+        _, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=180)
         cs = [c["close"] for c in raw.get("candles",[])]
         if len(cs) >= 5: closes_map[t] = cs
     valid = list(closes_map.keys())
@@ -1351,7 +1339,7 @@ def monte_carlo():
     body = request.json or {}
     ticker = body.get("ticker",""); days = int(body.get("days",60))
     n_sims = min(int(body.get("sims",1000)),2000); horizon = int(body.get("horizon",30))
-    _, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
+    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
     cs = [c["close"] for c in raw.get("candles",[])]
     if len(cs) < 5: return jsonify({"detail":"Not enough data"}), 404
     rets = [(cs[i]-cs[i-1])/cs[i-1] for i in range(1,len(cs))]
@@ -1404,7 +1392,7 @@ def param_sensitivity():
     body = request.json or {}
     ticker = body.get("ticker",""); days = int(body.get("days",90))
     strategy = body.get("strategy","sma_cross")
-    _, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=180)
+    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=180)
     cs = [c["close"] for c in raw.get("candles",[])]
     if len(cs) < 30: return jsonify({"detail":"Not enough data"}), 404
     def run_sma(fast,slow):
@@ -1474,7 +1462,7 @@ def portfolio_analytics():
     # Fetch price histories
     hist_data = {}
     for h in holdings:
-        _, raw = cached_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=180)
+        _, raw = atlas_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=180)
         cs = [c["close"] for c in raw.get("candles",[])]
         if cs: hist_data[h["ticker"]] = cs
     if not hist_data: return jsonify({"detail":"No price data"}), 200
