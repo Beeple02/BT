@@ -78,7 +78,7 @@
         </table>
       </div>
     </div>
-    <div class="win" style="flex:1;min-height:40px;border-top:0">
+    <div class="win" style="flex:1;min-min-min-height:40px;border-top:0">
       <div class="wbar">
         <div class="wbar-l"><span class="wnum">6</span><span class="wtitle" id="cmp-p6-title">PERFORMANCE RANK</span></div>
         <div class="wbar-r" id="cmp-p6-sub" style="font-size:9px;color:var(--txt3)"></div>
@@ -139,16 +139,26 @@ window.rebuildNormChart=function(){
 function buildPriceChart(mode){
   _cNorm=dc(_cNorm);
   if(!_statsData.length) return;
-  const allDates=_statsData[0].candles.map(c=>c.date);
+  // Align all tickers to a common date set (intersection) so lines are same length
+  const datesets=_statsData.map(sd=>new Set(sd.candles.map(c=>c.date)));
+  const commonDates=_statsData[0].candles.map(c=>c.date)
+    .filter(d=>datesets.every(s=>s.has(d)));
+  // If intersection is too small, fall back to union with nulls
+  const useDates = commonDates.length >= 2 ? commonDates
+    : [...new Set(_statsData.flatMap(sd=>sd.candles.map(c=>c.date)))].sort();
   const titles={raw:'RAW PRICE',norm:'NORMALISED (rebased 100)',pct:'% RETURN FROM START'};
   document.getElementById('cmp-chart1-title').textContent=titles[mode]||'PRICE CHART';
   const datasets=_statsData.map((sd,i)=>{
-    const cs=sd.candles.map(c=>c.close);
+    const byDate=Object.fromEntries(sd.candles.map(c=>[c.date,c.close]));
+    const cs=useDates.map(d=>byDate[d]??null);
+    // For norm/pct find first non-null as base
+    const firstVal=cs.find(v=>v!=null)||1;
     let data=cs;
-    if(mode==='norm'){ const b=cs[0]||1; data=cs.map(v=>+(v/b*100).toFixed(4)); }
-    else if(mode==='pct'){ const b=cs[0]||1; data=cs.map(v=>+((v/b-1)*100).toFixed(4)); }
-    return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2};
+    if(mode==='norm'){ data=cs.map(v=>v!=null?+(v/firstVal*100).toFixed(4):null); }
+    else if(mode==='pct'){ data=cs.map(v=>v!=null?+((v/firstVal-1)*100).toFixed(4):null); }
+    return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2,spanGaps:false};
   });
+  const allDates=useDates;
   _cNorm=new Chart(document.getElementById('cmp-norm-c'),{type:'line',
     data:{labels:allDates,datasets},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
@@ -222,11 +232,27 @@ window.loadCompare=async function(){
         <span style="color:${sigColor};font-weight:700;font-size:11px;grid-column:span 2">${sig}</span>
         <span style="color:var(--txt3);font-size:8px;grid-column:span 2">±2σ entry · ±0.5σ exit</span>`;
     } else {
-      document.getElementById('cmp-corr-sub').textContent=' — Not enough data for window';
+      // Not enough data — show info in chart areas instead of blank charts
+      const win2=+document.getElementById('cmp-win').value;
+      const minNeeded=win2+2;
+      document.getElementById('cmp-corr-sub').textContent=` — Need ≥${minNeeded} candles for ${win2}D window`;
+      // Draw placeholder text in chart canvases
+      ['cmp-corr-c','cmp-spread-c'].forEach(id=>{
+        const canvas=document.getElementById(id); if(!canvas) return;
+        const ctx=canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle='#333'; ctx.font='11px monospace'; ctx.textAlign='center';
+        ctx.fillText(`Need ≥${minNeeded} candles (${win2}D window)`,canvas.width/2,canvas.height/2-8);
+        ctx.fillStyle='#555'; ctx.font='9px monospace';
+        ctx.fillText('Increase history period or reduce correlation window',canvas.width/2,canvas.height/2+10);
+      });
       document.getElementById('cmp-pairs-detail').style.display='grid';
       document.getElementById('cmp-perf-rank').style.display='none';
       document.getElementById('cmp-p6-title').textContent='PAIRS SIGNAL';
-      document.getElementById('cmp-pairs-detail').innerHTML='<span style="color:var(--txt3);font-size:9px;grid-column:span 2">Not enough historical data</span>';
+      document.getElementById('cmp-pairs-detail').innerHTML=`
+        <span style="color:var(--txt3);font-size:9px;grid-column:span 2">⚠ Insufficient data for ${win2}D rolling window</span>
+        <span style="color:var(--txt3);font-size:9px">REQUIRED</span><span class="yel">≥${minNeeded} candles</span>
+        <span style="color:var(--txt3);font-size:9px">TIP</span><span class="dim">Increase period or reduce window</span>`;
     }
   } else {
     // Multi-ticker mode: show performance rank
