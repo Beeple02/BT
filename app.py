@@ -520,7 +520,7 @@ def ticker_stats(ticker):
     s, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
     if s != 200 or not isinstance(raw, dict):
         return jsonify({"detail": "No data from Atlas", "status": s}), 404
-    candles = _norm_candles(raw.get("candles", []))
+    candles = _norm_candles(raw.get("candles", []), days=days)
     if not candles: return jsonify({"detail": "No candle data available"}), 404
 
     closes  = [c["close"]  for c in candles]
@@ -631,18 +631,33 @@ def market_breadth():
         for item in raw_secs:
             ticker = item.get("ticker", "")
             if not ticker: continue
-            meta = sec_meta.get(ticker, {})
-            lp   = meta.get("market_price") or item.get("last_price") or 0
+            meta    = sec_meta.get(ticker, {})
+            derived = meta.get("derived", {}) or {}
+            lp      = meta.get("market_price") or item.get("last_price") or 0
+            # Atlas breadth often returns null sharpe/volatility — fall back to
+            # derived.volatility_7d from the securities payload when available
+            vol  = item.get("volatility")
+            if vol is None: vol = derived.get("volatility_7d")
+            shrp = item.get("sharpe")
+            # If still no sharpe, try fetching ohlcv for this ticker (cached)
+            if shrp is None or vol is None:
+                s_o, o_raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": 30}, ttl=300)
+                if s_o == 200 and isinstance(o_raw, dict):
+                    cs = _norm_candles(o_raw.get("candles", []), days=30)
+                    if len(cs) >= 2:
+                        closes = [c["close"] for c in cs]
+                        if vol is None:  vol  = _ann_vol(closes)
+                        if shrp is None: shrp = _sharpe(closes)
             enriched.append({
                 "ticker":      ticker,
                 "name":        meta.get("full_name", ticker),
                 "exchange":    "TSE" if ticker.startswith("TSE:") else "NER",
                 "last_price":  lp,
                 "chg_pct":     item.get("chg_pct") or 0,
-                "volatility":  item.get("volatility"),
-                "sharpe":      item.get("sharpe"),
+                "volatility":  vol,
+                "sharpe":      shrp,
                 "market_cap":  item.get("market_cap") or round(lp * (meta.get("total_shares") or 0), 2),
-                "volume":      meta.get("volume") or 0,
+                "volume":      derived.get("vwap_24h") and round(lp * (derived.get("vwap_24h") or 0), 0) or 0,
                 "hi52":        item.get("hi52"),
                 "lo52":        item.get("lo52"),
                 "vol_spike":   item.get("vol_spike"),
