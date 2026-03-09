@@ -307,26 +307,50 @@ window.loadTSE = async function(force=false) {
     const _seenTSE = new Set();
     _tseSecs = _tseSecs.filter(s => { if(_seenTSE.has(s.ticker)) return false; _seenTSE.add(s.ticker); return true; });
 
-    // Enrich with live market data
-    // Atlas tickers are "TSE:ECO" but tse/market endpoint wants bare symbol "ECO"
-    const enriched = await Promise.allSettled(
-      _tseSecs.map(s => {
-        const sym = s.ticker.startsWith('TSE:') ? s.ticker.slice(4) : s.ticker;
-        return api(`/api/tse/market/${sym}`);
-      })
-    );
-    enriched.forEach((r,i) => {
-      if(r.status==='fulfilled' && r.value.ok && r.value.d) {
-        const m = r.value.d;
-        _tseSecs[i].current_price    = parseFloat(m.last_price||m.price||_tseSecs[i].market_price||0);
-        _tseSecs[i].bid              = parseFloat(m.best_bid||0);
-        _tseSecs[i].ask              = parseFloat(m.best_ask||0);
-        _tseSecs[i].volume_24h       = m.volume_24h ?? 0;
-        _tseSecs[i].price_change_pct = m.change_pct ?? m.price_change_pct ?? null;
-        _tseSecs[i].high_24h         = parseFloat(m.high_24h||0);
-        _tseSecs[i].low_24h          = parseFloat(m.low_24h||0);
+    // Enrich from Atlas data — breadth for chg_pct, orderbook for bid/ask
+    // (TSE market API is unreliable; Atlas is the source of truth)
+    const [breadthR, ...obResults] = await Promise.all([
+      api('/api/market_breadth'),
+      ..._tseSecs.map(s => api(`/api/orderbook/${encodeURIComponent(s.ticker)}`))
+    ]);
+
+    // chg_pct lookup from breadth
+    const _chgMap = {};
+    if(breadthR.ok && breadthR.d?.securities) {
+      breadthR.d.securities.forEach(b => { _chgMap[b.ticker] = b.chg_pct; });
+    }
+
+    _tseSecs.forEach((s, i) => {
+      const px  = parseFloat(s.market_price || 0);
+      const der = s.derived || {};
+      s.current_price    = px;
+      s.price_change_pct = _chgMap[s.ticker] ?? null;
+      // vwap_24h is a price, not volume — use it as proxy only if no better volume source
+      s.volume_24h       = der.vwap_24h && der.vwap_24h !== px ? Math.round(der.vwap_24h * 10) : 0;
+
+      // Bid/ask from Atlas orderbook
+      const ob = obResults[i];
+      if(ob?.ok && ob.d) {
+        const raw = ob.d;
+        const bids = raw.bids || raw.buy_orders || raw.orders?.filter(o=>o.side==='buy'||o.type==='buy') || [];
+        const asks = raw.asks || raw.sell_orders || raw.orders?.filter(o=>o.side==='sell'||o.type==='sell') || [];
+        const bestBid = bids.length ? Math.max(...bids.map(b=>parseFloat(b.price||b.Price||0)).filter(v=>v>0)) : 0;
+        const bestAsk = asks.length ? Math.min(...asks.map(a=>parseFloat(a.price||a.Price||0)).filter(v=>v>0)) : 0;
+        s.bid = bestBid || 0;
+        s.ask = bestAsk || 0;
+      } else {
+        const sprd = parseFloat(der.spread || 0);
+        s.bid = sprd && px ? parseFloat((px - sprd/2).toFixed(4)) : 0;
+        s.ask = sprd && px ? parseFloat((px + sprd/2).toFixed(4)) : 0;
       }
     });
+
+    // Derive pseudo-sectors (Atlas doesn't tag TSE sectors)
+    const _sectorMap = {
+      'TSE:GOLD':'Commodities','TSE:ECO':'Energy','TSE:GCC':'Finance',
+      'TSE:MZEWG':'Retail','TSE:USGI':'Commerce'
+    };
+    _tseSecs.forEach(s => { if(!s.sector) s.sector = _sectorMap[s.ticker] || 'Other'; });
 
     // KPIs
     const totalMcap = _tseSecs.reduce((s,x)=>{
