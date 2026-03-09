@@ -629,19 +629,39 @@ def market_breadth():
                         closes = [c["close"] for c in cs]
                         if vol is None:  vol  = _ann_vol(closes)
                         if shrp is None: shrp = _sharpe(closes)
+            # chg_pct: use Atlas breadth value, but compute from ohlcv if missing
+            chg_pct = item.get("chg_pct")
+            prd_hi  = item.get("hi52")
+            prd_lo  = item.get("lo52")
+            vol_spike = item.get("vol_spike")
+            # If we already fetched ohlcv for vol/sharpe, reuse it for chg_pct/hi/lo
+            if chg_pct is None or prd_hi is None:
+                s_o2, o_raw2 = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=300)
+                if s_o2 == 200 and isinstance(o_raw2, dict):
+                    cs2 = _norm_candles(o_raw2.get("candles", []), days=days)
+                    if len(cs2) >= 2:
+                        cl2 = [c["close"] for c in cs2]
+                        vl2 = [c["volume"] for c in cs2]
+                        if chg_pct is None:
+                            chg_pct = round((cl2[-1] - cl2[0]) / cl2[0] * 100, 2) if cl2[0] else 0
+                        if prd_hi is None: prd_hi = round(max(cl2), 4)
+                        if prd_lo is None: prd_lo = round(min(cl2), 4)
+                        if vol_spike is None and len(vl2) > 1:
+                            avg_v = sum(vl2[:-1]) / max(len(vl2)-1, 1)
+                            vol_spike = round(vl2[-1] / avg_v, 2) if avg_v > 0 else None
             enriched.append({
                 "ticker":      ticker,
                 "name":        meta.get("full_name", ticker),
                 "exchange":    "TSE" if ticker.startswith("TSE:") else "NER",
                 "last_price":  lp,
-                "chg_pct":     item.get("chg_pct") or 0,
+                "chg_pct":     chg_pct if chg_pct is not None else 0,
                 "volatility":  vol,
                 "sharpe":      shrp,
                 "market_cap":  item.get("market_cap") or round(lp * (meta.get("total_shares") or 0), 2),
-                "volume":      derived.get("vwap_24h") and round(lp * (derived.get("vwap_24h") or 0), 0) or 0,
-                "hi52":        item.get("hi52"),
-                "lo52":        item.get("lo52"),
-                "vol_spike":   item.get("vol_spike"),
+                "volume":      sum(vl2) if 'vl2' in dir() else 0,
+                "hi52":        prd_hi,
+                "lo52":        prd_lo,
+                "vol_spike":   vol_spike,
                 "frozen":      bool(meta.get("frozen", False)),
             })
         # Use Atlas summary but recompute from enriched list for consistency
