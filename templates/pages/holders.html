@@ -24,13 +24,13 @@
       <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION RANKING</span></div>
       <div class="wbar-r" style="font-size:9px;color:var(--txt3)">HHI &lt;1500 = distributed · &gt;2500 = highly concentrated · ★ = substantial holder (≥10%)</div>
     </div>
-    <div class="scroll">
-      <table class="dt">
+    <div class="scroll" style="overflow-x:auto">
+      <table class="dt" style="min-width:780px;table-layout:auto">
         <thead><tr>
-          <th>TICKER</th><th>NAME</th>
-          <th class="r">HOLDERS</th><th class="r">HHI</th>
-          <th class="r">TOP 1</th><th class="r">TOP 3</th><th class="r">TOP 5</th><th class="r">TOP 10</th>
-          <th class="r">WHALES</th><th class="r">GINI</th><th class="r">SUBSTANTIAL</th><th>ACT</th><th>ACT</th>
+          <th style="white-space:nowrap">TICKER</th><th style="min-width:100px">NAME</th>
+          <th class="r" style="white-space:nowrap">HOLDERS</th><th class="r" style="white-space:nowrap">HHI</th>
+          <th class="r" style="white-space:nowrap">TOP 1</th><th class="r" style="white-space:nowrap">TOP 3</th><th class="r" style="white-space:nowrap">TOP 5</th><th class="r" style="white-space:nowrap">TOP 10</th>
+          <th class="r" style="white-space:nowrap">WHALES</th><th class="r" style="white-space:nowrap">GINI</th><th class="r" style="white-space:nowrap">SUBSTANTIAL</th><th style="white-space:nowrap">ACT</th>
         </tr></thead>
         <tbody id="hi-tbody"><tr><td colspan="11" class="loading">LOADING…</td></tr></tbody>
       </table>
@@ -197,11 +197,8 @@ window.loadHolders = async function(){
       <td class="r">${subStr}</td>`;
     const btnTd = document.createElement('td');
     btnTd.style.whiteSpace = 'nowrap';
-    btnTd.innerHTML = `<button style="font-size:8px;padding:1px 4px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();holdQO('${s.ticker}','buy')">B</button>&nbsp;<button style="font-size:8px;padding:1px 4px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700" onclick="event.stopPropagation();holdQO('${s.ticker}','sell')">S</button>`;
+    btnTd.innerHTML = `<button class="act-b" onclick="event.stopPropagation();holdQO('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();holdQO('${s.ticker}','sell')">S</button>`;
     tr.appendChild(btnTd);
-    const actTd = document.createElement('td');
-    actTd.innerHTML = `<button class="act-b" onclick="event.stopPropagation();holdersQuickOrder('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();holdersQuickOrder('${s.ticker}','sell')">S</button>`;
-    tr.appendChild(actTd);
     tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
     tb.appendChild(tr);
   });
