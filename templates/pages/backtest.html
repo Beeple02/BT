@@ -430,7 +430,8 @@ window.runMulti = async function () {
   const strat   = document.getElementById('mt-str').value;
   const days    = +document.getElementById('mt-days').value;
   const rankBy  = document.getElementById('mt-rank').value;
-  const tickers = (BB.secs || []).map(s => s.ticker);
+  // Filter to NER-only: TSE tickers have no OHLCV history compatible with our backtest engine
+  const tickers = (BB.secs || []).filter(s => !s.ticker.startsWith('TSE:')).map(s => s.ticker);
   const tb      = document.getElementById('mt-tbody');
 
   tb.innerHTML = `<tr><td colspan="11" class="loading">RUNNING ON ${tickers.length} TICKERS…</td></tr>`;
@@ -542,17 +543,22 @@ window.runWF = async function () {
   S('wf-tdd', '-' + te.max_drawdown_pct + '%');
   S('wf-ovf', overfit, ofColor);
 
-  /* stitch curves: train runs from 10000, test rescaled to continue from train end */
-  const trainEnd     = trainR.d.equity_curve.at(-1) ?? 10000;
-  const testEqScaled = testR.d.equity_curve.map(v => +(v * trainEnd / 10000).toFixed(2));
-  const allDates     = [...trainR.d.dates, ...testR.d.dates];
-  const trainEq      = [...trainR.d.equity_curve, ...new Array(testR.d.dates.length).fill(null)];
-  const testEq       = [...new Array(trainR.d.dates.length).fill(null), ...testEqScaled];
-  const bhBase       = trainR.d.closes[0] || 1;
-  const bhAll        = [
-    ...trainR.d.closes.map(p => +(10000 * p / bhBase).toFixed(2)),
-    ...testR.d.closes.map(p  => +(10000 * p / bhBase).toFixed(2)),
+  /* Two independent equity curves both rebased to 10000 — plotted on their own x-axes.
+     We show them side-by-side: train dates then test dates, each starting at 10000. */
+  const allDates = [...trainR.d.dates, ...testR.d.dates];
+  // Train: actual curve, then nulls
+  const trainEq  = [...trainR.d.equity_curve, ...new Array(testR.d.dates.length).fill(null)];
+  // Test: nulls, then test curve starting from 10000 (independent)
+  const testEq   = [...new Array(trainR.d.dates.length).fill(null), ...testR.d.equity_curve];
+  // B&H for each period both rebased to 10000
+  const bhTrainBase = trainR.d.closes[0] || 1;
+  const bhTestBase  = testR.d.closes[0]  || 1;
+  const bhAll = [
+    ...trainR.d.closes.map(p => +(10000 * p / bhTrainBase).toFixed(2)),
+    ...testR.d.closes.map(p  => +(10000 * p / bhTestBase).toFixed(2)),
   ];
+  // Add a vertical separator line via annotation or a null-gap dataset
+  const sepIdx = trainR.d.dates.length - 1;
 
   kc('wf-c');
   _C['wf-c'] = new Chart(document.getElementById('wf-c'), {
