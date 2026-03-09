@@ -71,9 +71,11 @@
 
 <!-- ══ NER stream bar ══ -->
 <div id="ex-stream-bar" style="height:22px;background:#0a0a0a;border-bottom:1px solid var(--bdr);display:flex;align-items:center;overflow:hidden;flex-shrink:0;position:relative">
-  <div style="padding:0 8px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap;flex-shrink:0">STREAM</div>
-  <div id="ex-stream-inner" style="display:flex;white-space:nowrap;gap:0"></div>
-  <div style="position:absolute;right:0;top:0;bottom:0;width:30px;background:linear-gradient(-90deg,#0a0a0a,transparent);pointer-events:none"></div>
+  <div style="padding:0 8px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap;flex-shrink:0;z-index:2;position:relative;background:#0a0a0a">STREAM</div>
+  <div style="flex:1;overflow:hidden;position:relative;height:100%">
+    <div id="ex-stream-inner" style="display:flex;white-space:nowrap;gap:0;position:absolute;top:0;bottom:0;align-items:center"></div>
+  </div>
+  <div style="position:absolute;right:0;top:0;bottom:0;width:40px;background:linear-gradient(-90deg,#0a0a0a,transparent);pointer-events:none;z-index:1"></div>
 </div>
 
 <!-- ══ NER PANEL ══ -->
@@ -263,7 +265,7 @@ async function renderExchCharts(){
   const tr=await api('/api/transactions?type=Trade&limit=100');
   const ltEl=document.getElementById('ex-large-trades');
   if(tr.ok&&Array.isArray(tr.d)){
-    const large=tr.d.filter(tx=>Math.abs(tx.quantity||0)>=100).slice(0,30);
+    const large=tr.d.filter(tx=>Math.abs(tx.quantity||0)>=100 && tx.ticker && !tx.ticker.startsWith('TSE:')).slice(0,30);
     document.getElementById('ex-lt-sub').textContent=large.length?' — '+large.length+' shown':'';
     ltEl.innerHTML=large.length?large.map(tx=>{
       const isBuy=(tx.amount||0)<0;
@@ -299,11 +301,19 @@ window.loadTSE = async function(force=false) {
   ]);
 
   if(secR.ok && Array.isArray(secR.d)) {
-    _tseSecs = secR.d.filter(s => s.exchange === 'TSE');
+    // Keep only genuine TSE securities (source=tse OR ticker starts with 'TSE:')
+    _tseSecs = secR.d.filter(s => s.source === 'tse' || (s.exchange === 'TSE') || s.ticker.startsWith('TSE:'));
+    // Deduplicate by ticker
+    const _seenTSE = new Set();
+    _tseSecs = _tseSecs.filter(s => { if(_seenTSE.has(s.ticker)) return false; _seenTSE.add(s.ticker); return true; });
 
     // Enrich with live market data
+    // Atlas tickers are "TSE:ECO" but tse/market endpoint wants bare symbol "ECO"
     const enriched = await Promise.allSettled(
-      _tseSecs.map(s => api(`/api/tse/market/${s.ticker}`))
+      _tseSecs.map(s => {
+        const sym = s.ticker.startsWith('TSE:') ? s.ticker.slice(4) : s.ticker;
+        return api(`/api/tse/market/${sym}`);
+      })
     );
     enriched.forEach((r,i) => {
       if(r.status==='fulfilled' && r.value.ok && r.value.d) {
@@ -337,7 +347,8 @@ window.loadTSE = async function(force=false) {
       sectors.map(s=>`<option value="${s}">${s}</option>`).join('');
 
     // Fetch recent trades for first active symbol
-    const firstSym = _tseSecs.find(s=>!s.frozen)?.ticker;
+    const firstSec = _tseSecs.find(s=>!s.frozen);
+    const firstSym = firstSec ? (firstSec.ticker.startsWith('TSE:') ? firstSec.ticker.slice(4) : firstSec.ticker) : null;
     if(firstSym) {
       const tR = await api(`/api/tse/trades/${firstSym}?limit=40`);
       renderTSETrades(tR.ok ? tR.d : []);
@@ -407,7 +418,8 @@ window.renderTSERows = function() {
     // Click row also loads trades for this symbol
     tr.addEventListener('click', async (e)=>{
       if(e.target.tagName==='BUTTON') return;
-      const tR = await api(`/api/tse/trades/${s.ticker}?limit=40`);
+      const _sym = s.ticker.startsWith('TSE:') ? s.ticker.slice(4) : s.ticker;
+      const tR = await api(`/api/tse/trades/${_sym}?limit=40`);
       renderTSETrades(tR.ok ? tR.d : []);
     }, true);
     tb.appendChild(tr);
@@ -496,16 +508,19 @@ window.exchQuickOrder = function(ticker, side, exchange='NER') {
 async function updateStream() {
   const r=await api('/api/transactions?type=Trade&limit=30');
   if(!r.ok||!Array.isArray(r.d)) return;
+  // NER stream: exclude TSE trades
+  const nerTrades = r.d.filter(t=>t.ticker && !t.ticker.startsWith('TSE:'));
   const known=new Set(_streamTrades.map(t=>t.id||t.timestamp));
-  const newTs=r.d.filter(t=>!known.has(t.id||t.timestamp));
-  _streamTrades=r.d;
+  const newTs=nerTrades.filter(t=>!known.has(t.id||t.timestamp));
+  _streamTrades=nerTrades;
   if(!newTs.length) return;
   const inner=document.getElementById('ex-stream-inner'); if(!inner) return;
   newTs.reverse().forEach(tx=>{
     const isBuy=(tx.amount||0)<0;
     const span=document.createElement('span');
     span.style.cssText=`display:inline-flex;align-items:center;gap:4px;padding:0 12px;font-size:9px;border-right:1px solid var(--bdr);white-space:nowrap;color:${isBuy?'var(--up)':'var(--dn)'}`;
-    span.innerHTML=`<span style="color:var(--org);font-weight:700">${tx.ticker}</span><span style="font-weight:700">${isBuy?'▲':'▼'}</span><span style="color:var(--wht)">${Math.abs(tx.quantity||0).toLocaleString()}sh</span><span style="color:var(--yel)">$${f(tx.price||0,4)}</span>`;
+    const _time=tx.timestamp?new Date(tx.timestamp).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+    span.innerHTML=`<span style="color:var(--txt3);font-size:8px;margin-right:3px">${_time}</span><span style="color:var(--org);font-weight:700">${tx.ticker}</span><span style="font-weight:700;margin:0 2px">${isBuy?'▲':'▼'}</span><span style="color:var(--wht)">${Math.abs(tx.quantity||0).toLocaleString()}sh</span><span style="color:var(--yel);margin-left:3px">$${f(tx.price||0,4)}</span>`;
     span.style.animation='tape-flash .9s ease-out';
     inner.prepend(span);
     while(inner.children.length>60) inner.removeChild(inner.lastChild);
@@ -513,7 +528,13 @@ async function updateStream() {
 }
 function animateStream(){
   const inner=document.getElementById('ex-stream-inner');
-  if(inner){_streamPos-=0.4;if(-_streamPos>inner.scrollWidth)_streamPos=0;inner.style.transform=`translateX(${_streamPos}px)`;}
+  if(inner){
+    _streamPos-=0.4;
+    // When the tape has fully scrolled past, reset to start from right side
+    const containerW = (inner.parentElement?.offsetWidth||400);
+    if(_streamPos > 0 || -_streamPos > inner.scrollWidth + containerW) _streamPos = containerW;
+    inner.style.transform=`translateX(${_streamPos}px)`;
+  }
   _streamRaf=requestAnimationFrame(animateStream);
 }
 
