@@ -465,9 +465,10 @@ async function _loadTSETicker(ticker, days, ctype) {
   Object.values(_ch).forEach(c=>c&&c.destroy()); _ch={};
 
   // Fetch in parallel: ticker_stats (candles+stats) + orderbook + breadth for chg_pct
+  // Note: Flask <path:ticker> handles colons natively — do NOT encodeURIComponent
   const [sR, obR, brR] = await Promise.all([
-    api(`/api/ticker_stats/${encodeURIComponent(atlasTicker)}?days=${days}`),
-    api(`/api/orderbook/${encodeURIComponent(atlasTicker)}`),
+    api(`/api/ticker_stats/${atlasTicker}?days=${days}`),
+    api(`/api/orderbook/${atlasTicker}`),
     api('/api/market_breadth'),
   ]);
 
@@ -547,7 +548,7 @@ async function _loadTSETicker(ticker, days, ctype) {
   document.getElementById('tkr-sh').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">—</div>';
 
   // ── Recent prints from Atlas history ──────────────────────────────────────
-  const hR = await api(`/api/history/${encodeURIComponent(atlasTicker)}?limit=50`);
+  const hR = await api(`/api/history/${atlasTicker}?limit=50`);
   const el = document.getElementById('tkr-prints'); if(!el) return;
   if(hR.ok && hR.d?.data?.length) {
     const trades = hR.d.data.slice(0,50);
