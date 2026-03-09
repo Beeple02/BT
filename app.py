@@ -377,6 +377,13 @@ def price_history(ticker):
         d = d.get("data", [])
     return jsonify(d), s
 
+@app.route("/api/history/<path:ticker>")
+def trade_history(ticker):
+    """Raw trade history from Atlas — used by TSE ticker page for recent prints."""
+    limit = int(request.args.get("limit", 50))
+    s, d = atlas_get(f"/history/{ticker}", params={"limit": limit}, ttl=15)
+    return jsonify(d), s
+
 @app.route("/api/analytics/ohlcv/<path:ticker>")
 def ohlcv(ticker):
     days = request.args.get("days", 30)
