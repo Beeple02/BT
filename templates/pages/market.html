@@ -346,7 +346,8 @@ async function loadPrintFeed() {
   if(_feedPaused) return;
   const r = await api('/api/transactions?type=Trade&limit=50');
   if(!r.ok || !Array.isArray(r.d)) return;
-  const trades = r.d;
+  // NER market page: only show NER trades (not TSE:xxx tickers)
+  const trades = r.d.filter(t => t.ticker && !t.ticker.startsWith('TSE:'));
   if(!trades.length) return;
   const el = document.getElementById('mkt-prints'); if(!el) return;
   // Detect new trades
@@ -379,8 +380,8 @@ async function loadPrintFeed() {
     const flashClass = isNew ? (isBuy ? 'flash-up' : 'flash-dn') : '';
     return `<div class="${flashClass}" style="display:flex;align-items:center;gap:5px;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.3);font-size:10px;cursor:pointer;${isBlock?'background:rgba(255,140,0,.03)':''}"
         onclick="selectMktTicker('${tx.ticker}')">
-      <span style="width:34px;font-size:9px;color:var(--txt3);font-variant-numeric:tabular-nums">${time}</span>
-      <span style="width:36px;font-weight:700;color:var(--org)">${tx.ticker||'—'}</span>
+      <span style="width:52px;font-size:9px;color:var(--txt3);font-variant-numeric:tabular-nums;flex-shrink:0">${time}</span>
+      <span style="width:68px;font-weight:700;color:var(--org);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;font-size:9px">${tx.ticker||'—'}</span>
       <span style="width:28px;font-weight:700;font-size:9px;color:${isBuy?'var(--up)':'var(--dn)'}">${isBuy?'BID':'ASK'}</span>
       <span style="width:46px;text-align:right;font-variant-numeric:tabular-nums;color:var(--wht);${isBlock?'font-weight:700':''}">${qty.toLocaleString()}</span>
       <span style="width:52px;text-align:right;font-variant-numeric:tabular-nums;color:var(--yel)">$${tx.price!=null?f(tx.price,4):'—'}</span>
