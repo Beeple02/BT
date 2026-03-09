@@ -1,367 +1,811 @@
-<!-- F12: SCREENER — Multi-attribute security filter with saved templates -->
+<!-- F5: BACKTEST v2 -->
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
 
-<!-- Filter builder bar -->
-<div style="background:var(--bg3);border-bottom:1px solid var(--bdr);padding:6px 10px;flex-shrink:0">
-  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-    <div class="ff"><label>METRIC</label>
-      <select id="scr-met" style="min-width:160px">
-        <option value="chg_pct">PRICE CHG%</option>
-        <option value="volatility">VOLATILITY% pa</option>
-        <option value="sharpe">SHARPE RATIO</option>
-        <option value="max_dd">MAX DRAWDOWN%</option>
-        <option value="market_cap">MARKET CAP</option>
-        <option value="volume">VOLUME</option>
-        <option value="vol_spike">VOLUME SPIKE x</option>
-        <option value="spread_pct">SPREAD%</option>
-        <option value="liq_depth">LIQUIDITY DEPTH</option>
-        <option value="hhi">CONCENTRATION HHI</option>
-        <option value="top1_pct">TOP HOLDER%</option>
-        <option value="rsi">RSI (14)</option>
-        <option value="atr_pct">ATR% (14d)</option>
-        <option value="near_high">NEAR PERIOD HIGH</option>
-        <option value="near_low">NEAR PERIOD LOW</option>
-      </select>
+<!-- ── Tab bar ── -->
+<div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span class="bt-tab active" data-t="single"  onclick="btTab(this)">SINGLE TICKER</span>
+  <span class="bt-tab"        data-t="multi"   onclick="btTab(this)">MULTI-TICKER</span>
+  <span class="bt-tab"        data-t="wf"      onclick="btTab(this)">WALK-FORWARD</span>
+  <span class="bt-tab"        data-t="mc"      onclick="btTab(this)">MONTE CARLO</span>
+  <span class="bt-tab"        data-t="sens"    onclick="btTab(this)">PARAM SENSITIVITY</span>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     TAB 1 — SINGLE TICKER
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view active" id="bv-single">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="bt-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>DAYS</label>
+      <select id="bt-days">
+        <option value="30">30D</option><option value="60">60D</option>
+        <option value="90" selected>90D</option><option value="180">180D</option>
+        <option value="365">365D</option>
+      </select></div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="bt-str" onchange="btParamShow()">
+        <option value="buy_hold">BUY &amp; HOLD</option>
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+        <option value="bb_reversal">BB REVERSAL</option>
+      </select></div>
+    <div id="btp-sma" class="bt-pg" style="display:none">
+      <div class="ff"><label>FAST</label><input type="number" id="btp-sf" value="5"  style="width:46px"></div>
+      <div class="ff"><label>SLOW</label><input type="number" id="btp-ss" value="20" style="width:46px"></div>
     </div>
-    <div class="ff"><label>OPERATOR</label>
-      <select id="scr-op">
-        <option value="gt">&gt; GREATER THAN</option>
-        <option value="lt">&lt; LESS THAN</option>
-        <option value="gte">&gt;= AT LEAST</option>
-        <option value="lte">&lt;= AT MOST</option>
-        <option value="eq">= EQUALS (bool)</option>
-      </select>
+    <div id="btp-rsi" class="bt-pg" style="display:none">
+      <div class="ff"><label>PERIOD</label><input type="number" id="btp-rp" value="14" style="width:46px"></div>
+      <div class="ff"><label>OB</label>    <input type="number" id="btp-ob" value="70" style="width:46px"></div>
+      <div class="ff"><label>OS</label>    <input type="number" id="btp-os" value="30" style="width:46px"></div>
     </div>
-    <div class="ff"><label>VALUE</label>
-      <input type="number" id="scr-val" step="any" value="0" style="width:80px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+    <div id="btp-macd" class="bt-pg" style="display:none">
+      <div class="ff"><label>FAST</label>  <input type="number" id="btp-mf" value="12" style="width:46px"></div>
+      <div class="ff"><label>SLOW</label>  <input type="number" id="btp-ms" value="26" style="width:46px"></div>
+      <div class="ff"><label>SIG</label>   <input type="number" id="btp-mg" value="9"  style="width:46px"></div>
     </div>
-    <div class="ff"><label>RANGE</label>
-      <select id="scr-days">
-        <option value="7">7D</option><option value="14">14D</option>
-        <option value="30" selected>30D</option><option value="60">60D</option><option value="90">90D</option>
-      </select>
-    </div>
-    <button class="btn on" onclick="scrAddFilter()">+ ADD FILTER</button>
+    <div class="ff"><label>STOP%</label><input type="number" id="btp-sl" value="0" step="0.5" style="width:50px" placeholder="off"></div>
+    <div class="ff"><label>TP%</label>  <input type="number" id="btp-tp" value="0" step="0.5" style="width:50px" placeholder="off"></div>
+    <button class="btn on" id="bt-run-btn" onclick="runBT()">RUN</button>
   </div>
 
-  <!-- Active filters row -->
-  <div id="scr-filters" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;min-height:18px"></div>
+  <div class="sstrip" id="bt-strip" style="display:none">
+    <div class="ss"><div class="ss-l">RETURN</div>   <div class="ss-v" id="bm-ret">—</div></div>
+    <div class="ss"><div class="ss-l">BENCHMARK</div><div class="ss-v" id="bm-bh">—</div></div>
+    <div class="ss"><div class="ss-l">ALPHA</div>    <div class="ss-v" id="bm-alpha">—</div></div>
+    <div class="ss"><div class="ss-l">MAX DD</div>   <div class="ss-v dn" id="bm-dd">—</div></div>
+    <div class="ss"><div class="ss-l">SHARPE</div>   <div class="ss-v" id="bm-sharpe">—</div></div>
+    <div class="ss"><div class="ss-l">CALMAR</div>   <div class="ss-v" id="bm-calmar">—</div></div>
+    <div class="ss"><div class="ss-l">TRADES</div>   <div class="ss-v" id="bm-trades">—</div></div>
+    <div class="ss"><div class="ss-l">WIN RATE</div> <div class="ss-v" id="bm-wr">—</div></div>
+    <div class="ss"><div class="ss-l">FINAL EQ</div> <div class="ss-v" id="bm-eq">—</div></div>
+  </div>
 
-  <!-- Action row -->
-  <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-    <button class="btn on" onclick="runScreener()">▶ RUN SCREEN</button>
-    <button class="btn" onclick="scrClearFilters()">✕ CLEAR ALL</button>
-    <span style="color:var(--bdr2);font-size:11px">|</span>
-    <div class="ff" style="margin:0"><label>SAVE AS</label>
-      <input type="text" id="scr-tpl-name" placeholder="Template name…" style="width:140px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none">
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">EQUITY CURVE</span><span class="wsub" id="bt-chart-sub"></span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--org)">—</span> Strategy &nbsp;<span style="color:#555">- -</span> Buy&amp;Hold
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="bt-eq-c"></canvas></div>
     </div>
-    <button class="btn" onclick="scrSaveTemplate()">SAVE</button>
-    <span style="color:var(--bdr2);font-size:11px">|</span>
-    <select id="scr-tpl-load" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px;outline:none;min-width:140px">
-      <option value="">LOAD TEMPLATE…</option>
-    </select>
-    <button class="btn" onclick="scrLoadTemplate()">LOAD</button>
-    <span id="scr-count" style="margin-left:auto;font-size:10px;color:var(--txt3)"></span>
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">TRADE LOG</span></div></div>
+      <div class="scroll" id="bt-log"><div class="loading">RUN A BACKTEST</div></div>
+    </div>
   </div>
 </div>
 
-<!-- Results -->
-<div class="wrow" style="flex:1">
-  <div class="win" style="flex:1;border-right:0">
+<!-- ════════════════════════════════════════════════════════════
+     TAB 2 — MULTI-TICKER
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-multi" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>STRATEGY</label>
+      <select id="mt-str">
+        <option value="buy_hold">BUY &amp; HOLD</option>
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+      </select></div>
+    <div class="ff"><label>DAYS</label>
+      <select id="mt-days">
+        <option value="30">30D</option><option value="60">60D</option>
+        <option value="90" selected>90D</option><option value="180">180D</option>
+      </select></div>
+    <div class="ff"><label>RANK BY</label>
+      <select id="mt-rank">
+        <option value="total_return_pct">RETURN</option>
+        <option value="sharpe_ratio">SHARPE</option>
+        <option value="alpha_pct">ALPHA</option>
+        <option value="calmar_ratio">CALMAR</option>
+        <option value="win_rate">WIN RATE</option>
+        <option value="max_drawdown_pct">MAX DD (asc)</option>
+      </select></div>
+    <button class="btn on" onclick="runMulti()">RUN ALL TICKERS</button>
+    <span id="mt-prog" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
+  <div class="win" style="flex:1">
     <div class="wbar">
-      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SCREEN RESULTS</span><span class="wsub" id="scr-sub"></span></div>
-      <div class="wbar-r" style="gap:8px">
-        <span style="font-size:9px;color:var(--txt3)">SORT BY</span>
-        <select id="scr-sort" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:1px;outline:none" onchange="scrSort()">
-          <option value="chg_pct">CHG%</option><option value="sharpe">SHARPE</option>
-          <option value="volatility">VOL</option><option value="market_cap">MCAP</option>
-          <option value="volume">VOLUME</option><option value="vol_spike">VOL SPIKE</option>
-        </select>
-      </div>
+      <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">MULTI-TICKER RANKING</span></div>
+      <div class="wbar-r" style="font-size:9px;color:var(--txt3)" id="mt-sub"></div>
     </div>
     <div class="scroll">
-      <table class="dt" id="scr-tbl">
+      <table class="dt">
         <thead><tr>
           <th>TICKER</th><th>NAME</th>
-          <th class="r">PRICE</th><th class="r">CHG%</th>
-          <th class="r">VOL%pa</th><th class="r">SHARPE</th>
-          <th class="r">MAX DD</th><th class="r">MCAP</th>
-          <th class="r">VOL SPIKE</th><th class="r">RSI</th>
-          <th class="r">SPREAD%</th><th class="r">HHI</th>
-          <th></th>
+          <th class="r">RETURN</th><th class="r">BENCHMARK</th><th class="r">ALPHA</th>
+          <th class="r">MAX DD</th><th class="r">SHARPE</th><th class="r">CALMAR</th>
+          <th class="r">TRADES</th><th class="r">WIN%</th><th class="r">FINAL EQ</th>
         </tr></thead>
-        <tbody id="scr-tbody"><tr><td colspan="13" class="loading">CONFIGURE FILTERS AND RUN SCREEN</td></tr></tbody>
+        <tbody id="mt-tbody"><tr><td colspan="11" class="loading">SELECT STRATEGY AND RUN</td></tr></tbody>
       </table>
     </div>
   </div>
+</div>
 
-  <!-- Templates + summary sidebar -->
-  <div class="wcol" style="width:220px">
-    <div class="win" style="flex:1;border-bottom:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SAVED TEMPLATES</span></div></div>
-      <div class="scroll" id="scr-tpl-list"><div class="loading">NO TEMPLATES</div></div>
+<!-- ════════════════════════════════════════════════════════════
+     TAB 3 — WALK-FORWARD
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-wf" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="wf-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="wf-str">
+        <option value="sma_cross">SMA CROSS</option>
+        <option value="rsi">RSI REVERSAL</option>
+        <option value="macd">MACD</option>
+        <option value="bb_reversal">BB REVERSAL</option>
+      </select></div>
+    <div class="ff"><label>TOTAL DAYS</label>
+      <select id="wf-days">
+        <option value="60">60D</option><option value="90">90D</option>
+        <option value="180" selected>180D</option><option value="365">365D</option>
+      </select></div>
+    <div class="ff"><label>TRAIN / TEST</label>
+      <select id="wf-split">
+        <option value="0.5">50 / 50</option>
+        <option value="0.6">60 / 40</option>
+        <option value="0.7" selected>70 / 30</option>
+        <option value="0.8">80 / 20</option>
+      </select></div>
+    <button class="btn on" onclick="runWF()">RUN WALK-FORWARD</button>
+    <div id="wf-param-badge" style="display:none;align-self:flex-end;padding-bottom:4px;font-size:9px;color:var(--txt3);margin-left:4px">
+      PARAMS: <span id="wf-param-label" style="color:var(--yel);font-weight:700"></span>
+      <span onclick="wfClearParams()" style="cursor:pointer;color:var(--txt3);margin-left:4px" title="Clear injected params">✕</span>
     </div>
-    <div class="win" style="flex:1;min-height:40px;border-top:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RESULT STATS</span></div></div>
-      <div style="padding:8px;font-size:11px" id="scr-stats"><div class="loading">—</div></div>
+  </div>
+
+  <div class="sstrip" id="wf-strip" style="display:none">
+    <div class="ss"><div class="ss-l">TRAIN RET</div>  <div class="ss-v" id="wf-tr">—</div></div>
+    <div class="ss"><div class="ss-l">TEST RET</div>   <div class="ss-v" id="wf-te">—</div></div>
+    <div class="ss"><div class="ss-l">DEGRADATION</div><div class="ss-v" id="wf-deg">—</div></div>
+    <div class="ss"><div class="ss-l">TEST SHARPE</div><div class="ss-v" id="wf-tsh">—</div></div>
+    <div class="ss"><div class="ss-l">TEST MAX DD</div><div class="ss-v dn" id="wf-tdd">—</div></div>
+    <div class="ss"><div class="ss-l">OVERFIT RISK</div><div class="ss-v" id="wf-ovf">—</div></div>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">EQUITY CURVE — TRAIN vs TEST</span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--org)">—</span> Train &nbsp;
+          <span style="color:#00e5ff">—</span> Test &nbsp;
+          <span style="color:#444">- -</span> Buy&amp;Hold
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="wf-c"></canvas></div>
+    </div>
+    <div class="win" style="width:300px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">VALIDATION REPORT</span></div></div>
+      <div class="scroll" id="wf-report"><div class="loading">RUN WALK-FORWARD</div></div>
     </div>
   </div>
 </div>
+
+<!-- ════════════════════════════════════════════════════════════
+     TAB 4 — MONTE CARLO
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-mc" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="mc-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>HISTORY DAYS</label>
+      <select id="mc-days">
+        <option value="30">30D</option><option value="60" selected>60D</option>
+        <option value="90">90D</option><option value="180">180D</option>
+      </select></div>
+    <div class="ff"><label>HORIZON DAYS</label>
+      <select id="mc-hor">
+        <option value="10">10D</option><option value="20">20D</option>
+        <option value="30" selected>30D</option><option value="60">60D</option>
+      </select></div>
+    <div class="ff"><label>SIMULATIONS</label>
+      <select id="mc-sims">
+        <option value="500">500</option><option value="1000" selected>1000</option>
+        <option value="2000">2000</option>
+      </select></div>
+    <button class="btn on" onclick="runMC()">&#9654; SIMULATE</button>
+    <span id="mc-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
+
+  <div class="sstrip" id="mc-strip" style="display:none">
+    <div class="ss"><div class="ss-l">P5 (BEAR)</div>  <div class="ss-v dn" id="mc-p5">—</div></div>
+    <div class="ss"><div class="ss-l">P25</div>         <div class="ss-v" id="mc-p25">—</div></div>
+    <div class="ss"><div class="ss-l">MEDIAN P50</div>  <div class="ss-v wht" id="mc-p50">—</div></div>
+    <div class="ss"><div class="ss-l">P75</div>         <div class="ss-v" id="mc-p75">—</div></div>
+    <div class="ss"><div class="ss-l">P95 (BULL)</div>  <div class="ss-v up" id="mc-p95">—</div></div>
+    <div class="ss"><div class="ss-l">PROB PROFIT</div> <div class="ss-v" id="mc-pp">—</div></div>
+    <div class="ss"><div class="ss-l">PROB DD&gt;20%</div><div class="ss-v dn" id="mc-pdd">—</div></div>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SIMULATION PATHS</span><span class="wsub" id="mc-sub"></span></div>
+      </div>
+      <div class="chart-wrap"><canvas id="mc-paths-c"></canvas></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">OUTCOME DISTRIBUTION</span></div></div>
+      <div class="chart-wrap"><canvas id="mc-hist-c"></canvas></div>
+    </div>
+    <div class="win" style="width:200px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERCENTILES</span></div></div>
+      <div class="scroll" id="mc-detail"><div class="loading">Run simulation</div></div>
+    </div>
+  </div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════
+     TAB 5 — PARAM SENSITIVITY
+════════════════════════════════════════════════════════════ -->
+<div class="bt-view" id="bv-sens" style="display:none">
+  <div class="frow">
+    <div class="ff"><label>TICKER</label>
+      <select id="sens-tk" style="min-width:160px"><option value="">SELECT</option></select></div>
+    <div class="ff"><label>STRATEGY</label>
+      <select id="sens-str">
+        <option value="sma_cross">SMA CROSSOVER</option>
+        <option value="rsi">RSI REVERSAL</option>
+      </select></div>
+    <div class="ff"><label>DAYS</label>
+      <select id="sens-days">
+        <option value="60">60D</option><option value="90" selected>90D</option>
+        <option value="180">180D</option>
+      </select></div>
+    <button class="btn on" onclick="runSens()">&#9654; SCAN PARAMS</button>
+    <span id="sens-status" style="align-self:flex-end;font-size:9px;color:var(--txt3);padding-bottom:4px;margin-left:8px"></span>
+  </div>
+
+  <div class="wrow" style="flex:1;min-height:0">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PARAMETER HEATMAP</span><span class="wsub" id="sens-sub"></span></div>
+        <div class="wbar-r" style="font-size:9px;color:var(--txt3)">
+          <span style="color:var(--up)">&#9632;</span> Beats B&amp;H &nbsp;
+          <span style="color:var(--dn)">&#9632;</span> Below B&amp;H
+        </div>
+      </div>
+      <div class="scroll" style="padding:12px" id="sens-heatmap"><div class="loading">Run scan first</div></div>
+    </div>
+    <div class="win" style="width:260px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">BEST PARAMETERS</span></div></div>
+      <div class="scroll" id="sens-detail"><div class="loading">Run scan first</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ STYLES ════════ -->
+<style>
+.bt-tab {
+  padding: 4px 14px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  cursor: pointer; color: var(--txt3);
+  border-right: 1px solid var(--bdr); border-bottom: 2px solid transparent;
+}
+.bt-tab:hover  { color: var(--txt); background: var(--bg4); }
+.bt-tab.active { color: var(--wht); border-bottom-color: var(--org); background: var(--bg4); }
+.bt-view { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.bt-pg   { display: flex; gap: 6px; }
+</style>
+
+<!-- ════════ SCRIPT ════════ -->
 <script>
-(function(){
-let _filters = [];
-let _results = [];
-let _templates = JSON.parse(localStorage.getItem('scr_templates')||'{}');
+(function () {
 
-const METRIC_LABELS = {
-  chg_pct:'CHG%', volatility:'VOL%pa', sharpe:'SHARPE', max_dd:'MAX DD%',
-  market_cap:'MCAP', volume:'VOL', vol_spike:'VOL SPIKE', spread_pct:'SPREAD%',
-  liq_depth:'LIQ DEPTH', hhi:'HHI', top1_pct:'TOP1%', rsi:'RSI',
-  atr_pct:'ATR%', near_high:'NEAR HI', near_low:'NEAR LO'
-};
-const OP_LABELS = {gt:'>',lt:'<',gte:'≥',lte:'≤',eq:'='};
+/* chart registry — destroy before re-creating */
+const _C = {};
+function kc(id) { if (_C[id]) { _C[id].destroy(); delete _C[id]; } }
 
-window.PAGE_scr_onShow = function(){
-  renderTemplateList();
-  renderTemplateSelect();
+/* ── tab switching ────────────────────────────────────────────────────────── */
+window.btTab = function (el) {
+  document.querySelectorAll('.bt-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.bt-view').forEach(v => v.style.display = 'none');
+  el.classList.add('active');
+  const v = document.getElementById('bv-' + el.dataset.t);
+  if (v) v.style.display = 'flex';
 };
 
-window.scrAddFilter = function(){
-  const met = document.getElementById('scr-met').value;
-  const op  = document.getElementById('scr-op').value;
-  const val = parseFloat(document.getElementById('scr-val').value);
-  _filters.push({met, op, val});
-  renderFilterTags();
+/* ── lifecycle ────────────────────────────────────────────────────────────── */
+window.PAGE_bt_onShow = function () {
+  ['bt-tk','wf-tk','mc-tk','sens-tk'].forEach(id => populateSel(id));
 };
 
-window.scrClearFilters = function(){
-  _filters = [];
-  renderFilterTags();
+/* ── strategy param show/hide ─────────────────────────────────────────────── */
+window.btParamShow = function () {
+  ['sma','rsi','macd'].forEach(k => {
+    const el = document.getElementById('btp-' + k);
+    if (el) el.style.display = 'none';
+  });
+  const map = { sma_cross: 'sma', rsi: 'rsi', macd: 'macd' };
+  const v = map[document.getElementById('bt-str').value];
+  if (v) document.getElementById('btp-' + v).style.display = 'flex';
 };
 
-function renderFilterTags(){
-  document.getElementById('scr-filters').innerHTML = _filters.map((f,i)=>
-    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:var(--bg4);border:1px solid var(--bdr2);font-size:9px;color:var(--cyn)">
-      <span style="color:var(--txt2)">${METRIC_LABELS[f.met]}</span>
-      <span style="color:var(--org)">${OP_LABELS[f.op]}</span>
-      <span>${f.val}</span>
-      <span style="cursor:pointer;color:var(--txt3);margin-left:2px" onclick="scrRemoveFilter(${i})">✕</span>
-    </span>`
-  ).join('');
+function getSingleParams() {
+  const s = document.getElementById('bt-str').value;
+  const p = {
+    stop_loss_pct:   +document.getElementById('btp-sl').value || 0,
+    take_profit_pct: +document.getElementById('btp-tp').value || 0,
+  };
+  if (s === 'sma_cross') { p.fast = +document.getElementById('btp-sf').value; p.slow = +document.getElementById('btp-ss').value; }
+  if (s === 'rsi')       { p.rsi_period = +document.getElementById('btp-rp').value; p.overbought = +document.getElementById('btp-ob').value; p.oversold = +document.getElementById('btp-os').value; }
+  if (s === 'macd')      { p.fast = +document.getElementById('btp-mf').value; p.slow = +document.getElementById('btp-ms').value; p.signal = +document.getElementById('btp-mg').value; }
+  return p;
 }
 
-window.scrRemoveFilter = function(i){
-  _filters.splice(i,1);
-  renderFilterTags();
-};
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 1 — SINGLE TICKER
+══════════════════════════════════════════════════════════════════════════ */
+window.runBT = async function () {
+  const ticker = document.getElementById('bt-tk').value; if (!ticker) return;
+  const strat  = document.getElementById('bt-str').value;
+  const days   = +document.getElementById('bt-days').value;
+  const btn    = document.getElementById('bt-run-btn');
 
-window.runScreener = async function(){
-  if(!_filters.length && !confirm('No filters set — show all securities?')) return;
-  const days = +document.getElementById('scr-days').value;
-  document.getElementById('scr-tbody').innerHTML = `<tr><td colspan="13" class="loading">SCREENING ${BB.secs.length} SECURITIES…</td></tr>`;
-  document.getElementById('scr-count').textContent = '';
+  btn.textContent = '…'; btn.disabled = true;
+  document.getElementById('bt-log').innerHTML = '<div class="loading">RUNNING…</div>';
 
-  // Fetch analytics for all securities in parallel
-  const allData = await Promise.all(BB.secs.map(async s => {
-    const [statR, liqR, holdR] = await Promise.all([
-      api(`/api/ticker_stats/${s.ticker}?days=${days}`),
-      api(`/api/liquidity/${s.ticker}`),
-      api(`/api/holder_intel/${s.ticker}`),
-    ]);
-    const st = statR.ok ? statR.d : {};
-    const lq = liqR.ok  ? liqR.d  : {};
-    const hd = holdR.ok ? holdR.d  : {};
-    const rsiArr = (st.rsi14||[]).filter(v=>v!=null);
-    const lastRsi = rsiArr.length ? rsiArr[rsiArr.length-1] : null;
-    const atr = (st.atr14||[]).filter(v=>v!=null);
-    const lastAtr = atr.length ? atr[atr.length-1] : null;
-    const lastPrice = st.candles?.length ? st.candles[st.candles.length-1].close : s.market_price;
-    const atrPct = lastAtr && lastPrice ? round4(lastAtr/lastPrice*100) : null;
-    return {
-      ticker:      s.ticker,
-      name:        s.full_name || '',
-      price:       lastPrice || 0,
-      chg_pct:     st.price_chg_pct || 0,
-      volatility:  st.volatility_ann_pct || 0,
-      sharpe:      st.sharpe || 0,
-      max_dd:      st.max_drawdown_pct || 0,
-      market_cap:  round4((lastPrice||0) * (s.total_shares||0)),
-      volume:      (st.candles||[]).reduce((sum,c)=>sum+(c.volume||0),0),
-      vol_spike:   st.vol_spike || 0,
-      spread_pct:  lq.spread_pct || null,
-      liq_depth:   (lq.total_bid_qty||0)+(lq.total_ask_qty||0),
-      hhi:         hd.hhi || null,
-      top1_pct:    hd.top1_pct || null,
-      rsi:         lastRsi,
-      atr_pct:     atrPct,
-      near_high:   st.near_high || false,
-      near_low:    st.near_low  || false,
-      frozen:      s.frozen || false,
-    };
-  }));
+  const r = await apiPost('/api/backtest', { ticker, days, strategy: strat, params: getSingleParams() });
+  btn.textContent = 'RUN'; btn.disabled = false;
 
-  // Apply filters
-  _results = allData.filter(row => {
-    return _filters.every(f => {
-      const v = row[f.met];
-      if(v === null || v === undefined) return false;
-      switch(f.op){
-        case 'gt':  return v >  f.val;
-        case 'lt':  return v <  f.val;
-        case 'gte': return v >= f.val;
-        case 'lte': return v <= f.val;
-        case 'eq':  return Boolean(v) === Boolean(f.val);
-        default:    return true;
-      }
-    });
-  });
-
-  renderResults();
-  renderStats();
-  const fc = _filters.length ? _filters.map(f=>`${METRIC_LABELS[f.met]} ${OP_LABELS[f.op]} ${f.val}`).join(' · ') : 'ALL SECURITIES';
-  document.getElementById('scr-sub').textContent = ` — ${fc}`;
-  document.getElementById('scr-count').textContent = `${_results.length} / ${allData.length} MATCHED`;
-};
-
-function renderResults(){
-  const sortCol = document.getElementById('scr-sort').value;
-  const sorted = [..._results].sort((a,b)=>(b[sortCol]||0)-(a[sortCol]||0));
-  const tb = document.getElementById('scr-tbody'); tb.innerHTML = '';
-  if(!sorted.length){
-    tb.innerHTML = '<tr><td colspan="13" class="loading">NO SECURITIES MATCHED</td></tr>';
+  if (!r.ok) {
+    document.getElementById('bt-log').innerHTML = `<div class="alert err">${r.d?.detail || 'Error'}</div>`;
     return;
   }
-  sorted.forEach(r => {
+
+  const d = r.d, m = d.metrics;
+
+  /* metrics strip */
+  document.getElementById('bt-strip').style.display = 'flex';
+  document.getElementById('bt-chart-sub').textContent = ` — ${ticker} · ${strat.replace(/_/g,' ').toUpperCase()} · ${days}D`;
+
+  function sm(id, val, isP) {
+    const el = document.getElementById(id);
+    el.textContent = isP ? (val >= 0 ? '+' : '') + val + '%' : val;
+    if (typeof val === 'number') el.style.color = gc(val);
+  }
+  sm('bm-ret',   m.total_return_pct,     true);
+  sm('bm-bh',    m.benchmark_return_pct, true);
+  sm('bm-alpha', m.alpha_pct,            true);
+  document.getElementById('bm-dd').textContent     = '-' + m.max_drawdown_pct + '%';
+  sm('bm-sharpe', m.sharpe_ratio, false);
+  document.getElementById('bm-calmar').textContent = m.calmar_ratio;
+  document.getElementById('bm-trades').textContent = m.num_trades;
+  document.getElementById('bm-wr').textContent     = m.win_rate + '%';
+  document.getElementById('bm-eq').textContent     = f(m.final_equity);
+
+  /* equity chart */
+  kc('bt-eq-c');
+  _C['bt-eq-c'] = new Chart(document.getElementById('bt-eq-c'), {
+    type: 'line',
+    data: {
+      labels: d.dates,
+      datasets: [
+        { label: 'Strategy', data: d.equity_curve, borderColor: '#cc9900', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2 },
+        { label: 'Buy&Hold', data: d.bh_curve,     borderColor: '#444',    borderWidth: 1.5, borderDash: [5,4], pointRadius: 0, fill: false, tension: 0.2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...TT } },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { maxTicksLimit: 8, maxRotation: 0, color: '#444' } },
+        y: { grid: { color: '#1a1a1a' }, position: 'right', ticks: { color: '#444' } },
+      },
+    },
+  });
+
+  /* trade log */
+  if (!d.trades.length) {
+    document.getElementById('bt-log').innerHTML = '<div class="loading">NO TRADES</div>';
+    return;
+  }
+  const ac = a => a === 'BUY' ? 'var(--up)' : a === 'SELL' ? 'var(--dn)' : 'var(--yel)';
+  document.getElementById('bt-log').innerHTML = `
+    <table class="dt"><thead><tr>
+      <th>#</th><th>DATE</th><th>ACTION</th>
+      <th class="r">PRICE</th><th class="r">QTY</th><th class="r">VALUE</th>
+    </tr></thead><tbody>
+    ${d.trades.map((t, i) => `<tr>
+      <td class="dim">${i+1}</td><td>${t.date}</td>
+      <td style="color:${ac(t.action)};font-weight:700">${t.action}</td>
+      <td class="r wht">${f(t.price)}</td>
+      <td class="r dim">${t.qty.toLocaleString()}</td>
+      <td class="r">${f(t.value)}</td>
+    </tr>`).join('')}
+    </tbody></table>`;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 2 — MULTI-TICKER
+══════════════════════════════════════════════════════════════════════════ */
+window.runMulti = async function () {
+  const strat   = document.getElementById('mt-str').value;
+  const days    = +document.getElementById('mt-days').value;
+  const rankBy  = document.getElementById('mt-rank').value;
+  // Filter to NER-only: TSE tickers have no OHLCV history compatible with our backtest engine
+  const tickers = (BB.secs || []).filter(s => !s.ticker.startsWith('TSE:')).map(s => s.ticker);
+  const tb      = document.getElementById('mt-tbody');
+
+  tb.innerHTML = `<tr><td colspan="11" class="loading">RUNNING ON ${tickers.length} TICKERS…</td></tr>`;
+  document.getElementById('mt-prog').textContent = '0/' + tickers.length;
+
+  const results = []; let done = 0;
+  await Promise.all(tickers.map(async ticker => {
+    const r = await apiPost('/api/backtest', { ticker, days, strategy: strat, params: {} });
+    done++;
+    document.getElementById('mt-prog').textContent = done + '/' + tickers.length;
+    if (r.ok) results.push({
+      ticker,
+      m: r.d.metrics,
+      name: (BB.secs.find(s => s.ticker === ticker) || {}).full_name || '',
+    });
+  }));
+
+  const asc = ['max_drawdown_pct'].includes(rankBy);
+  results.sort((a, b) => asc ? a.m[rankBy] - b.m[rankBy] : b.m[rankBy] - a.m[rankBy]);
+
+  document.getElementById('mt-sub').textContent =
+    `${results.length} tickers · ranked by ${rankBy.replace(/_/g,' ').toUpperCase()}`;
+  document.getElementById('mt-prog').textContent = '';
+
+  tb.innerHTML = '';
+  results.forEach(res => {
+    const m = res.m;
     const tr = document.createElement('tr');
-    tr.className = r.chg_pct > 0.5 ? 'up-row' : r.chg_pct < -0.5 ? 'dn-row' : '';
+    tr.style.cursor = 'pointer';
     tr.innerHTML = `
-      <td><strong class="wht">${r.ticker}</strong>${r.frozen?' <span class="badge b-cyn" style="font-size:7px">FRZ</span>':''}</td>
-      <td class="dim" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;font-size:10px">${r.name}</td>
-      <td class="r wht">${f(r.price)}</td>
-      <td class="r ${r.chg_pct>=0?'up':'dn'}">${fp(r.chg_pct)}</td>
-      <td class="r yel">${r.volatility?r.volatility.toFixed(1)+'%':'—'}</td>
-      <td class="r ${r.sharpe>=0?'up':'dn'}">${f(r.sharpe,2)}</td>
-      <td class="r dn">-${r.max_dd}%</td>
-      <td class="r dim">${fk(r.market_cap)}</td>
-      <td class="r ${r.vol_spike>2?'org':r.vol_spike>1.5?'yel':'dim'}">${r.vol_spike?r.vol_spike.toFixed(1)+'x':'—'}</td>
-      <td class="r ${r.rsi!=null?(r.rsi>70?'dn':r.rsi<30?'up':'dim'):'dim'}">${r.rsi!=null?r.rsi.toFixed(0):'—'}</td>
-      <td class="r ${r.spread_pct!=null?(r.spread_pct<0.1?'up':r.spread_pct<0.5?'yel':'dn'):'dim'}">${r.spread_pct!=null?r.spread_pct.toFixed(3)+'%':'—'}</td>
-      <td class="r ${r.hhi!=null?(r.hhi<1500?'up':r.hhi<2500?'yel':'dn'):'dim'}">${r.hhi!=null?r.hhi.toFixed(0):'—'}</td>
-      <td>
-        <span class="wbtn" onclick="event.stopPropagation();sw('tkr');setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load('${r.ticker}'),200)" title="Chart">📈</span>
-        <span class="wbtn" onclick="event.stopPropagation();addToWatchlist('${r.ticker}')" title="Watch">★</span>
-        <button style="font-size:8px;padding:1px 4px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700;margin-left:2px"
-          onclick="event.stopPropagation();scrQuickOrder('${r.ticker}','buy')">B</button>
-        <button style="font-size:8px;padding:1px 4px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700"
-          onclick="event.stopPropagation();scrQuickOrder('${r.ticker}','sell')">S</button>
-      </td>`;
-    tr.onclick = () => { sw('tkr'); setTimeout(()=>window.PAGE_tkr_load&&PAGE_tkr_load(r.ticker),200); };
+      <td><strong class="wht">${res.ticker}</strong></td>
+      <td class="dim" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${res.name}</td>
+      <td class="r ${m.total_return_pct  >= 0 ? 'up' : 'dn'}">${fp(m.total_return_pct)}</td>
+      <td class="r dim">${fp(m.benchmark_return_pct)}</td>
+      <td class="r ${m.alpha_pct         >= 0 ? 'up' : 'dn'}">${fp(m.alpha_pct)}</td>
+      <td class="r dn">-${m.max_drawdown_pct}%</td>
+      <td class="r ${m.sharpe_ratio      >= 0 ? 'up' : 'dn'}">${f(m.sharpe_ratio,2)}</td>
+      <td class="r ${m.calmar_ratio      >= 0 ? 'up' : 'dn'}">${f(m.calmar_ratio,2)}</td>
+      <td class="r dim">${m.num_trades}</td>
+      <td class="r">${m.win_rate}%</td>
+      <td class="r wht">${f(m.final_equity)}</td>`;
+    tr.onclick = () => { sw('tkr'); setTimeout(() => PAGE_tkr_load && PAGE_tkr_load(res.ticker), 200); };
     tb.appendChild(tr);
   });
-}
-
-function renderStats(){
-  if(!_results.length){ document.getElementById('scr-stats').innerHTML='<div class="loading">—</div>'; return; }
-  const chgs = _results.map(r=>r.chg_pct), vols = _results.map(r=>r.volatility).filter(v=>v>0);
-  const sharpes = _results.map(r=>r.sharpe);
-  const avgChg = chgs.reduce((s,v)=>s+v,0)/chgs.length;
-  const avgVol = vols.length ? vols.reduce((s,v)=>s+v,0)/vols.length : 0;
-  const avgSh  = sharpes.reduce((s,v)=>s+v,0)/sharpes.length;
-  const ups = chgs.filter(c=>c>0).length, dns = chgs.filter(c=>c<0).length;
-  document.getElementById('scr-stats').innerHTML=`
-    <div class="rm"><span class="k">MATCHED</span><span class="v wht">${_results.length}</span></div>
-    <div class="rm"><span class="k">ADVANCING</span><span class="v up">${ups}</span></div>
-    <div class="rm"><span class="k">DECLINING</span><span class="v dn">${dns}</span></div>
-    <div class="rm"><span class="k">AVG CHG</span><span class="v" style="color:${gc(avgChg)}">${fp(avgChg)}</span></div>
-    <div class="rm"><span class="k">AVG VOL</span><span class="v yel">${avgVol.toFixed(1)}%</span></div>
-    <div class="rm"><span class="k">AVG SHARPE</span><span class="v" style="color:${gc(avgSh)}">${f(avgSh,2)}</span></div>`;
-}
-
-window.scrSort = function(){ if(_results.length) renderResults(); };
-
-// ── Templates ─────────────────────────────────────────────────────────────────
-window.scrSaveTemplate = function(){
-  const name = document.getElementById('scr-tpl-name').value.trim();
-  if(!name || !_filters.length) return;
-  _templates[name] = {filters: [..._filters], days: +document.getElementById('scr-days').value};
-  localStorage.setItem('scr_templates', JSON.stringify(_templates));
-  document.getElementById('scr-tpl-name').value = '';
-  renderTemplateList();
-  renderTemplateSelect();
 };
 
-window.scrLoadTemplate = function(){
-  const name = document.getElementById('scr-tpl-load').value; if(!name) return;
-  const tpl = _templates[name]; if(!tpl) return;
-  _filters = [...tpl.filters];
-  document.getElementById('scr-days').value = tpl.days || 30;
-  renderFilterTags();
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 3 — WALK-FORWARD
+══════════════════════════════════════════════════════════════════════════ */
+
+// Injected params from Param Sensitivity tab
+let _wfInjected = null;  // { strategy, params, label }
+
+window.wfInjectParams = function (strategy, params, label, ticker) {
+  _wfInjected = { strategy, params, label };
+  // Switch to WF tab
+  const tab = document.querySelector('.bt-tab[data-t="wf"]');
+  if (tab) btTab(tab);
+  // Pre-fill ticker + strategy selector (display only — actual value comes from _wfInjected)
+  if (ticker) document.getElementById('wf-tk').value = ticker;
+  document.getElementById('wf-str').value = strategy;
+  document.getElementById('wf-str').disabled = true;  // locked to injected strategy
+  // Show badge
+  document.getElementById('wf-param-badge').style.display = 'flex';
+  document.getElementById('wf-param-badge').style.alignItems = 'flex-end';
+  document.getElementById('wf-param-label').textContent = label;
 };
 
-window.scrDeleteTemplate = function(name){
-  delete _templates[name];
-  localStorage.setItem('scr_templates', JSON.stringify(_templates));
-  renderTemplateList();
-  renderTemplateSelect();
+window.wfClearParams = function () {
+  _wfInjected = null;
+  document.getElementById('wf-param-badge').style.display = 'none';
+  document.getElementById('wf-param-label').textContent = '';
+  document.getElementById('wf-str').disabled = false;
 };
 
-function renderTemplateList(){
-  const keys = Object.keys(_templates);
-  document.getElementById('scr-tpl-list').innerHTML = keys.length
-    ? keys.map(k=>`
-      <div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5);display:flex;justify-content:space-between;align-items:center;font-size:10px;cursor:pointer" onclick="scrQuickLoad('${k}')">
-        <div>
-          <div class="wht" style="font-weight:700">${k}</div>
-          <div class="dim" style="font-size:9px">${_templates[k].filters.length} filter(s) · ${_templates[k].days}D</div>
-        </div>
-        <span class="wbtn" onclick="event.stopPropagation();scrDeleteTemplate('${k}')">✕</span>
-      </div>`).join('')
-    : '<div class="loading">NO TEMPLATES SAVED</div>';
-}
+window.runWF = async function () {
+  const ticker    = document.getElementById('wf-tk').value; if (!ticker) return;
+  // Use injected strategy+params if present, otherwise defaults
+  const strat     = _wfInjected ? _wfInjected.strategy : document.getElementById('wf-str').value;
+  const wfParams  = _wfInjected ? _wfInjected.params   : {};
+  const totalDays = +document.getElementById('wf-days').value;
+  const split     = parseFloat(document.getElementById('wf-split').value);
+  const trainDays = Math.round(totalDays * split);
+  const testDays  = totalDays - trainDays;
 
-function renderTemplateSelect(){
-  const sel = document.getElementById('scr-tpl-load');
-  sel.innerHTML = '<option value="">LOAD TEMPLATE…</option>' +
-    Object.keys(_templates).map(k=>`<option value="${k}">${k}</option>`).join('');
-}
+  document.getElementById('wf-report').innerHTML = '<div class="loading">RUNNING…</div>';
 
-window.scrQuickLoad = function(name){
-  const tpl = _templates[name]; if(!tpl) return;
-  _filters = [...tpl.filters];
-  document.getElementById('scr-days').value = tpl.days || 30;
-  renderFilterTags();
-  runScreener();
+  const [trainR, testR] = await Promise.all([
+    apiPost('/api/backtest', { ticker, days: trainDays, strategy: strat, params: wfParams }),
+    apiPost('/api/backtest', { ticker, days: testDays,  strategy: strat, params: wfParams }),
+  ]);
+
+  if (!trainR.ok || !testR.ok) {
+    document.getElementById('wf-report').innerHTML = '<div class="alert err">Failed to fetch data</div>';
+    return;
+  }
+
+  const tm = trainR.d.metrics, te = testR.d.metrics;
+  const deg    = +(tm.total_return_pct - te.total_return_pct).toFixed(2);
+  const overfit = deg > 20 ? 'HIGH' : deg > 10 ? 'MODERATE' : 'LOW';
+  const ofColor = deg > 20 ? 'var(--dn)' : deg > 10 ? 'var(--yel)' : 'var(--up)';
+
+  document.getElementById('wf-strip').style.display = 'flex';
+  const S = (id, v, c) => { const el = document.getElementById(id); el.textContent = v; if (c) el.style.color = c; };
+  S('wf-tr',  fp(tm.total_return_pct),  gc(tm.total_return_pct));
+  S('wf-te',  fp(te.total_return_pct),  gc(te.total_return_pct));
+  S('wf-deg', fp(deg),                  deg > 10 ? 'var(--dn)' : 'var(--up)');
+  S('wf-tsh', f(te.sharpe_ratio, 2),    gc(te.sharpe_ratio));
+  S('wf-tdd', '-' + te.max_drawdown_pct + '%');
+  S('wf-ovf', overfit, ofColor);
+
+  /* Two independent equity curves both rebased to 10000 — plotted on their own x-axes.
+     We show them side-by-side: train dates then test dates, each starting at 10000. */
+  const allDates = [...trainR.d.dates, ...testR.d.dates];
+  // Train: actual curve, then nulls
+  const trainEq  = [...trainR.d.equity_curve, ...new Array(testR.d.dates.length).fill(null)];
+  // Test: nulls, then test curve starting from 10000 (independent)
+  const testEq   = [...new Array(trainR.d.dates.length).fill(null), ...testR.d.equity_curve];
+  // B&H for each period both rebased to 10000
+  const bhTrainBase = trainR.d.closes[0] || 1;
+  const bhTestBase  = testR.d.closes[0]  || 1;
+  const bhAll = [
+    ...trainR.d.closes.map(p => +(10000 * p / bhTrainBase).toFixed(2)),
+    ...testR.d.closes.map(p  => +(10000 * p / bhTestBase).toFixed(2)),
+  ];
+  // Add a vertical separator line via annotation or a null-gap dataset
+  const sepIdx = trainR.d.dates.length - 1;
+
+  kc('wf-c');
+  _C['wf-c'] = new Chart(document.getElementById('wf-c'), {
+    type: 'line',
+    data: {
+      labels: allDates,
+      datasets: [
+        { label: 'Train', data: trainEq, borderColor: '#ff8c00', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2, spanGaps: false },
+        { label: 'Test',  data: testEq,  borderColor: '#00e5ff', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.2, spanGaps: false },
+        { label: 'B&H',   data: bhAll,   borderColor: '#333',    borderWidth: 1, borderDash: [5,4], pointRadius: 0, fill: false, tension: 0.2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...TT } },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { maxTicksLimit: 8, maxRotation: 0, color: '#444' } },
+        y: { grid: { color: '#1a1a1a' }, position: 'right', ticks: { color: '#444' } },
+      },
+    },
+  });
+
+  document.getElementById('wf-report').innerHTML = `
+    <div style="padding:10px;font-size:11px">
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:8px">TRAIN PERIOD (${trainDays}D)</div>
+    <div class="rm"><span class="k">RETURN</span> <span class="v" style="color:${gc(tm.total_return_pct)}">${fp(tm.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(tm.sharpe_ratio)}">${f(tm.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span> <span class="v dn">-${tm.max_drawdown_pct}%</span></div>
+    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${tm.num_trades}</span></div>
+    <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">TEST PERIOD (${testDays}D)</div>
+    <div class="rm"><span class="k">RETURN</span> <span class="v" style="color:${gc(te.total_return_pct)}">${fp(te.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(te.sharpe_ratio)}">${f(te.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span> <span class="v dn">-${te.max_drawdown_pct}%</span></div>
+    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${te.num_trades}</span></div>
+    <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">VERDICT</div>
+    <div class="rm"><span class="k">DEGRADATION</span> <span class="v" style="color:${gc(-deg)}">${fp(deg)}</span></div>
+    <div class="rm"><span class="k">OVERFIT RISK</span><span class="v" style="color:${ofColor}">${overfit}</span></div>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">
+      ${overfit==='HIGH' ? 'Significant decay in unseen data — likely overfit.' :
+        overfit==='MODERATE' ? 'Moderate decay — use caution in live deployment.' :
+        'Strategy generalises well to unseen data.'}
+    </div>
+    </div>`;
 };
 
-function addToWatchlist(ticker){
-  if(!BB.watchlist.find(w=>w.ticker===ticker))
-    BB.watchlist.push({ticker,price:null,prev:null,hi:null,lo:null,rhi:null,rlo:null,rsi:null});
-  sw('wl');
-}
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 4 — MONTE CARLO
+══════════════════════════════════════════════════════════════════════════ */
+window.runMC = async function () {
+  const ticker  = document.getElementById('mc-tk').value; if (!ticker) return;
+  const days    = +document.getElementById('mc-days').value;
+  const horizon = +document.getElementById('mc-hor').value;
+  const sims    = +document.getElementById('mc-sims').value;
 
-// Built-in starter templates
-if(!Object.keys(_templates).length){
-  _templates = {
-    'HIGH SHARPE': {filters:[{met:'sharpe',op:'gt',val:1}], days:30},
-    'OVERSOLD RSI': {filters:[{met:'rsi',op:'lt',val:35}], days:30},
-    'VOLUME SPIKE': {filters:[{met:'vol_spike',op:'gt',val:2}], days:7},
-    'LOW SPREAD': {filters:[{met:'spread_pct',op:'lt',val:0.2},{met:'liq_depth',op:'gt',val:1000}], days:7},
-    'CONCENTRATED': {filters:[{met:'hhi',op:'gt',val:2500}], days:30},
-    'NEAR HIGH': {filters:[{met:'near_high',op:'eq',val:1}], days:30},
+  document.getElementById('mc-status').textContent = 'Simulating…';
+  document.getElementById('mc-detail').innerHTML   = '<div class="loading">Running…</div>';
+
+  const r = await apiPost('/api/monte_carlo', { ticker, days, horizon, sims });
+  if (!r.ok) {
+    document.getElementById('mc-status').textContent = 'Error: ' + (r.d?.detail || 'failed');
+    return;
+  }
+
+  const d = r.d;
+  document.getElementById('mc-strip').style.display = 'flex';
+
+  const setv = (id, val) => {
+    const el = document.getElementById(id);
+    el.textContent = f(val, 4);
+    el.style.color = gc(val - d.start);
   };
-  localStorage.setItem('scr_templates', JSON.stringify(_templates));
-  renderTemplateList();
-  renderTemplateSelect();
-}
-window.scrQuickOrder = function(ticker, side) {
-  sw('ord');
-  setTimeout(()=>{
-    const tkSel=document.getElementById('op-tk');
-    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
-    if(window.opSide) opSide(side);
-  }, 300);
+  setv('mc-p5', d.p5); setv('mc-p25', d.p25); setv('mc-p50', d.p50);
+  setv('mc-p75', d.p75); setv('mc-p95', d.p95);
+  document.getElementById('mc-pp').textContent  = d.prob_profit + '%';
+  document.getElementById('mc-pp').style.color  = d.prob_profit > 50 ? 'var(--up)' : 'var(--dn)';
+  document.getElementById('mc-pdd').textContent = d.prob_dd20 + '%';
+  document.getElementById('mc-pdd').style.color = d.prob_dd20 > 30 ? 'var(--dn)' : 'var(--up)';
+  document.getElementById('mc-sub').textContent =
+    ` — ${ticker} · ${d.sims} sims · ${d.horizon}D · μ=${d.mu_daily?.toFixed(3)}% σ=${d.std_daily?.toFixed(3)}%`;
+
+  /* paths chart */
+  kc('mc-paths-c');
+  const labels = Array.from({ length: d.horizon + 1 }, (_, i) => 'D' + i);
+  const pathDS = d.paths.slice(0, 50).map((path, i) => ({
+    data: path,
+    borderColor: `rgba(255,140,0,${i === 0 ? 0.8 : 0.07})`,
+    borderWidth: i === 0 ? 1.5 : 0.8,
+    pointRadius: 0, fill: false, tension: 0.2,
+  }));
+  pathDS.push({ data: Array(d.horizon+1).fill(d.p95),   borderColor: 'rgba(0,200,83,.5)',    borderWidth: 1, borderDash: [4,3], pointRadius: 0, fill: false });
+  pathDS.push({ data: Array(d.horizon+1).fill(d.p50),   borderColor: 'rgba(255,214,0,.7)',   borderWidth: 1.5, borderDash: [3,3], pointRadius: 0, fill: false });
+  pathDS.push({ data: Array(d.horizon+1).fill(d.p5),    borderColor: 'rgba(244,67,54,.5)',   borderWidth: 1, borderDash: [4,3], pointRadius: 0, fill: false });
+  pathDS.push({ data: Array(d.horizon+1).fill(d.start), borderColor: 'rgba(100,100,100,.6)', borderWidth: 1, pointRadius: 0, fill: false });
+  _C['mc-paths-c'] = new Chart(document.getElementById('mc-paths-c'), {
+    type: 'line',
+    data: { labels, datasets: pathDS },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { ...TT } },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { color: '#444', maxTicksLimit: 8 } },
+        y: { grid: { color: '#1a1a1a' }, position: 'right', ticks: { color: '#444' } },
+      },
+    },
+  });
+
+  /* distribution histogram */
+  kc('mc-hist-c');
+  const ends = d.sim_ends || [];
+  const bins = 40, mn = ends[0]||0, mx = ends[ends.length-1]||1, step = (mx-mn)/bins||0.001;
+  const cnts = Array(bins).fill(0);
+  ends.forEach(v => { const bi = Math.min(Math.floor((v-mn)/step), bins-1); cnts[bi]++; });
+  const hlabels = Array.from({ length: bins }, (_, i) => f(mn + i*step, 2));
+  const hColors = hlabels.map(l => parseFloat(l) >= d.start ? 'rgba(0,200,83,.7)' : 'rgba(244,67,54,.7)');
+  _C['mc-hist-c'] = mkBar(document.getElementById('mc-hist-c'), hlabels, cnts, hColors);
+
+  const pct = (v) => { const c = ((v - d.start) / d.start * 100).toFixed(2); return (c>=0?'+':'')+c+'%'; };
+  document.getElementById('mc-detail').innerHTML = `
+    <div style="padding:10px;font-size:10px">
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">PRICE OUTCOMES</div>
+    <div class="rm"><span class="k">START</span>          <span class="v wht">${f(d.start,4)}</span></div>
+    <div class="rm"><span class="k">P5  (bear)</span>    <span class="v dn">${f(d.p5,4)} (${pct(d.p5)})</span></div>
+    <div class="rm"><span class="k">P25</span>            <span class="v">${f(d.p25,4)}</span></div>
+    <div class="rm"><span class="k">P50 (median)</span>  <span class="v yel">${f(d.p50,4)} (${pct(d.p50)})</span></div>
+    <div class="rm"><span class="k">P75</span>            <span class="v">${f(d.p75,4)}</span></div>
+    <div class="rm"><span class="k">P95 (bull)</span>    <span class="v up">${f(d.p95,4)} (${pct(d.p95)})</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0"></div>
+    <div class="rm"><span class="k">PROB PROFIT</span>   <span class="v ${d.prob_profit>50?'up':'dn'}">${d.prob_profit}%</span></div>
+    <div class="rm"><span class="k">PROB DD&gt;20%</span><span class="v ${d.prob_dd20>30?'dn':'up'}">${d.prob_dd20}%</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0"></div>
+    <div class="rm"><span class="k">DAILY μ</span>       <span class="v dim">${d.mu_daily?.toFixed(4)}%</span></div>
+    <div class="rm"><span class="k">DAILY σ</span>       <span class="v dim">${d.std_daily?.toFixed(4)}%</span></div>
+    </div>`;
+
+  document.getElementById('mc-status').textContent = `${d.sims} simulations complete · ${d.horizon}D horizon`;
 };
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB 5 — PARAM SENSITIVITY
+══════════════════════════════════════════════════════════════════════════ */
+window.runSens = async function () {
+  const ticker   = document.getElementById('sens-tk').value; if (!ticker) return;
+  const strategy = document.getElementById('sens-str').value;
+  const days     = +document.getElementById('sens-days').value;
+
+  document.getElementById('sens-status').textContent = 'Scanning parameters…';
+  document.getElementById('sens-detail').innerHTML   = '<div class="loading">Running…</div>';
+  document.getElementById('sens-heatmap').innerHTML  = '<div class="loading">Running…</div>';
+
+  const r = await apiPost('/api/param_sensitivity', { ticker, strategy, days });
+  if (!r.ok) {
+    document.getElementById('sens-status').textContent = 'Error: ' + (r.d?.detail || 'failed');
+    return;
+  }
+
+  const d = r.d;
+  document.getElementById('sens-sub').textContent =
+    ` — ${ticker} · ${strategy.replace('_',' ').toUpperCase()} · B&H: ${fp(d.bh_return)} · ${d.candles} candles`;
+
+  /* heatmap */
+  const rows = d.rows, cols = d.cols, rowsData = d.rows_data || [];
+  const allVals = rowsData.flat().filter(v => v != null);
+  const rng = (Math.max(...allVals) - Math.min(...allVals)) || 1;
+  let best = { ret: -Infinity, row: null, col: null };
+
+  let html = `<table style="border-collapse:collapse;font-size:10px">
+    <thead><tr>
+      <th style="padding:4px 10px;color:var(--txt3);text-align:left">${d.row_label}</th>
+      ${cols.map(c => `<th style="padding:4px 10px;color:var(--txt3);text-align:center">${c}</th>`).join('')}
+    </tr></thead><tbody>`;
+
+  rows.forEach((rowVal, ri) => {
+    html += `<tr><td style="padding:4px 10px;color:var(--txt3);font-weight:700;white-space:nowrap">${rowVal}</td>`;
+    cols.forEach((colVal, ci) => {
+      const v = rowsData[ri]?.[ci];
+      if (v == null) { html += `<td style="padding:6px 10px;background:#111;color:#444;text-align:center">—</td>`; return; }
+      if (v > best.ret) best = { ret: v, row: rowVal, col: colVal };
+      const isPos = v >= d.bh_return;
+      const intensity = Math.min(Math.abs((v - d.bh_return) / rng) * 2, 0.85);
+      const bg = isPos ? `rgba(0,200,83,${intensity})` : `rgba(244,67,54,${intensity})`;
+      html += `<td style="padding:6px 10px;background:${bg};text-align:center;font-weight:700;color:${intensity>0.4?'#fff':'#999'};cursor:pointer"
+        title="${d.row_label}=${rowVal}, ${d.col_label}=${colVal}: ${v}%">${v>=0?'+':''}${v}%</td>`;
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3)">
+      <span style="color:var(--up)">&#9632;</span> Beats B&H (${fp(d.bh_return)})
+      &nbsp;<span style="color:var(--dn)">&#9632;</span> Below B&H &nbsp;· Darker = stronger signal
+    </div>`;
+  document.getElementById('sens-heatmap').innerHTML = html;
+
+  /* best params */
+  const beatBH     = +(best.ret - d.bh_return).toFixed(2);
+  const robustness = allVals.length
+    ? (allVals.filter(v => v > d.bh_return).length / allVals.length * 100).toFixed(0)
+    : 0;
+
+  document.getElementById('sens-detail').innerHTML = `
+    <div style="padding:10px;font-size:10px">
+    <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">OPTIMAL PARAMETERS</div>
+    <div class="rm"><span class="k">${d.row_label}</span>       <span class="v wht">${best.row}</span></div>
+    <div class="rm"><span class="k">${d.col_label}</span>       <span class="v wht">${best.col}</span></div>
+    <div class="rm"><span class="k">STRATEGY RET</span>    <span class="v ${best.ret>=0?'up':'dn'}">${fp(best.ret)}</span></div>
+    <div class="rm"><span class="k">B&amp;H RET</span>         <span class="v dim">${fp(d.bh_return)}</span></div>
+    <div class="rm"><span class="k">ALPHA vs B&amp;H</span>    <span class="v ${beatBH>=0?'up':'dn'}">${fp(beatBH)}</span></div>
+    <div style="border-top:1px solid var(--bdr);margin:8px 0;padding-top:8px;font-size:9px;color:var(--txt3)">
+      ${allVals.filter(v => v > d.bh_return).length} / ${allVals.length} combos beat B&H.
+      Robustness: <span style="color:${+robustness>50?'var(--up)':'var(--dn)'}">${robustness}%</span>
+    </div>
+    <div style="font-size:9px;color:var(--txt3)">&#9888; In-sample only. Use Walk-Forward to validate.</div>
+    <div style="margin-top:10px">
+      <button class="btn on" id="sens-wf-btn" onclick="sensValidateWF()" style="width:100%;font-size:9px;letter-spacing:1px">
+        VALIDATE IN WALK-FORWARD &#8594;
+      </button>
+    </div>
+    </div>`;
+
+  // Store for WF bridge
+  _lastSens = { d, best, ticker, strategy };
+
+  document.getElementById('sens-status').textContent =
+    `${rows.length}x${cols.length} grid complete`;
+};
+
+/* ── Sens → WF bridge ──────────────────────────────────────────────────────── */
+let _lastSens = null;  // { d, best, ticker, strategy }
+
+window.sensValidateWF = function () {
+  if (!_lastSens) return;
+  const { d, best, ticker, strategy } = _lastSens;
+
+  // Build params object for the winning combination
+  let params = {};
+  let label  = '';
+  if (strategy === 'sma_cross') {
+    params = { fast: best.row, slow: best.col };
+    label  = `Fast=${best.row} Slow=${best.col}`;
+  } else if (strategy === 'rsi') {
+    params = { rsi_period: best.row, overbought: best.col, oversold: 100 - best.col };
+    label  = `Period=${best.row} OB=${best.col}`;
+  }
+
+  wfInjectParams(strategy, params, label, ticker);
+};
+
 })();
 </script>
