@@ -391,7 +391,6 @@ async function init(){
   buildTape(BB.secs);
   // Load and show first page
   await loadPage('mkt');
-  await new Promise(r => setTimeout(r, 80));
   if(window.PAGE_mkt_onShow) PAGE_mkt_onShow();
   // Re-call onShow for any already-active panel so ticker selects get populated
   if(BB.activePanel && BB.activePanel!=='mkt' && window[`PAGE_${BB.activePanel}_onShow`])
