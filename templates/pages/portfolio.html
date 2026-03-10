@@ -58,7 +58,7 @@
   <div class="wrow" style="height:100%">
     <div class="win" style="width:230px;border-right:0;display:flex;flex-direction:column">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION</span></div></div>
-      <div class="scroll" id="pf-risk-conc"><div class="loading">LOADING</div></div>
+      <div class="scroll" id="pf-risk-conc" style="flex:1;overflow-y:auto"><div class="loading">LOADING</div></div>
     </div>
     <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bdr)">
       <div class="win" style="flex:1;border-bottom:1px solid var(--bdr)">
@@ -264,17 +264,27 @@ function renderOverview(holds,bal){
 function renderRisk(){
   const holds=_pf.holdings||[];
   if(!holds.length) return;
-  document.getElementById('pf-risk-conc').innerHTML=holds.map(h=>{
-    const w=((h.market_value||0)/_pf.total_equity*100).toFixed(1);
+  const sortedHolds=[...holds].sort((a,b)=>(b.market_value||0)-(a.market_value||0));
+  document.getElementById('pf-risk-conc').innerHTML=sortedHolds.map(h=>{
+    const w=((h.market_value||0)/Math.max(_pf.total_equity,1)*100);
     const pnl=(h.market_value||0)-(h.cost_basis||0);
-    const rc=parseFloat(w)>50?'var(--dn)':parseFloat(w)>30?'var(--org)':'var(--sel)';
-    return `<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
-      <div style="display:flex;justify-content:space-between;margin-bottom:2px">
-        <span class="wht" style="font-weight:700">${h.ticker}</span>
-        <span style="color:${gc(pnl)};font-size:10px">${fp(h.cost_basis?pnl/h.cost_basis*100:0)}</span>
+    const pnlPct=h.cost_basis&&h.cost_basis>0?pnl/h.cost_basis*100:0;
+    const rc=w>50?'var(--dn)':w>30?'var(--org)':'var(--sel)';
+    const hist=_histories[h.ticker];
+    const dayChg=hist&&hist.length>=2?((hist[hist.length-1].price-hist[hist.length-2].price)/hist[hist.length-2].price*100):null;
+    return `<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
+        <span class="wht" style="font-weight:700;font-size:11px">${h.ticker}</span>
+        <span style="color:${gc(pnl)};font-size:10px;font-weight:700">${pnl>=0?'+':''}${f(pnl)}</span>
       </div>
-      <div style="font-size:9px;color:var(--txt3);margin-bottom:3px">WEIGHT ${w}%</div>
-      <div style="height:5px;background:var(--bdr)"><div style="height:100%;background:${rc};width:${Math.min(w,100)}%"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:9px;color:var(--txt3)">${h.quantity} × ${f(h.avg_price||0)}</span>
+        <span style="font-size:9px;color:${gc(pnlPct)}">${pnlPct>=0?'+':''}${pnlPct.toFixed(2)}%${dayChg!=null?' · 1D '+(dayChg>=0?'+':'')+dayChg.toFixed(2)+'%':''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:4px;background:var(--bdr)"><div style="height:100%;background:${rc};width:${Math.min(w,100).toFixed(1)}%"></div></div>
+        <span style="font-size:9px;color:var(--txt3);width:36px;text-align:right">${w.toFixed(1)}%</span>
+      </div>
     </div>`;
   }).join('');
 
@@ -304,101 +314,141 @@ function renderRisk(){
   }
 
   const weights=holds.map(h=>(h.market_value||0)/Math.max(_pf.total_equity,1));
-  const hhi=weights.reduce((s,w)=>s+w*w,0), maxW=Math.max(...weights)*100;
+  const hhi=weights.reduce((s,w)=>s+w*w,0), maxW=Math.max(...weights.filter(w=>w>0),0)*100;
 
-  // Per-holding daily return arrays
-  const holdRets = holds.map(h=>{
-    const hist=_histories[h.ticker];
-    if(!hist||hist.length<3) return null;
-    return hist.map((p,i)=>i?((p.price-hist[i-1].price)/hist[i-1].price):0).slice(1);
-  });
+  // ── helpers ──────────────────────────────────────────────────────────────
+  const calcRets = hist => hist&&hist.length>=2
+    ? hist.map((p,i)=>i?((p.price-hist[i-1].price)/Math.max(hist[i-1].price,0.0001)):0).slice(1)
+    : null;
 
-  // Portfolio daily returns (weighted sum)
-  const minLen = Math.min(...holdRets.filter(Boolean).map(r=>r.length));
-  let portRets = [];
-  if(minLen > 2){
-    for(let i=0;i<minLen;i++){
+  // Per-holding return arrays — use whatever history exists, no minimum cutoff
+  const holdRets = holds.map(h => calcRets(_histories[h.ticker]));
+
+  // Portfolio daily returns — only use holdings that HAVE history, weighted by their share of invested equity
+  const validIdx  = holds.map((_,i)=>i).filter(i=>holdRets[i]&&holdRets[i].length>=2);
+  const validLens = validIdx.map(i=>holdRets[i].length);
+  const portRets  = [];
+  if(validIdx.length){
+    const minLen2 = Math.min(...validLens);
+    const totalValidMV = validIdx.reduce((s,i)=>(s+(holds[i].market_value||0)),0)||1;
+    for(let di=0;di<minLen2;di++){
       let r=0;
-      holds.forEach((h,hi)=>{ if(holdRets[hi]) r+=weights[hi]*(holdRets[hi][holdRets[hi].length-minLen+i]||0); });
+      validIdx.forEach(i=>{
+        const w=(holds[i].market_value||0)/totalValidMV;
+        const arr=holdRets[i];
+        r+=w*(arr[arr.length-minLen2+di]||0);
+      });
       portRets.push(r);
     }
   }
 
-  // Vol annualised
-  const annVol = rets => { if(!rets||rets.length<2) return null; const avg=rets.reduce((s,v)=>s+v,0)/rets.length; return Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/rets.length)*(252**.5)*100; };
+  // ── stat helpers — all degrade gracefully to null with <2 points ─────────
+  const annVol = r => {
+    if(!r||r.length<2) return null;
+    const avg=r.reduce((s,v)=>s+v,0)/r.length;
+    return Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/r.length)*(252**.5)*100;
+  };
+  // VaR/CVaR: fall back to single point if only 1-2 obs
+  const var95 = r => {
+    if(!r||r.length<1) return null;
+    const s=[...r].sort((a,b)=>a-b);
+    return -s[Math.max(0,Math.floor(s.length*0.05)-1)]*100;
+  };
+  const cvar95 = r => {
+    if(!r||r.length<1) return null;
+    const s=[...r].sort((a,b)=>a-b);
+    const cut=Math.max(1,Math.floor(s.length*0.05));
+    return -(s.slice(0,cut).reduce((a,b)=>a+b,0)/cut)*100;
+  };
+  const sortino = r => {
+    if(!r||r.length<3) return null;
+    const neg=r.filter(v=>v<0); if(!neg.length) return null;
+    const dd=Math.sqrt(neg.reduce((s,v)=>s+v*v,0)/neg.length)*(252**.5);
+    const avg=r.reduce((s,v)=>s+v,0)/r.length*252;
+    return dd>0?(avg/dd).toFixed(2):null;
+  };
+  const skewKurt = r => {
+    if(!r||r.length<3) return {skew:null,kurt:null};
+    const n=r.length,avg=r.reduce((s,v)=>s+v,0)/n;
+    const std=Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/n);
+    if(!std) return {skew:null,kurt:null};
+    return {
+      skew:(r.reduce((s,v)=>s+((v-avg)/std)**3,0)/n).toFixed(2),
+      kurt:((r.reduce((s,v)=>s+((v-avg)/std)**4,0)/n)-3).toFixed(2)
+    };
+  };
+  const fmt = (v,suffix,decimals=2) => v!=null&&!isNaN(v) ? v.toFixed(decimals)+suffix : '—';
+  const gc2 = v => v===null||v===undefined||isNaN(+v)?'var(--txt)':(+v>=0?'var(--up)':'var(--dn)');
+
   const portVolNum = annVol(portRets);
-  const portVol = portVolNum!=null ? portVolNum.toFixed(1) : '—';
-
-  // VaR 95% (historical parametric)
-  const var95 = rets => { if(!rets||rets.length<5) return null; const s=[...rets].sort((a,b)=>a-b); return -s[Math.floor(s.length*0.05)]*100; };
-  const cvar95 = rets => { if(!rets||rets.length<5) return null; const s=[...rets].sort((a,b)=>a-b); const cut=Math.floor(s.length*0.05); return -s.slice(0,cut+1).reduce((a,b)=>a+b,0)/(cut+1)*100; };
-  const pVaR  = var95(portRets);
-  const pCVaR = cvar95(portRets);
-
-  // Sortino (downside deviation only)
-  const sortino = rets => { if(!rets||rets.length<5) return null; const neg=rets.filter(r=>r<0); if(!neg.length) return null; const dd=Math.sqrt(neg.reduce((s,v)=>s+v*v,0)/neg.length)*(252**.5); const avg=rets.reduce((s,v)=>s+v,0)/rets.length*252; return dd>0?(avg/dd).toFixed(2):'—'; };
-
-  // Beta vs equal-weight index
-  const beta = (rH, rM) => { if(!rH||!rM||rH.length<5) return null; const n=Math.min(rH.length,rM.length); const h=rH.slice(-n),m=rM.slice(-n); const mAvg=m.reduce((s,v)=>s+v,0)/n; const cov=h.reduce((s,v,i)=>s+(v-(h.reduce((a,b)=>a+b,0)/n))*(m[i]-mAvg),0)/n; const mVar=m.reduce((s,v)=>s+(v-mAvg)**2,0)/n; return mVar>0?(cov/mVar).toFixed(2):null; };
-
-  // Market returns (equal weight across all held tickers)
-  const mktRets = portRets; // use portfolio as proxy when no index available
-
-  // Skewness + Kurtosis
-  const skewKurt = rets => { if(!rets||rets.length<5) return {skew:'—',kurt:'—'}; const n=rets.length,avg=rets.reduce((s,v)=>s+v,0)/n,std=Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/n); if(!std) return {skew:'—',kurt:'—'}; const sk=(rets.reduce((s,v)=>s+((v-avg)/std)**3,0)/n).toFixed(2); const kt=((rets.reduce((s,v)=>s+((v-avg)/std)**4,0)/n)-3).toFixed(2); return {skew:sk,kurt:kt}; };
-  const {skew,kurt} = skewKurt(portRets);
-
-  // Max drawdown from equity curve
-  let peak2=-Infinity,maxDD2=0;
-  portRets.reduce((eq,r)=>{ const v=eq*(1+r); if(v>peak2) peak2=v; maxDD2=Math.max(maxDD2,(peak2-v)/peak2*100); return v; },(_pf.total_equity||10000));
+  const pVaR       = var95(portRets);
+  const pCVaR      = cvar95(portRets);
+  const sortR      = sortino(portRets);
+  const {skew,kurt}= skewKurt(portRets);
 
   // Sharpe
-  const portSharpe = portRets.length>5 ? (()=>{ const avg=portRets.reduce((s,v)=>s+v,0)/portRets.length*252; const std=Math.sqrt(portRets.reduce((s,v)=>s+(v-portRets.reduce((a,b)=>a+b,0)/portRets.length)**2,0)/portRets.length)*(252**.5); return std>0?(avg/std).toFixed(2):'—'; })() : '—';
+  let portSharpe = null;
+  if(portRets.length>=3){
+    const avg=portRets.reduce((s,v)=>s+v,0)/portRets.length*252;
+    const std=annVol(portRets);
+    if(std&&std>0) portSharpe = avg/(std/100);
+  }
 
-  const sortR = sortino(portRets);
-  const gc2 = v => isNaN(+v)||v==='—'?'var(--txt)':(+v>=0?'var(--up)':'var(--dn)');
+  // Max drawdown
+  let peak3=(_pf.total_equity||10000), maxDD3=0;
+  portRets.forEach(r=>{ const v=peak3*(1+r); if(v>peak3) peak3=v; maxDD3=Math.max(maxDD3,(peak3-v)/peak3*100); });
 
-  // Section header helper
-  const sh = label => `<div style="font-size:8px;letter-spacing:2px;color:var(--txt3);padding:8px 4px 4px;border-bottom:1px solid var(--bdr);margin-bottom:4px">${label}</div>`;
-  const rm2 = (k,v,c) => `<div class="rm"><span class="k">${k}</span><span class="v" style="color:${c||'var(--txt)'}">${v}</span></div>`;
+  // ── render metrics ────────────────────────────────────────────────────────
+  const sh = lbl=>`<div style="font-size:8px;letter-spacing:2px;color:var(--txt3);padding:8px 4px 3px;border-bottom:1px solid var(--bdr);margin-bottom:2px">${lbl}</div>`;
+  const rm2= (k,v,c)=>`<div class="rm"><span class="k">${k}</span><span class="v" style="color:${c||'var(--txt)'}">${v}</span></div>`;
 
   document.getElementById('pf-risk-met').innerHTML =
     sh('PORTFOLIO') +
-    rm2('HOLDINGS',         holds.length,                              'var(--wht)') +
-    rm2('EFF. HOLDINGS',    (1/Math.max(hhi,0.01)).toFixed(1),        'var(--wht)') +
-    rm2('TOP WEIGHT',       maxW.toFixed(1)+'%',                       maxW>50?'var(--dn)':maxW>30?'var(--yel)':'var(--up)') +
-    rm2('CASH RATIO',       (_pf.total_equity?((_pf.balance||0)/_pf.total_equity*100).toFixed(1):'—')+'%', '') +
-    rm2('HEALTH',           calcHealth(holds,_pf.balance,_pf.total_equity)+'/100', 'var(--cyn)') +
+    rm2('HOLDINGS',        holds.length,                                          'var(--wht)') +
+    rm2('EFF. HOLDINGS',   (1/Math.max(hhi,0.0001)).toFixed(1),                  'var(--wht)') +
+    rm2('TOP WEIGHT',      maxW.toFixed(1)+'%',                                   maxW>50?'var(--dn)':maxW>30?'var(--yel)':'var(--up)') +
+    rm2('CASH RATIO',      fmt((_pf.balance||0)/Math.max(_pf.total_equity,1)*100,'%'), '') +
+    rm2('HEALTH',          calcHealth(holds,_pf.balance,_pf.total_equity)+'/100', 'var(--cyn)') +
     sh('RETURN / RISK') +
-    rm2('ANN. VOLATILITY',  portVol+'% pa',                            'var(--yel)') +
-    rm2('SHARPE RATIO',     portSharpe,                                gc2(portSharpe)) +
-    rm2('SORTINO RATIO',    sortR||'—',                                gc2(sortR)) +
-    rm2('MAX DRAWDOWN',     '-'+maxDD2.toFixed(2)+'%',                 'var(--dn)') +
+    rm2('ANN. VOLATILITY', fmt(portVolNum,'% pa',1),                              'var(--yel)') +
+    rm2('SHARPE RATIO',    fmt(portSharpe,'',2),                                  gc2(portSharpe)) +
+    rm2('SORTINO RATIO',   sortR||'—',                                            gc2(sortR)) +
+    rm2('MAX DRAWDOWN',    maxDD3>0?'-'+maxDD3.toFixed(2)+'%':'0.00%',            maxDD3>0?'var(--dn)':'var(--up)') +
     sh('TAIL RISK') +
-    rm2('VAR 95% (1D)',     pVaR!=null?  '-'+pVaR.toFixed(2)+'%':'—',  'var(--dn)') +
-    rm2('CVAR 95% (1D)',    pCVaR!=null? '-'+pCVaR.toFixed(2)+'%':'—', 'var(--dn)') +
+    rm2('VAR 95% (1D)',    pVaR!=null?  '-'+pVaR.toFixed(2)+'%':'—',             'var(--dn)') +
+    rm2('CVAR 95% (1D)',   pCVaR!=null? '-'+pCVaR.toFixed(2)+'%':'—',            'var(--dn)') +
     sh('DISTRIBUTION') +
-    rm2('SKEWNESS',         skew,  +skew<-0.5?'var(--dn)':+skew>0.5?'var(--up)':'var(--txt)') +
-    rm2('EXCESS KURTOSIS',  kurt,  +kurt>1?'var(--yel)':'var(--txt)');
+    rm2('SKEWNESS',        skew!=null?skew:'—',  skew&&+skew<-0.5?'var(--dn)':skew&&+skew>0.5?'var(--up)':'var(--txt)') +
+    rm2('EXCESS KURTOSIS', kurt!=null?kurt:'—',  kurt&&+kurt>1?'var(--yel)':'var(--txt)') +
+    sh('DATA') +
+    rm2('HISTORY PTS',     portRets.length||0,                                    'var(--txt3)') +
+    rm2('TICKERS W/ DATA', validIdx.length+'/'+holds.length,                      validIdx.length===holds.length?'var(--up)':'var(--yel)');
 
-  // VaR contribution panel
+  // ── VaR contribution — include ALL holdings, use vol proxy if <2 rets ────
   const varContribs = holds.map((h,i)=>{
-    const rets = holdRets[i];
-    const v = var95(rets);
+    const r = holdRets[i];
     const mv = h.market_value||0;
-    return { ticker:h.ticker, varPct: v, varDollar: v!=null?mv*v/100:null, weight:weights[i]*100 };
+    let varPct;
+    if(r&&r.length>=1){
+      varPct = var95(r);
+    } else {
+      // No history — use portfolio vol as proxy
+      varPct = portVolNum!=null ? portVolNum/100/Math.sqrt(252)*1.645 : null;
+    }
+    return { ticker:h.ticker, varPct, varDollar: varPct!=null?mv*varPct/100:null, weight:(weights[i]||0)*100, hasData:!!(r&&r.length>=1) };
   }).filter(x=>x.varDollar!=null).sort((a,b)=>b.varDollar-a.varDollar);
 
   const maxVarD = Math.max(...varContribs.map(x=>x.varDollar),1);
-  document.getElementById('pf-var-contrib').innerHTML = varContribs.map(x=>`
+  document.getElementById('pf-var-contrib').innerHTML = varContribs.length ? varContribs.map(x=>`
     <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bdr)">
-      <span style="width:48px;font-size:9px;color:var(--wht);font-weight:700">${x.ticker}</span>
+      <span style="width:48px;font-size:9px;color:${x.hasData?'var(--wht)':'var(--txt3)'};font-weight:700">${x.ticker}${x.hasData?'':'*'}</span>
       <div style="flex:1;height:6px;background:var(--bg3)">
-        <div style="width:${(x.varDollar/maxVarD*100).toFixed(1)}%;height:100%;background:rgba(244,67,54,.6)"></div>
+        <div style="width:${Math.min(100,(x.varDollar/maxVarD*100)).toFixed(1)}%;height:100%;background:${x.hasData?'rgba(244,67,54,.65)':'rgba(244,67,54,.25)'}"></div>
       </div>
       <span style="width:52px;text-align:right;font-size:9px;color:var(--dn)">-${x.varDollar.toFixed(0)}</span>
       <span style="width:38px;text-align:right;font-size:9px;color:var(--txt3)">${x.varPct.toFixed(2)}%</span>
-    </div>`).join('') || '<div class="loading">Insufficient history</div>';
+    </div>`).join('') + (varContribs.some(x=>!x.hasData)?'<div style="font-size:8px;color:var(--txt3);padding:4px 2px">* estimated from portfolio vol</div>':'')
+  : '<div class="dim">Insufficient history</div>';
 }
 
 function renderEquityCurve(){
