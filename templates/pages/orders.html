@@ -1,1895 +1,1768 @@
-#!/usr/bin/env python3
-"""
-Bloomberg Terminal — NER Exchange
-Architecture: Flask proxy backend + split HTML page files
-Run: python app.py → http://localhost:5000
-"""
-import os, time, math, statistics, json, queue, threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
-from flask import Flask, jsonify, request, render_template, Response, stream_with_context
+<!-- F4: ORDERS -->
+<style>
+/* ─── page background matches terminal exactly ─── */
+.op-root{display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg)}
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
-_STAT_DIR  = os.path.join(_BASE_DIR, "static")
-print(f"[NER Terminal] Base dir : {_BASE_DIR}")
-print(f"[NER Terminal] Templates: {_TMPL_DIR}  exists={os.path.isdir(_TMPL_DIR)}")
-print(f"[NER Terminal] Static   : {_STAT_DIR}  exists={os.path.isdir(_STAT_DIR)}")
-app = Flask(
-    __name__,
-    template_folder=_TMPL_DIR,
-    static_folder=_STAT_DIR,
-)
+/* ─── ticket shell ─── */
+.op-ticket{flex-shrink:0;background:var(--bg2);border-bottom:2px solid var(--bdr2)}
 
-NER_BASE   = "http://150.230.117.88:8082"
-TSE_BASE   = "https://market.installe.us"
-ATLAS_BASE = os.environ.get("ATLAS_URL", "https://atlas-production-1438.up.railway.app").rstrip("/")
-ATLAS_KEY  = os.environ.get("ATLAS_API_KEY") or ""
-ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
-TSE_KEY  = os.environ.get("TSE_API_KEY") or ""
-TSE_H    = {"X-API-Key": TSE_KEY}
+/* ─── ticket inner: two columns ─── */
+.op-ticket-inner{display:flex;align-items:stretch;min-height:0}
 
-# TSE cache — separate from NER cache
-_tse_cache: dict = {}
+/* ── LEFT: the order form ── */
+.op-form{flex:1;display:flex;flex-direction:column;border-right:1px solid var(--bdr)}
 
-def tse_get(path, params=None, ttl=60):
-    """GET from TSE API with caching. No auth required for market data."""
-    key = path + str(params or {})
-    e = _tse_cache.get(key)
-    if e and time.time() - e["ts"] < ttl:
-        return e["s"], e["d"]
-    try:
-        r = _session.get(f"{TSE_BASE}{path}", headers=TSE_H,
-                         params=params, timeout=8)
-        if r.status_code == 200:
-            d = r.json()
-            _tse_cache[key] = {"ts": time.time(), "s": 200, "d": d}
-            return 200, d
-        return r.status_code, {}
-    except Exception as ex:
-        print(f"[TSE] {path} error: {ex}")
-        # Return stale if available
-        if e:
-            return e["s"], e["d"]
-        return 503, {}
+/* form section header */
+.op-sh{padding:4px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);
+  font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3)}
 
-# Connection pool — reuse TCP connections, cap pool size to avoid
-# thread starvation when NER is slow (all threads waiting on timeout)
-_session = requests.Session()
-_session.mount("http://", requests.adapters.HTTPAdapter(
-    pool_connections=4,
-    pool_maxsize=8,
-    max_retries=0   # retries handled manually
-))
-API_KEY  = os.environ.get("NER_API_KEY") or ""
-AUTH_H   = {"Content-Type": "application/json", "X-API-Key": API_KEY}
-PUB_H    = {"Content-Type": "application/json"}
-_cache: dict = {}
+/* the actual inputs row */
+.op-fields{display:flex;align-items:stretch;flex-wrap:nowrap;background:var(--bg2)}
 
-# ── SSE / Webhook state ───────────────────────────────────────────────────────
-# _sse_queues: set of active queue.Queue objects, one per connected SSE client
-# _sse_state:  latest known data per ticker, pushed to new subscribers immediately
-_sse_queues: set = set()
-_sse_lock = threading.Lock()
-_sse_state: dict = {}   # ticker → {market_price, frozen, orderbook, updated_at}
+/* individual field cell */
+.op-f{display:flex;flex-direction:column;justify-content:center;padding:6px 10px;
+  border-right:1px solid var(--bdr);flex-shrink:0}
+.op-f label{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:4px;white-space:nowrap}
+.op-f input,.op-f select{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);
+  font-family:var(--font);font-size:12px;font-weight:700;padding:3px 7px;outline:none}
+.op-f input:focus,.op-f select:focus{border-color:var(--org);color:var(--org)}
+.op-f select option{background:var(--bg2);color:var(--txt)}
 
-def sse_broadcast(event_type: str, data: dict):
-    """Push an SSE event to all connected clients."""
-    payload = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
-    dead = set()
-    with _sse_lock:
-        for q in _sse_queues:
-            try:
-                q.put_nowait(payload)
-            except queue.Full:
-                dead.add(q)
-        for q in dead:
-            _sse_queues.discard(q)
+/* BUY / SELL toggle — spans full height of the field row */
+.op-sides{display:flex;flex-direction:column;flex-shrink:0}
+.op-side{flex:1;width:58px;font-size:10px;font-weight:900;letter-spacing:2px;
+  border:none;cursor:pointer;background:var(--bg3);color:var(--txt3);
+  border-right:1px solid var(--bdr);font-family:var(--font);transition:all .1s}
+.op-side:hover{color:var(--txt)}
+.op-side.s-buy {background:rgba(0,200,83,.1);color:var(--up);border-bottom:2px solid var(--up)}
+.op-side.s-sell{background:rgba(244,67,54,.1);color:var(--dn);border-bottom:2px solid var(--dn)}
 
-# ── Cache helpers ─────────────────────────────────────────────────────────────
-# Only caches 200 responses — errors are never stored so stale 404s can't persist.
-# Auth endpoints (orders, funds, transactions) use ttl=0 to always bypass cache
-# and hit NER live — these are user-specific real-time state.
-def cached_get(path, params=None, auth=False, ttl=15):
-    if ttl == 0:
-        # Live/uncached path — always hit NER directly
-        try:
-            r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
-                             params=params, timeout=8)
-            if r.status_code == 429:
-                return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
-            return r.status_code, r.json()
-        except Exception as ex:
-            return 503, {"detail": str(ex)}
-    key = path + str(params) + str(auth)
-    e = _cache.get(key)
-    if e and time.time() - e["ts"] < ttl:
-        return e["s"], e["d"]
-    try:
-        r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
-                         params=params, timeout=8)
-        if r.status_code == 429:
-            # 429 — return stale cache if available, else propagate
-            if e:
-                print(f"[cache] 429 from NER on {path} — serving stale (age {int(time.time()-e['ts'])}s)")
-                return e["s"], e["d"]
-            return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
-        result = (r.status_code, r.json())
-    except Exception as ex:
-        result = (503, {"detail": str(ex)})
-    if result[0] == 200:
-        _cache[key] = {"ts": time.time(), "s": result[0], "d": result[1]}
-    return result
+/* type-specific params row */
+.op-params{display:flex;align-items:stretch;overflow-x:auto;background:var(--bg);
+  border-top:1px solid var(--bdr);min-height:38px}
+.op-params::-webkit-scrollbar{height:2px}
+.op-params::-webkit-scrollbar-thumb{background:var(--bdr2)}
+.op-pc{display:flex;flex-direction:column;justify-content:center;padding:4px 10px;
+  border-right:1px solid var(--bdr);flex-shrink:0}
+.op-pc label{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:3px;white-space:nowrap}
+.op-pc input,.op-pc select{background:var(--bg2);border:1px solid var(--bdr2);color:var(--txt);
+  font-family:var(--font);font-size:11px;padding:2px 6px;outline:none}
+.op-pc input:focus,.op-pc select:focus{border-color:var(--org)}
+.op-pc select option{background:var(--bg2)}
+.op-pval{font-size:11px;font-weight:700;color:var(--org)}
+.op-pnote{font-size:9px;color:var(--txt3);line-height:1.5;max-width:260px}
+.op-psep{width:1px;background:var(--bdr);margin:5px 0;flex-shrink:0}
 
-# ── Atlas helper ──────────────────────────────────────────────────────────────
-_atlas_cache: dict = {}
-_atlas_cache_lock = threading.Lock()
+/* ── RIGHT: market context panel ── */
+.op-market{width:280px;flex-shrink:0;display:flex;flex-direction:column;background:var(--bg)}
 
-_ATLAS_ONLY_PREFIXES = (
-    "/market/", "/analytics/", "/history/", "/ohlcv/",
-    "/orderbook", "/securities", "/derived", "/shareholders/",
-    "/price/", "/holder_intel/",
-)
+.op-quote-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.op-qc{display:flex;flex-direction:column;padding:7px 10px;border-right:1px solid var(--bdr);border-bottom:1px solid var(--bdr)}
+.op-qc:nth-child(even){border-right:none}
+.op-qc:nth-last-child(-n+2){border-bottom:none}
+.op-qc-l{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:3px}
+.op-qc-v{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
 
-def atlas_get(path, params=None, ttl=30):
-    key = path + str(params or {})
-    with _atlas_cache_lock:
-        e = _atlas_cache.get(key)
-        if e and time.time() - e["ts"] < ttl:
-            return e["s"], e["d"]
-        stale = e
-    try:
-        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=6)
-        try:
-            d = r.json()
-        except Exception:
-            d = {}
-        if r.status_code == 200:
-            with _atlas_cache_lock:
-                _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
-            return 200, d
-        print(f"[atlas] {path} → HTTP {r.status_code}")
-        # Stale cache is better than error
-        if stale: return stale["s"], stale["d"]
-        # Only fall back to NER for paths it handles; never fall back for Atlas-only routes
-        atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
-        if atlas_only:
-            return r.status_code, d
-    except Exception as ex:
-        print(f"[atlas] {path} exception: {ex}")
-        if e: return e["s"], e["d"]
-        atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
-        if atlas_only:
-            return 503, {"detail": str(ex)}
-    return cached_get(path, params=params, ttl=ttl)
+.op-acct{display:flex;border-top:1px solid var(--bdr2);background:var(--bg3)}
+.op-ac{flex:1;padding:5px 8px;border-right:1px solid var(--bdr)}
+.op-ac:last-child{border-right:none}
+.op-ac-l{font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:2px}
+.op-ac-v{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
 
-def _norm_candles(candles, days=None):
-    """Sort candles oldest-first, fix Atlas DD-MM-YY dates, enforce days cutoff.
-    Atlas ignores the days param and returns all candles — we filter here."""
-    from datetime import datetime, timedelta, timezone
-    cutoff = None
-    if days:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
-    out = []
-    for cv in candles:
-        d = cv.get("date", "")
-        # Fix DD-MM-YY → YYYY-MM-DD (e.g. "30-12-25" → "2025-12-30")
-        if d and len(d) == 8 and d[2] == "-" and d[5] == "-":
-            p = d.split("-")
-            d = f"20{p[2]}-{p[1]}-{p[0]}"
-        if cutoff and d and d < cutoff:
-            continue
-        out.append({**cv, "date": d})
-    out.sort(key=lambda x: x.get("date", ""))
-    return out
+/* ─── summary / submit bar ─── */
+.op-bar{display:flex;align-items:center;height:34px;background:var(--bg3);
+  border-top:1px solid var(--bdr2);gap:0;flex-shrink:0}
+.op-bv{display:flex;align-items:baseline;gap:4px;padding:0 12px;border-right:1px solid var(--bdr)}
+.op-bv-l{font-size:8px;color:var(--txt3);letter-spacing:1.5px}
+.op-bv-v{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.op-warn{font-size:9px;color:var(--dn);padding:0 10px;letter-spacing:.3px}
 
-# Bulk orderbook cache — one call, filter by ticker in Python
-_ob_cache = {"ts": 0, "data": None}
-_OB_TTL = 10  # seconds
+/* tools group */
+.op-tools{display:flex;align-items:center;gap:3px;padding:0 8px;border-right:1px solid var(--bdr);position:relative}
 
-def get_all_orderbooks():
-    """Single /orderbook call that returns all tickers. Shared across all routes."""
-    global _ob_cache
-    if time.time() - _ob_cache["ts"] < _OB_TTL and _ob_cache["data"] is not None:
-        return _ob_cache["data"]
-    try:
-        r = _session.get(f"{ATLAS_BASE}/orderbook", headers=ATLAS_H, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            _ob_cache = {"ts": time.time(), "data": data}
-            return data
-    except Exception:
-        pass
-    return _ob_cache["data"]  # stale is better than nothing
+/* submit */
+.op-sub{height:34px;min-width:195px;padding:0 18px;font-size:10px;font-weight:900;
+  letter-spacing:2px;border:none;cursor:pointer;font-family:var(--font);
+  transition:filter .1s;white-space:nowrap;margin-left:auto}
+.op-sub:hover{filter:brightness(1.1)}
+.op-sub:active{filter:brightness(.9)}
+.op-sub.buy {background:var(--up);color:#000}
+.op-sub.sell{background:var(--dn);color:#fff}
+.op-sub.algo{background:var(--org);color:#000}
+.op-sub.watch{background:var(--sel);color:#fff}
+.op-sub:disabled{background:var(--bg4)!important;color:var(--txt3)!important;cursor:not-allowed;filter:none!important}
 
-def get_ticker_orderbook(ticker):
-    """Get single-ticker orderbook from the bulk cache."""
-    all_ob = get_all_orderbooks()
-    if not isinstance(all_ob, list):
-        return all_ob  # might be a dict already (single ticker response)
-    return next((o for o in all_ob if o.get("ticker") == ticker), None)
+/* ─── tools flyout ─── */
+.op-fly{display:none;position:absolute;bottom:34px;left:0;width:480px;
+  background:var(--bg2);border:1px solid var(--bdr2);border-bottom:none;z-index:300}
+.op-fly.show{display:block}
+.op-fly-hdr{display:flex;justify-content:space-between;align-items:center;
+  padding:5px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);
+  font-size:9px;font-weight:700;letter-spacing:2px;color:var(--txt2)}
+.op-fly-body{padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.op-fly-sec{background:var(--bg3);border:1px solid var(--bdr);padding:8px}
+.op-fly-stitle{font-size:8px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px;font-weight:700}
+.op-fly-r{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.op-fly-r label{font-size:9px;color:var(--txt3);width:105px;flex-shrink:0}
+.op-fly-r input,.op-fly-r select{flex:1;background:var(--bg);border:1px solid var(--bdr2);
+  color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none;min-width:0}
+.op-fly-r input:focus,.op-fly-r select:focus{border-color:var(--org)}
+.op-fly-result{margin-top:5px;padding:6px;background:var(--bg);border:1px solid var(--bdr);
+  font-size:10px;color:var(--txt);line-height:1.7;min-height:40px}
+.op-fly-btn{width:100%;margin-top:4px;padding:3px;font-size:9px;font-weight:700;letter-spacing:1px;
+  background:transparent;border:1px solid var(--bdr2);color:var(--txt2);cursor:pointer;font-family:var(--font)}
+.op-fly-btn:hover{border-color:var(--org);color:var(--org)}
 
-# Bulk shareholders cache — one call covers all tickers
-# Per-ticker shareholders cache — NER requires ticker param, no bulk endpoint
-_sh_ticker_cache: dict = {}
-   # ticker → {"ts": float, "data": list}
-_SH_TICKER_TTL = 600          # seconds — shareholders change rarely
+/* ─── confirmation modal ─── */
+.op-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;
+  display:none;align-items:center;justify-content:center}
+.op-modal-bg.show{display:flex}
+.op-modal{background:var(--bg2);border:1px solid var(--bdr2);width:360px}
+.op-modal-hdr{display:flex;justify-content:space-between;align-items:center;
+  padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--bdr)}
+.op-modal-hdr span:first-child{font-size:10px;font-weight:700;letter-spacing:2px;color:var(--wht)}
+.op-modal-hdr span:last-child{font-size:13px;font-weight:900;letter-spacing:3px}
+.op-modal-body{padding:10px 12px}
+.op-mr{display:flex;justify-content:space-between;padding:3px 0;
+  border-bottom:1px solid rgba(46,46,46,.5);font-size:10px}
+.op-mr:last-child{border:none}
+.op-mk{color:var(--txt3)}.op-mv{font-weight:700;color:var(--wht)}
+.op-modal-warn{padding:5px 12px;background:rgba(244,67,54,.06);
+  border-top:1px solid rgba(244,67,54,.2);color:var(--dn);font-size:9px;display:none}
+.op-modal-btns{display:flex;border-top:1px solid var(--bdr)}
+.op-mc{flex:1;padding:8px;font-size:10px;font-weight:700;letter-spacing:1px;
+  background:var(--bg3);border:none;color:var(--txt2);cursor:pointer;
+  border-right:1px solid var(--bdr);font-family:var(--font)}
+.op-mc:hover{background:var(--bg4);color:var(--wht)}
+.op-mok{flex:2;padding:8px;font-size:10px;font-weight:900;letter-spacing:2px;
+  border:none;cursor:pointer;font-family:var(--font)}
+.op-mok.buy{background:var(--up);color:#000}.op-mok.sell{background:var(--dn);color:#fff}
+.op-mok.algo{background:var(--org);color:#000}.op-mok.watch{background:var(--sel);color:#fff}
 
-_sh_last_fetch: float = 0.0  # timestamp of last actual NER shareholders call
+/* ─── blotter ─── */
+.op-blot{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.op-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.op-tab{padding:4px 14px;font-size:9px;font-weight:700;letter-spacing:1.5px;cursor:pointer;
+  color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:2px solid transparent;white-space:nowrap}
+.op-tab:hover{color:var(--txt);background:var(--bg2)}
+.op-tab.act{color:var(--wht);border-bottom-color:var(--org);background:var(--bg2)}
+.op-tab .ct{color:var(--org)}
+.op-view{flex:1;overflow:hidden;display:none;flex-direction:column}
+.op-view.act{display:flex}
 
-def get_ticker_shareholders(ticker):
-    """Fetch shareholders for one ticker, with per-ticker cache."""
-    global _sh_last_fetch
-    e = _sh_ticker_cache.get(ticker)
-    if e and time.time() - e["ts"] < _SH_TICKER_TTL:
-        return e["data"]
-    # Throttling now handled by semaphore in caller — no sleep here
-    try:
-        # Try with X-API-Key for better compatibility
-        s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
-        if s_atl == 200 and isinstance(data_atl, list):
-            _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data_atl}
-            return data_atl
-        r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
-                         params={"ticker": ticker}, timeout=6)
-        if r.status_code == 200:
-            data = r.json()
-            if isinstance(data, list):
-                _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data}
-                return data
-            # NER returned non-list (e.g. {"detail":...}) — log and skip
-            print(f"[shareholders/{ticker}] unexpected response: {str(data)[:120]}")
-        else:
-            print(f"[shareholders/{ticker}] HTTP {r.status_code}: {r.text[:120]}")
-    except Exception as ex:
-        print(f"[shareholders/{ticker}] exception: {ex}")
-    # Return stale data if available rather than nothing
-    return _sh_ticker_cache.get(ticker, {}).get("data", [])
+/* job rows */
+.jr{display:flex;align-items:center;padding:4px 8px;
+  border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;gap:8px}
+.jr:hover{background:rgba(255,255,255,.012)}
+.jbadge{padding:1px 5px;font-size:8px;font-weight:700;letter-spacing:1px;flex-shrink:0}
+.jb-run{background:var(--org);color:#000}
+.jb-watch{background:var(--sel);color:#fff}
+.jb-done{background:var(--bg4);color:var(--txt3)}
+.jbar{flex:1;height:3px;background:var(--bdr);min-width:40px}
+.jbar-f{height:100%;background:var(--org);transition:width .5s}
+.jkill{padding:1px 7px;font-size:9px;background:rgba(244,67,54,.08);
+  border:1px solid rgba(244,67,54,.25);color:var(--dn);cursor:pointer;font-family:var(--font)}
+.jkill:hover{background:rgba(244,67,54,.2)}
+.cx-btn{padding:1px 7px;font-size:9px;background:rgba(244,67,54,.08);
+  border:1px solid rgba(244,67,54,.25);color:var(--dn);cursor:pointer;font-family:var(--font)}
+.cx-btn:hover{background:rgba(244,67,54,.2)}
+</style>
 
-def ner_post(path, payload, _retries=2):
-    """POST to NER with 429 retry (up to _retries times, 2s backoff)."""
-    for attempt in range(_retries + 1):
-        try:
-            r = _session.post(f"{NER_BASE}{path}", headers=AUTH_H, json=payload, timeout=(4, 10))
-            if r.status_code == 429 and attempt < _retries:
-                retry_after = int(r.headers.get("Retry-After", 2))
-                print(f"[ner_post] 429 on {path} — retrying in {retry_after}s (attempt {attempt+1})")
-                time.sleep(min(retry_after, 5))
-                continue
-            return r.status_code, r.json()
-        except Exception as e:
-            if attempt < _retries:
-                time.sleep(1)
-                continue
-            return 503, {"detail": str(e)}
-    return 429, {"detail": "Order rate limited by NER — please wait and retry."}
+<!-- MODAL -->
+<div class="op-modal-bg" id="opm-bg">
+  <div class="op-modal">
+    <div class="op-modal-hdr">
+      <span id="opm-title">CONFIRM ORDER</span>
+      <span id="opm-side"></span>
+    </div>
+    <div class="op-modal-body" id="opm-body"></div>
+    <div class="op-modal-warn" id="opm-warn"></div>
+    <div class="op-modal-btns">
+      <button class="op-mc" onclick="opmClose()">✕ CANCEL</button>
+      <button class="op-mok buy" id="opm-ok" onclick="opExec()">▲ CONFIRM BUY</button>
+    </div>
+  </div>
+</div>
 
-def atlas_post(path, payload):
-    """POST to Atlas — used for TSE order placement."""
-    try:
-        r = _session.post(f"{ATLAS_BASE}{path}", headers=ATLAS_H, json=payload, timeout=(4, 10))
-        try:
-            d = r.json()
-        except Exception:
-            d = {}
-        return r.status_code, d
-    except Exception as e:
-        return 503, {"detail": str(e)}
+<!-- ROOT -->
+<div class="op-root">
 
-# ── Pass-through proxies ──────────────────────────────────────────────────────
-# Tickers that exist on both exchanges — user can pick via ?exchange= param
-_DUAL_LISTED = {"GCC"}
+<!-- ══════════ TICKET ══════════ -->
+<div class="op-ticket">
+  <div class="op-ticket-inner">
 
-@app.route("/api/securities")
-def securities():
-    """Merged NER + TSE securities list from Atlas (single source of truth).
-    Atlas already contains TSE tickers with source='tse' and ticker='TSE:XXX'.
-    We just tag exchange field from source to avoid duplicates."""
-    s, secs = atlas_get("/securities", ttl=60)
-    if s != 200:
-        return jsonify(secs), s
+    <!-- ── LEFT: ORDER FORM ── -->
+    <div class="op-form">
+      <div class="op-sh">ORDER ENTRY</div>
 
-    # Tag exchange from source field — Atlas is the single source of truth
-    for sec in secs:
-        src_field = sec.get("source", "ner")
-        sec["exchange"] = "TSE" if src_field == "tse" else "NER"
+      <div class="op-fields">
+        <!-- BUY / SELL -->
+        <div class="op-sides">
+          <button class="op-side s-buy"  id="op-buy"  onclick="opSide('buy')">BUY</button>
+          <button class="op-side"        id="op-sell" onclick="opSide('sell')">SELL</button>
+        </div>
 
-    return jsonify(secs), 200
+        <!-- Ticker -->
+        <div class="op-f" style="min-width:170px;background:var(--bg3)">
+          <label>SECURITY</label>
+          <select id="op-tk" onchange="opTickerChg()"
+            style="background:transparent;border:none;color:var(--wht);font-family:var(--font);font-size:13px;font-weight:700;outline:none;cursor:pointer;max-width:150px">
+            <option value="">SELECT…</option>
+          </select>
+        </div>
 
-def _tse_stock_to_sec(stk):
-    """Normalize TSE StockResponse to NER securities format."""
-    px = stk.get("current_price")
-    try:
-        px = float(px) if px else None
-    except (ValueError, TypeError):
-        px = None
-    return {
-        "ticker":        stk.get("symbol", ""),
-        "full_name":     stk.get("company_name", stk.get("symbol", "")),
-        "market_price":  px,
-        "change_pct":    None,
-        "frozen":        stk.get("status") == "halted",
-        "total_shares":  stk.get("total_shares", 0),
-        "sector":        stk.get("sector", ""),
-        "exchange":      "TSE",
-        "_tse_id":       stk.get("stock_id", ""),
+        <!-- Qty -->
+        <div class="op-f" style="min-width:80px">
+          <label>QUANTITY</label>
+          <input id="op-qty" type="number" value="100" min="1" step="1" oninput="opPrev()" style="width:70px">
+        </div>
+
+        <!-- Order type -->
+        <div class="op-f" style="min-width:185px">
+          <label>ORDER TYPE</label>
+          <select id="op-type" onchange="opTypeChg()"
+            style="background:var(--bg);border:1px solid var(--bdr2);color:var(--org);font-family:var(--font);font-size:11px;font-weight:700;padding:3px 6px;outline:none;cursor:pointer">
+            <optgroup label="── BASIC ──">
+              <option value="limit">LMT · Limit</option>
+              <option value="market">MKT · Market</option>
+            </optgroup>
+            <optgroup label="── CONDITIONAL ──">
+              <option value="stop_limit">STP LMT · Stop-Limit</option>
+              <option value="trailing">TRAIL · Trailing Stop</option>
+              <option value="bracket">BRACKET · Entry+TP+SL</option>
+              <option value="oco">OCO · One-Cancels-Other</option>
+              <option value="mid_price">MID · Mid-Price</option>
+              <option value="aon">AON · All or None</option>
+              <option value="fok">FOK · Fill or Kill</option>
+              <option value="ioc">IOC · Immed. or Cancel</option>
+            </optgroup>
+            <optgroup label="── EXECUTION ALGOS ──">
+              <option value="twap">TWAP · Time-Weighted</option>
+              <option value="vwap">VWAP · Vol-Weighted</option>
+              <option value="accumulate">ACCUM · Accumulate/Dist</option>
+              <option value="iceberg">ICEBERG · Reserve Size</option>
+              <option value="participation">%VOL · Participation Rate</option>
+              <option value="arrival">ARRIVAL · Arrival Price</option>
+              <option value="scale">SCALE · Scale Trader</option>
+              <option value="beta_hedge">BETA HEDGE · Systematic</option>
+              <option value="basket">BASKET · Multi-Ticker</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- TIF -->
+        <div class="op-f" style="min-width:68px">
+          <label>TIF</label>
+          <select id="op-tif" style="width:60px">
+            <option>DAY</option><option>GTC</option><option>GTD</option><option>OPG</option>
+          </select>
+        </div>
+
+        <!-- Limit price -->
+        <div class="op-f" id="op-lp-cell" style="min-width:115px">
+          <label id="op-lp-lbl">LMT PRICE</label>
+          <input id="op-lp" type="number" value="0" step="0.0001" oninput="opPrev()" style="width:95px">
+        </div>
+      </div><!-- /op-fields -->
+
+      <!-- Dynamic params row -->
+      <div class="op-params" id="op-params"><!-- injected --></div>
+    </div><!-- /op-form -->
+
+    <!-- ── RIGHT: MARKET CONTEXT ── -->
+    <div class="op-market">
+      <div class="op-sh">LIVE MARKET</div>
+      <div class="op-quote-grid">
+        <div class="op-qc"><div class="op-qc-l">BID</div><div class="op-qc-v up"  id="opq-bid">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">ASK</div><div class="op-qc-v dn"  id="opq-ask">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">MID</div><div class="op-qc-v wht" id="opq-mid">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">SPREAD %</div><div class="op-qc-v yel" id="opq-spr">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">LAST</div><div class="op-qc-v"    id="opq-last">—</div></div>
+        <div class="op-qc"><div class="op-qc-l">EST. IMPACT</div><div class="op-qc-v" id="opq-slip">—</div></div>
+      </div>
+      <div class="op-acct">
+        <div class="op-ac"><div class="op-ac-l">AVAILABLE</div><div class="op-ac-v up"  id="opa-av">—</div></div>
+        <div class="op-ac"><div class="op-ac-l">POSITION</div><div class="op-ac-v"      id="opa-pos">0</div></div>
+        <div class="op-ac"><div class="op-ac-l">P&L</div><div class="op-ac-v dim"        id="opa-pnl">—</div></div>
+      </div>
+    </div><!-- /op-market -->
+
+  </div><!-- /ticket-inner -->
+
+  <!-- ── ORDER SUMMARY + SUBMIT BAR ── -->
+  <div class="op-bar">
+    <!-- Tools -->
+    <div class="op-tools" id="op-tools-wrap">
+      <button class="btn btn-xs" id="tb-siz" onclick="opTool('siz')">⚖ SIZER</button>
+      <button class="btn btn-xs" id="tb-liq" onclick="opTool('liq')">📊 LIQUIDITY</button>
+      <button class="btn btn-xs" id="tb-sim" onclick="opTool('sim')">⚡ FILL SIM</button>
+      <button class="btn btn-xs" id="tb-imp" onclick="opTool('imp')">🎯 IMPACT</button>
+      <button class="btn btn-xs" onclick="opCancelAll()" style="color:var(--dn);border-color:rgba(244,67,54,.3)">CANCEL ALL</button>
+      <div class="op-fly" id="op-fly">
+        <div class="op-fly-hdr"><span id="op-fly-title">TOOLS</span><span style="cursor:pointer" onclick="opCloseTool()">✕</span></div>
+        <div class="op-fly-body" id="op-fly-body"></div>
+      </div>
+    </div>
+
+    <div style="width:1px;background:var(--bdr);align-self:stretch"></div>
+
+    <!-- Summary values -->
+    <div class="op-bv"><span class="op-bv-l">VALUE</span><span class="op-bv-v wht" id="opb-val">—</span></div>
+    <div class="op-bv"><span class="op-bv-l">COMM</span><span class="op-bv-v yel" id="opb-com">—</span></div>
+    <div class="op-bv"><span class="op-bv-l">TOTAL</span><span class="op-bv-v wht" id="opb-tot">—</span></div>
+    <div class="op-bv" id="opb-slice-wrap" style="display:none"><span class="op-bv-l">SLICE</span><span class="op-bv-v org" id="opb-slice">—</span></div>
+    <span class="op-warn" id="op-warn"></span>
+
+    <button class="op-sub buy" id="op-sub" onclick="opModal()" disabled>▲ TRANSMIT BUY LMT</button>
+  </div>
+
+</div><!-- /ticket -->
+
+<!-- ══════════ BLOTTER ══════════ -->
+<div class="op-blot">
+  <div class="op-tabs">
+    <span class="op-tab act" data-v="open"  onclick="opBTab(this)">OPEN ORDERS <span class="ct" id="ct-open"></span></span>
+    <span class="op-tab"     data-v="algos" onclick="opBTab(this)">ACTIVE ALGOS &amp; WATCHERS <span class="ct" id="ct-algos"></span></span>
+    <span class="op-tab"     data-v="fills" onclick="opBTab(this)">RECENT FILLS</span>
+    <span class="op-tab"     data-v="execq" onclick="opBTab(this)">EXEC QUALITY</span>
+    <span class="op-tab"     data-v="audit" onclick="opBTab(this)">AUDIT TRAIL</span>
+    <span class="op-tab"     data-v="log"   onclick="opBTab(this)">ACTIVITY LOG</span>
+  </div>
+
+  <div class="op-view act" id="bv-open"><div class="scroll">
+    <table class="dt"><thead><tr>
+      <th>ORDER ID</th><th>TICKER</th><th>SIDE</th><th>TYPE</th>
+      <th class="r">QTY</th><th class="r">PRICE</th><th>EXPIRY</th><th>STATUS</th><th></th>
+    </tr></thead><tbody id="op-open-body"><tr><td colspan="9" class="loading">Loading…</td></tr></tbody></table>
+  </div></div>
+
+  <div class="op-view" id="bv-algos">
+    <div class="scroll" id="op-jobs"><div class="loading" style="padding:14px">No active algos or watchers.</div></div>
+  </div>
+
+  <div class="op-view" id="bv-fills"><div class="scroll">
+    <table class="dt"><thead><tr>
+      <th>TIME</th><th>TICKER</th><th>SIDE</th>
+      <th class="r">QTY</th><th class="r">PRICE</th><th class="r">VALUE</th><th class="r">COMM</th>
+    </tr></thead><tbody id="op-fills-body"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
+  </div></div>
+
+  <!-- ── EXEC QUALITY ── -->
+  <div class="op-view" id="bv-execq" style="flex-direction:column">
+    <!-- KPI strip -->
+    <div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr);flex-shrink:0">
+      <div class="sc"><div class="sc-l">AVG SLIPPAGE</div><div class="sc-v yel" id="eq-slip">—</div></div>
+      <div class="sc"><div class="sc-l">IMPL. SHORTFALL</div><div class="sc-v" id="eq-is">—</div></div>
+      <div class="sc"><div class="sc-l">VS VWAP (AVG)</div><div class="sc-v" id="eq-vwap">—</div></div>
+      <div class="sc"><div class="sc-l">VS ARRIVAL (AVG)</div><div class="sc-v" id="eq-arr">—</div></div>
+      <div class="sc"><div class="sc-l">TOTAL COMMISSION</div><div class="sc-v dn" id="eq-comm">—</div></div>
+      <div class="sc"><div class="sc-l">FILLS ANALYZED</div><div class="sc-v wht" id="eq-cnt">—</div></div>
+    </div>
+    <div class="wrow" style="flex:1;overflow:hidden">
+      <!-- fill-by-fill table -->
+      <div class="win" style="flex:2;border-right:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">FILL-BY-FILL EXECUTION ANALYSIS</span></div>
+          <div class="wbar-r"><button class="btn btn-xs" onclick="loadExecQuality()">REFRESH</button></div>
+        </div>
+        <div class="scroll">
+          <table class="dt" id="eq-tbl">
+            <thead><tr>
+              <th>TIME</th><th>TICKER</th><th>SIDE</th><th class="r">QTY</th>
+              <th class="r">FILL PX</th><th class="r">MKT MID</th><th class="r">SLIPPAGE</th>
+              <th class="r">VS VWAP</th><th class="r">IMPL. SHORTFALL</th><th class="r">VALUE</th><th class="r">COMM</th><th>RATING</th>
+            </tr></thead>
+            <tbody id="eq-body"><tr><td colspan="12" class="loading">Click EXEC QUALITY tab to load</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- chart + summary -->
+      <div class="wcol" style="width:280px">
+        <div class="win" style="flex:1;border-bottom:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SLIPPAGE DISTRIBUTION</span></div></div>
+          <div class="chart-wrap"><canvas id="eq-slip-c"></canvas></div>
+        </div>
+        <div class="win" style="flex:1">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">EXECUTION BENCHMARK</span></div></div>
+          <div style="padding:8px;font-size:11px" id="eq-bench">
+            <div class="loading">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── AUDIT TRAIL ── -->
+  <div class="op-view" id="bv-audit" style="flex-direction:column">
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+      <span style="font-size:9px;color:var(--txt3);letter-spacing:1.5px">FILTER:</span>
+      <select id="audit-filt-exch" onchange="renderAudit()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px">
+        <option value="">ALL EXCHANGES</option>
+        <option value="NER">NER</option>
+        <option value="TSE">TSE</option>
+      </select>
+      <select id="audit-filt-side" onchange="renderAudit()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px">
+        <option value="">ALL SIDES</option>
+        <option value="BUY">BUY</option>
+        <option value="SELL">SELL</option>
+      </select>
+      <input id="audit-filt-tk" placeholder="TICKER" oninput="renderAudit()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;width:70px;text-transform:uppercase">
+      <span style="margin-left:auto;font-size:9px;color:var(--txt3)">EVENTS: <span id="audit-cnt" style="color:var(--org)">0</span></span>
+      <button class="btn btn-xs" onclick="exportAudit()">⬇ EXPORT CSV</button>
+    </div>
+    <div class="scroll" style="flex:1">
+      <table class="dt">
+        <thead><tr>
+          <th>TIMESTAMP</th><th>EVENT</th><th>EXCH</th><th>TICKER</th><th>SIDE</th>
+          <th class="r">QTY</th><th class="r">PRICE</th><th class="r">VALUE</th>
+          <th>TYPE</th><th>ORDER ID</th><th>NOTE</th>
+        </tr></thead>
+        <tbody id="audit-body"><tr><td colspan="11" class="loading">Loading audit trail…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="op-view" id="bv-log">
+    <div class="scroll" id="op-log" style="padding:4px;font-size:10px">
+      <div style="padding:2px 8px;color:var(--txt3)">Session started.</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /root -->
+
+<script>
+(function(){
+'use strict';
+const CR=0.005;
+let _side='buy',_quote=null,_lastPx=null,_funds=null,_ohlcv=null,_jobs=[],_tool=null;
+let _qT,_jT,_oT,_syncT;
+
+// ── Session persistence ────────────────────────────────────────
+// Serialisable fields only — tick functions are rebuilt on restore
+const JOB_FIELDS=['id','label','type','tk','qty','lp','exp','side','status',
+  'placed','total','remaining','slicesDone','totalSlices','startMs','info',
+  'durMin','slices','rand','intMs','weights','urg',
+  'stop','trailType','trailVal',
+  'tp','sl','id1','id2',
+  'lp1','lp2',
+  'showSize','lastOid',
+  'partPct','partDur',
+  'arrCfg',
+  'accDurMin','accMinW','accMaxW','accVar',
+  'nextAt','peak'];
+
+function jobToJSON(j){
+  const o={};
+  JOB_FIELDS.forEach(k=>{ if(j[k]!==undefined) o[k]=j[k]; });
+  return o;
+}
+
+async function syncSession(){
+  const alive=_jobs.filter(j=>j.status!=='done').map(jobToJSON);
+  try{
+    await fetch('/api/session/algos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(alive)});
+  }catch(e){}
+  // Also sync watchlist
+  if(BB.watchlist){
+    try{
+      await fetch('/api/session/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(BB.watchlist)});
+    }catch(e){}
+  }
+}
+
+async function restoreSession(){
+  try{
+    const r=await fetch('/api/session/algos');
+    if(!r.ok) return;
+    const jobs=await r.json();
+    if(!Array.isArray(jobs)||!jobs.length) return;
+    const restored=jobs.filter(j=>j.status!=='done');
+    if(!restored.length) return;
+    lg(`Restoring ${restored.length} algo(s) from last session…`,'info');
+    restored.forEach(j=>{
+      // Rebuild tick function based on type
+      rebuildTick(j);
+      _jobs.push(j);
+    });
+    renderJobs();
+    lg(`✓ ${restored.length} algo(s) restored`,'ok');
+  }catch(e){
+    lg('Session restore failed: '+e.message,'warn');
+  }
+}
+
+function rebuildTick(j){
+  const tk=j.tk,qty=j.qty,side=j.side,lp=j.lp||0,exp=j.exp||24;
+
+  if(j.label==='STP LMT'){
+    const stop=j.stop||lp;
+    j.tick=async()=>{
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
+      if(last==null){j.info='Waiting for price…';renderJobs();return;}
+      const hit=side==='buy'?last>=stop:last<=stop;
+      j.info=`Last $${f(last,4)} vs trigger $${f(stop,4)} — ${hit?'⚡ FIRING':'watching'}`;
+      renderJobs();
+      if(hit){await fireLmt(side,tk,qty,lp,exp);killJob(j.id);}
+    };
+  }
+  else if(j.label==='TRAIL'){
+    let peak=j.peak||null;
+    const tv=j.trailVal||3,tt=j.trailType||'pct';
+    j.tick=async()=>{
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
+      if(last==null)return;
+      if(side==='sell'){
+        if(!peak||last>peak)peak=last;
+        const stop=tt==='pct'?peak*(1-tv/100):peak-tv;
+        j.info=`Peak $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        j.peak=peak;
+        if(last<=stop){await fireMkt(side,tk,qty);killJob(j.id);}
+      }else{
+        if(!peak||last<peak)peak=last;
+        const stop=tt==='pct'?peak*(1+tv/100):peak+tv;
+        j.info=`Floor $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        j.peak=peak;
+        if(last>=stop){await fireMkt(side,tk,qty);killJob(j.id);}
+      }
+      renderJobs();
+    };
+  }
+  else if(j.label==='OCO'){
+    const id1=j.id1,id2=j.id2;
+    if(!id1||!id2){j.status='done';j.info='⚠ Restored — order IDs lost, cannot resume';return;}
+    j.tick=async()=>{
+      const open=await getOpenOrders();
+      const ids=open.map(o=>o.order_id);
+      const has1=ids.includes(id1),has2=ids.includes(id2);
+      if(!has1&&has2){await cxOid(id2);lg('OCO: Leg1 filled → Leg2 cancelled','ok');killJob(j.id);}
+      else if(!has2&&has1){await cxOid(id1);lg('OCO: Leg2 filled → Leg1 cancelled','ok');killJob(j.id);}
+      else if(!has1&&!has2){lg('OCO: both resolved','ok');killJob(j.id);}
+      else j.info=`Leg1:${has1?'open':'gone'} Leg2:${has2?'open':'gone'}`;
+      renderJobs();
+    };
+  }
+  else if(j.label==='BRACKET'){
+    const tp=j.tp,sl2=j.sl,tpId=j.id1,slId=j.id2;
+    if(!tpId||!slId){j.status='done';j.info='⚠ Restored — order IDs lost, cannot resume';return;}
+    j.tick=async()=>{
+      const open=await getOpenOrders();
+      const ids=open.map(o=>o.order_id);
+      if(!ids.includes(tpId)&&ids.includes(slId)){await cxOid(slId);lg('Bracket: TP filled → SL cancelled','ok');killJob(j.id);}
+      else if(!ids.includes(slId)&&ids.includes(tpId)){await cxOid(tpId);lg('Bracket: SL hit → TP cancelled','ok');killJob(j.id);}
+      else if(!ids.includes(tpId)&&!ids.includes(slId)){lg('Bracket: both resolved','ok');killJob(j.id);}
+      else j.info=`TP:${ids.includes(tpId)?'open':'filled'} SL:${ids.includes(slId)?'open':'filled'}`;
+      renderJobs();
+    };
+  }
+  else if(j.label==='TWAP'){
+    const durMin=j.durMin||60,slices=j.totalSlices||6,rand=j.rand||false,intMs=j.intMs||600000;
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el>durMin*60*1000+30000){lg(`TWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if((j.remaining||0)<=0){lg(`✓ TWAP complete — ${qty} placed`,'ok');killJob(j.id);return;}
+      if(el<(j.nextAt||0))return;
+      const base2=Math.ceil(qty/slices);
+      const sz=Math.min(j.remaining,rand?Math.max(1,Math.round(base2*(0.8+Math.random()*0.4))):base2);
+      const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+      const r=await fireLmt(side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed=(j.placed||0)+sz;j.remaining=(j.remaining||0)-sz;j.slicesDone=(j.slicesDone||0)+1;}
+      j.info=`${j.placed}/${qty} placed · ${j.slicesDone}/${slices} slices (RESUMED)`;
+      j.nextAt=(j.slicesDone||0)*intMs;renderJobs();
+    };
+  }
+  else if(j.label==='VWAP'){
+    const durMin=j.durMin||60,slices=j.totalSlices||8,weights=j.weights||Array(slices).fill(1/slices);
+    const intMs=Math.round(durMin*60*1000/slices);
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el>durMin*60*1000+30000){lg(`VWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if((j.remaining||0)<=0){lg(`✓ VWAP complete`,'ok');killJob(j.id);return;}
+      if(el<(j.nextAt||0))return;
+      const i=j.slicesDone||0;
+      const w=weights[Math.min(i,weights.length-1)]||1/slices;
+      const sz=Math.max(1,Math.min(j.remaining,Math.round(qty*w)));
+      const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+      const r=await fireLmt(side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed=(j.placed||0)+sz;j.remaining=(j.remaining||0)-sz;j.slicesDone=(j.slicesDone||0)+1;}
+      j.info=`${j.placed}/${qty} placed · ${j.slicesDone}/${slices} slices (RESUMED)`;
+      j.nextAt=(j.slicesDone||0)*intMs;renderJobs();
+    };
+  }
+  else if(j.label==='ICEBERG'){
+    const showSize=j.showSize||Math.ceil(qty/5);
+    j.tick=async()=>{
+      if((j.remaining||0)<=0){lg(`✓ Iceberg complete`,'ok');killJob(j.id);return;}
+      if(j.lastOid){
+        const open=await getOpenOrders();
+        if(open.find(o=>o.order_id===j.lastOid))return; // still open
+      }
+      const sz=Math.min(j.remaining||qty,showSize);
+      const r=await fireLmt(side,tk,sz,lp,exp);
+      if(r?.order_id){j.lastOid=r.order_id;j.placed=(j.placed||0)+sz;j.remaining=(j.remaining||qty)-sz;}
+      j.info=`${j.placed}/${qty} shown · ${j.remaining||0} hidden`;
+      renderJobs();
+    };
+  }
+  else {
+    // Unknown/unsupported type after restore — mark as interrupted
+    j.status='done';
+    j.info='⚠ Interrupted (refresh) — '+j.label;
+  }
+}
+
+window.PAGE_ord_onShow=function(){
+  populateSel('op-tk');
+  loadFunds();loadOpenOrders();loadFills();opTypeChg();
+  clearInterval(_qT);clearInterval(_jT);clearInterval(_oT);clearInterval(_syncT);
+  _qT=setInterval(()=>{if(g('op-tk').value)refreshQ();},10000);
+  _jT=setInterval(tickJobs,5000);
+  _oT=setInterval(loadOpenOrders,20000);
+  _syncT=setInterval(syncSession,30000);
+  // Restore algos from last session (only on first load)
+  if(!window._sessionRestored){
+    window._sessionRestored=true;
+    restoreSession();
+  }
+  lg('Order terminal ready.','info');
+};
+
+const g=id=>document.getElementById(id);
+const nv=id=>{const e=g(id);return e?+e.value||0:0;};
+const sv=id=>{const e=g(id);return e?e.value:'';};
+const midOf=q=>q&&q.best_bid&&q.best_ask?(q.best_bid+q.best_ask)/2:null;
+const px4=n=>+((+n).toFixed(4));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+// Uncached fetch for live order/account state — avoids stale 404 cache
+const apiLive=async path=>{
+  try{const r=await fetch(path);return{ok:r.ok,s:r.status,d:await r.json()};}
+  catch(e){return{ok:false,s:0,d:{detail:e.message}};}
+};
+
+// ── side ───────────────────────────────────────────────────────
+window.opSide=function(s){
+  _side=s;
+  g('op-buy').className ='op-side'+(s==='buy' ?' s-buy':'');
+  g('op-sell').className='op-side'+(s==='sell'?' s-sell':'');
+  refreshSub();opPrev();
+};
+
+// ── ticker ─────────────────────────────────────────────────────
+window.opTickerChg=function(){
+  const tk=g('op-tk').value;
+  if(!tk){_quote=null;_lastPx=null;g('op-sub').disabled=true;
+    const ticket=document.querySelector('.op-ticket-inner');if(ticket)ticket.style.opacity='1';
+    const w=g('op-warn');if(w)w.textContent='';
+    return;
+  }
+  _ohlcv=null;refreshQ();refreshPos(tk);
+  // Don't enable submit yet — refreshQ will enable it after frozen check
+};
+
+async function refreshQ(){
+  const tk=g('op-tk').value;if(!tk)return;
+  // Get live last price separately for accurate watcher triggers
+  const[liqR,mktR]=await Promise.all([
+    api(`/api/liquidity/${tk}`),
+    api(`/api/market_price/${tk}`)
+  ]);
+  if(liqR.ok){
+    _quote=liqR.d;
+    const bid=liqR.d.best_bid,ask=liqR.d.best_ask,m=midOf(liqR.d);
+    const set=(id,v)=>{const e=g(id);if(e)e.textContent=v;};
+    set('opq-bid',bid!=null?f(bid,4):'—');
+    set('opq-ask',ask!=null?f(ask,4):'—');
+    set('opq-mid',m!=null?f(m,4):'—');
+    set('opq-spr',liqR.d.spread_pct!=null?liqR.d.spread_pct.toFixed(3)+'%':'—');
+    // auto-fill lp
+    const lpE=g('op-lp');if(lpE&&m&&+lpE.value===0)lpE.value=m.toFixed(4);
+    // slippage
+    const sl=_side==='buy'?(liqR.d.slippage_buy||[]):(liqR.d.slippage_sell||[]);
+    const qty=nv('op-qty');
+    if(sl.length&&qty){
+      const cl=sl.reduce((p,c)=>Math.abs(c.qty-qty)<Math.abs(p.qty-qty)?c:p);
+      const e=g('opq-slip');
+      if(e){e.textContent=cl.slippage_pct!=null?cl.slippage_pct.toFixed(3)+'%':'—';e.style.color=cl.slippage_pct>0.5?'var(--dn)':'var(--yel)';}
     }
-
-# ─── TSE market data proxy routes ──────────────────────────────────────────
-
-@app.route("/api/tse/stock/<symbol>")
-def tse_stock(symbol):
-    """Full TSE stock detail (sector, volume, high/low 24h, market_cap)."""
-    s, d = tse_get(f"/api/v1/stocks/{symbol}", ttl=15)
-    return jsonify(d), s
-
-@app.route("/api/tse/candles/<symbol>")
-def tse_candles(symbol):
-    """OHLCV candles from TSE. Supports interval=30s|1m|5m|15m|1h and limit."""
-    interval = request.args.get("interval", "1h")
-    limit    = request.args.get("limit", "300")
-    start    = request.args.get("start")
-    end      = request.args.get("end")
-    params   = {"interval": interval, "limit": int(limit)}
-    if start: params["start"] = int(start)
-    if end:   params["end"]   = int(end)
-    s, d = tse_get(f"/api/v1/market/{symbol}/candles", params=params, ttl=10)
-    return jsonify(d), s
-
-@app.route("/api/tse/orderbook/<symbol>")
-def tse_orderbook(symbol):
-    """TSE order book for a symbol. depth param supported."""
-    depth = request.args.get("depth", "20")
-    s, d = tse_get(f"/api/v1/market/{symbol}/orderbook",
-                   params={"depth": int(depth)}, ttl=5)
-    return jsonify(d), s
-
-@app.route("/api/tse/trades/<symbol>")
-def tse_trades(symbol):
-    """Recent TSE trades for a symbol."""
-    limit = request.args.get("limit", "50")
-    s, d = tse_get(f"/api/v1/market/{symbol}/trades",
-                   params={"limit": int(limit)}, ttl=5)
-    return jsonify(d), s
-
-@app.route("/api/tse/market/<symbol>")
-def tse_market(symbol):
-    """TSE market summary for a symbol (bid/ask, volume, price)."""
-    s, d = tse_get(f"/api/v1/market/{symbol}", ttl=10)
-    return jsonify(d), s
-
-@app.route("/api/market_price/<ticker>")
-def market_price(ticker):
-    s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify({"market_price": d.get("market_price")} if s==200 else d), s
-
-@app.route("/api/shareholders")
-def shareholders():
-    tk = request.args.get("ticker","")
-    if tk:
-        d = get_ticker_shareholders(tk)
-        return jsonify(d), 200
-    # No ticker — return empty (NER requires ticker param)
-    return jsonify([]), 200
-
-@app.route("/api/orderbook")
-def orderbook():
-    t = request.args.get("ticker")
-    all_ob = get_all_orderbooks()
-    if all_ob is None:
-        return jsonify({"detail": "Orderbook unavailable"}), 503
-    if t:
-        ob = next((o for o in all_ob if isinstance(all_ob, list) and o.get("ticker") == t), all_ob)
-        return jsonify(ob), 200
-    return jsonify(all_ob), 200
-
-@app.route("/api/analytics/price_history/<ticker>")
-def price_history(ticker):
-    s, d = atlas_get(f"/history/{ticker}",
-                     params={"days": request.args.get("days", 30)}, ttl=120)
-    if s == 200 and isinstance(d, dict):
-        d = d.get("data", [])
-    return jsonify(d), s
-
-@app.route("/api/history/<path:ticker>")
-def trade_history(ticker):
-    """Raw trade history from Atlas — used by TSE ticker page for recent prints."""
-    limit = int(request.args.get("limit", 50))
-    s, d = atlas_get(f"/history/{ticker}", params={"limit": limit}, ttl=15)
-    return jsonify(d), s
-
-@app.route("/api/analytics/ohlcv/<path:ticker>")
-def ohlcv(ticker):
-    days = request.args.get("days", 30)
-    s, d = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=120)
-    if s != 200 or not isinstance(d, dict):
-        return jsonify({"ticker": ticker, "candles": [], "detail": "No data"}), 200
-    # Normalise candle dates
-    d["candles"] = _norm_candles(d.get("candles", []))
-    return jsonify(d), 200
-
-@app.route("/api/portfolio")
-def portfolio():
-    s, d = cached_get("/portfolio", auth=True, ttl=0); return jsonify(d), s  # always live
-
-# ── Trading ───────────────────────────────────────────────────────────────────
-def _is_tse(payload):
-    return str(payload.get("ticker","")).startswith("TSE:")
-
-def _route_order(ner_path, atlas_path, payload):
-    """Route to Atlas for TSE tickers, NER for everything else."""
-    if _is_tse(payload):
-        return atlas_post(atlas_path, payload)
-    return ner_post(ner_path, payload)
-
-@app.route("/api/orders/buy_limit",   methods=["POST"])
-def buy_limit():
-    s,d=_route_order("/orders/buy_limit",  "/orders/buy_limit",  request.json)
-    return jsonify(d),s
-
-@app.route("/api/orders/sell_limit",  methods=["POST"])
-def sell_limit():
-    s,d=_route_order("/orders/sell_limit", "/orders/sell_limit", request.json)
-    return jsonify(d),s
-
-@app.route("/api/orders/buy_market",  methods=["POST"])
-def buy_market():
-    s,d=_route_order("/orders/buy_market", "/orders/buy_market", request.json)
-    return jsonify(d),s
-
-@app.route("/api/orders/sell_market", methods=["POST"])
-def sell_market():
-    s,d=_route_order("/orders/sell_market","/orders/sell_market",request.json)
-    return jsonify(d),s
-
-# ── Analytics math helpers ────────────────────────────────────────────────────
-def _sma(s, n):
-    return [None if i < n-1 else round(sum(s[i-n+1:i+1])/n, 6) for i in range(len(s))]
-
-def _ema(s, n):
-    k = 2/(n+1); r = [s[0]]
-    for v in s[1:]: r.append(round(v*k + r[-1]*(1-k), 6))
-    return r
-
-def _rsi(s, p=14):
-    result = [None]*p
-    for i in range(p, len(s)):
-        g = [max(s[j]-s[j-1], 0) for j in range(i-p+1, i+1)]
-        l = [max(s[j-1]-s[j], 0) for j in range(i-p+1, i+1)]
-        ag, al = sum(g)/p, sum(l)/p
-        result.append(round(100.0 if al==0 else 100-100/(1+ag/al), 2))
-    return result
-
-def _atr(highs, lows, closes, p=14):
-    trs = []
-    for i in range(1, len(closes)):
-        trs.append(max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1])))
-    atr = [None]
-    for i in range(len(trs)):
-        if i < p-1: atr.append(None)
-        else: atr.append(round(sum(trs[max(0,i-p+1):i+1])/p, 6))
-    return atr
-
-def _bollinger(closes, p=20, k=2):
-    upper, mid, lower = [], [], []
-    for i in range(len(closes)):
-        if i < p-1: upper.append(None); mid.append(None); lower.append(None)
-        else:
-            window = closes[i-p+1:i+1]
-            m = sum(window)/p
-            sd = (sum((x-m)**2 for x in window)/p)**0.5
-            mid.append(round(m,6)); upper.append(round(m+k*sd,6)); lower.append(round(m-k*sd,6))
-    return upper, mid, lower
-
-def _macd(closes, fast=12, slow=26, signal=9):
-    f_ema = _ema(closes, fast); s_ema = _ema(closes, slow)
-    macd_line = [round(f-s, 6) for f,s in zip(f_ema, s_ema)]
-    sig_line  = _ema(macd_line, signal)
-    histogram = [round(m-s, 6) for m,s in zip(macd_line, sig_line)]
-    return macd_line, sig_line, histogram
-
-def _vwap_series(highs, lows, closes, volumes):
-    typical = [(h+l+c)/3 for h,l,c in zip(highs,lows,closes)]
-    cum_tv = 0; cum_v = 0; result = []
-    for tp, v in zip(typical, volumes):
-        cum_tv += tp*v; cum_v += v
-        result.append(round(cum_tv/cum_v, 6) if cum_v else None)
-    return result
-
-def _ann_vol(closes):
-    if len(closes) < 2: return 0
-    rets = [(closes[i]-closes[i-1])/closes[i-1] for i in range(1,len(closes))]
-    if len(rets) < 2: return 0
-    return round(statistics.stdev(rets) * (252**0.5) * 100, 2)
-
-def _max_drawdown(series):
-    peak = series[0]; max_dd = 0
-    for v in series:
-        if v > peak: peak = v
-        dd = (peak - v) / peak if peak > 0 else 0
-        if dd > max_dd: max_dd = dd
-    return round(max_dd * 100, 2)
-
-def _sharpe(closes, rf=0):
-    if len(closes) < 2: return 0
-    rets = [(closes[i]-closes[i-1])/closes[i-1] for i in range(1,len(closes))]
-    if len(rets) < 2: return 0
-    avg = sum(rets)/len(rets)
-    std = statistics.stdev(rets)
-    return round((avg - rf/252) / std * (252**0.5), 3) if std > 0 else 0
-
-# ── TICKER STATS (fixed + enhanced) ──────────────────────────────────────────
-
-def _mean_reversion(closes):
-    """Z-score of current price vs SMA20 — high absolute value = mean reversion opportunity."""
-    if len(closes) < 20: return None
-    sma = sum(closes[-20:]) / 20
-    std = (sum((c - sma)**2 for c in closes[-20:]) / 20) ** 0.5
-    if std == 0: return None
-    return round((closes[-1] - sma) / std, 2)
-
-def _downside_vol(closes):
-    """Annualized downside deviation (Sortino denominator)."""
-    if len(closes) < 2: return None
-    rets = [(closes[i]-closes[i-1])/closes[i-1] for i in range(1, len(closes))]
-    neg = [r for r in rets if r < 0]
-    if not neg: return 0.0
-    return round((sum(r**2 for r in neg)/len(neg))**0.5 * (252**0.5) * 100, 2)
-
-@app.route("/api/ticker_stats/<path:ticker>")
-def ticker_stats(ticker):
-    days = int(request.args.get("days", 60))
-    s, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
-    if s != 200 or not isinstance(raw, dict):
-        return jsonify({"detail": "No data from Atlas", "status": s}), 404
-    candles = _norm_candles(raw.get("candles", []), days=days)
-    if not candles: return jsonify({"detail": "No candle data available"}), 404
-
-    closes  = [c["close"]  for c in candles]
-    highs   = [c["high"]   for c in candles]
-    lows    = [c["low"]    for c in candles]
-    volumes = [c["volume"] for c in candles]
-
-    # MACD
-    ml, sl2, hist = _macd(closes)
-    # Bollinger
-    bb_up, bb_mid, bb_lo = _bollinger(closes)
-    # ATR
-    atr = _atr(highs, lows, closes)
-    # VWAP
-    vwap = _vwap_series(highs, lows, closes, volumes)
-    # Vol MA
-    vol_ma20 = _sma(volumes, 20)
-    # Rolling vol (20-day)
-    rolling_vol = []
-    for i in range(len(closes)):
-        if i < 20: rolling_vol.append(None)
-        else:
-            window = closes[i-20:i+1]
-            rets = [(window[j]-window[j-1])/window[j-1] for j in range(1,len(window))]
-            rolling_vol.append(round(statistics.stdev(rets)*100, 4) if len(rets)>1 else None)
-
-    # Breakout detection
-    last_close = closes[-1]
-    period_high = max(highs)
-    period_low  = min(lows)
-    near_high = last_close >= period_high * 0.98
-    near_low  = last_close <= period_low  * 1.02
-
-    # Price structure
-    chg_pct = round((closes[-1]-closes[0])/closes[0]*100, 2) if closes else 0
-
-    return jsonify({
-        "ticker":   ticker,
-        "candles":  candles,
-        "sma20":    _sma(closes, 20),
-        "sma50":    _sma(closes, 50),
-        "sma100":   _sma(closes, 100),
-        "sma200":   _sma(closes, 200),
-        "ema12":    _ema(closes, 12),
-        "ema26":    _ema(closes, 26),
-        "vwap":     vwap,
-        "rsi14":    _rsi(closes, 14),
-        "macd_line":    ml,
-        "macd_signal":  sl2,
-        "macd_hist":    hist,
-        "bb_upper": bb_up,
-        "bb_mid":   bb_mid,
-        "bb_lower": bb_lo,
-        "atr14":    atr,
-        "vol_ma20": vol_ma20,
-        "rolling_vol": rolling_vol,
-        "volatility_ann_pct": _ann_vol(closes),
-        "sharpe":   _sharpe(closes),
-        "max_drawdown_pct": _max_drawdown(closes),
-        "price_chg_pct": chg_pct,
-        "high_period": period_high,
-        "low_period":  period_low,
-        "avg_volume":  round(sum(volumes)/len(volumes)) if volumes else 0,
-        "near_high": near_high,
-        "near_low":  near_low,
-        "vol_spike": round(volumes[-1] / (sum(volumes[:-1])/max(len(volumes)-1,1)), 2) if len(volumes) > 1 and sum(volumes[:-1]) > 0 else None,
-        "mean_reversion_score": _mean_reversion(closes),
-        "downside_vol": _downside_vol(closes),
-    })
-
-# ── COMPARE (fixed) ───────────────────────────────────────────────────────────
-@app.route("/api/compare")
-def compare():
-    tickers = [t.strip() for t in request.args.get("tickers","").split(",") if t.strip()]
-    days    = int(request.args.get("days", 30))
-    result  = {}
-    for t in tickers:
-        s, raw = atlas_get(f"/history/{t}", params={"days": days}, ttl=60)
-        if s != 200 or not isinstance(raw, dict): continue
-        pts = raw.get("data", [])
-        if not isinstance(pts, list) or len(pts) == 0: continue
-        # Sort oldest-first (Atlas returns newest-first)
-        pts_sorted = sorted(pts, key=lambda p: p.get("timestamp",""))
-        base = pts_sorted[0].get("price")
-        if not base or base == 0: continue
-        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in pts_sorted]
-    return jsonify(result)
-
-# ── MARKET BREADTH ────────────────────────────────────────────────────────────
-
-def _parallel_ohlcv(tickers, days, ttl=600):
-    """Fetch /analytics/ohlcv for multiple tickers in parallel. Returns {ticker: raw_dict}."""
-    results = {}
-    def fetch(t):
-        s, d = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=ttl)
-        return t, (d if s == 200 and isinstance(d, dict) else None)
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(fetch, t): t for t in tickers}
-        for f in as_completed(futures):
-            t, d = f.result()
-            results[t] = d
-    return results
-
-@app.route("/api/market_breadth")
-def market_breadth():
-    """Parallel-fetch version — all OHLCV fired concurrently, no serial loops."""
-    days = int(request.args.get("days", 7))
-
-    # Fetch securities meta + breadth + orderbook in parallel
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f_secs  = ex.submit(atlas_get, "/securities",     None,           120)
-        f_bread = ex.submit(atlas_get, "/market/breadth", {"days": days}, 30)
-        f_ob    = ex.submit(atlas_get, "/orderbook",      None,           10)
-        _, secs_raw = f_secs.result()
-        s_br, d_br  = f_bread.result()
-        _, ob_all   = f_ob.result()
-
-    sec_meta = {}
-    if isinstance(secs_raw, list):
-        for s in secs_raw:
-            sec_meta[s["ticker"]] = s
-
-    all_tickers = list(sec_meta.keys())
-
-    # Fire all OHLCV calls in parallel (cache hits after first load = ~0ms)
-    ohlcv_30  = _parallel_ohlcv(all_tickers, 30,   ttl=600)
-    ohlcv_day = _parallel_ohlcv(all_tickers, days, ttl=600) if days != 30 else ohlcv_30
-
-    raw_secs = []
-    if s_br == 200 and isinstance(d_br, dict) and d_br.get("securities"):
-        raw_secs = d_br["securities"] if isinstance(d_br["securities"], list) else []
-
-    enriched = []
-    tickers_seen = set()
-
-    for item in raw_secs:
-        ticker = item.get("ticker", "")
-        if not ticker: continue
-        tickers_seen.add(ticker)
-        meta    = sec_meta.get(ticker, {})
-        derived = meta.get("derived", {}) or {}
-        lp      = meta.get("market_price") or item.get("last_price") or 0
-
-        vol       = item.get("volatility") or derived.get("volatility_7d")
-        shrp      = item.get("sharpe")
-        chg_pct   = item.get("chg_pct")
-        prd_hi    = item.get("hi52")
-        prd_lo    = item.get("lo52")
-        vol_spike = item.get("vol_spike")
-        vlday     = []
-
-        o30 = ohlcv_30.get(ticker)
-        if o30 and isinstance(o30, dict):
-            cs30 = _norm_candles(o30.get("candles", []), days=30)
-            if len(cs30) >= 2:
-                cl30 = [c["close"] for c in cs30]
-                if vol  is None: vol  = _ann_vol(cl30)
-                if shrp is None: shrp = _sharpe(cl30)
-
-        oday = ohlcv_day.get(ticker)
-        if oday and isinstance(oday, dict):
-            csday = _norm_candles(oday.get("candles", []), days=days)
-            if len(csday) >= 2:
-                clday = [c["close"]  for c in csday]
-                vlday = [c["volume"] for c in csday]
-                if chg_pct is None:
-                    chg_pct = round((clday[-1]-clday[0])/clday[0]*100, 2) if clday[0] else 0
-                if prd_hi    is None: prd_hi    = round(max(clday), 4)
-                if prd_lo    is None: prd_lo    = round(min(clday), 4)
-                if vol_spike is None and len(vlday) > 1:
-                    avg_v     = sum(vlday[:-1])/max(len(vlday)-1, 1)
-                    vol_spike = round(vlday[-1]/avg_v, 2) if avg_v > 0 else None
-
-        enriched.append({
-            "ticker":     ticker,
-            "name":       meta.get("full_name", ticker),
-            "exchange":   "TSE" if ticker.startswith("TSE:") else "NER",
-            "last_price": lp,
-            "chg_pct":    chg_pct if chg_pct is not None else 0,
-            "volatility": vol,
-            "sharpe":     shrp,
-            "market_cap": item.get("market_cap") or round(lp*(meta.get("total_shares") or 0), 2),
-            "volume":     sum(vlday) if vlday else 0,
-            "hi52":       prd_hi,
-            "lo52":       prd_lo,
-            "vol_spike":  vol_spike,
-            "frozen":     bool(meta.get("frozen", False)),
-        })
-
-    # Any tickers in sec_meta not returned by breadth
-    for ticker, meta in sec_meta.items():
-        if ticker in tickers_seen: continue
-        lp   = meta.get("market_price") or 0
-        oday = ohlcv_day.get(ticker)
-        csday, clday, vlday = [], [], []
-        if oday and isinstance(oday, dict):
-            csday = _norm_candles(oday.get("candles", []), days=days)
-        if len(csday) >= 2:
-            clday     = [c["close"]  for c in csday]
-            vlday     = [c["volume"] for c in csday]
-            chg_pct   = round((clday[-1]-clday[0])/clday[0]*100, 2) if clday[0] else 0
-            avg_v     = sum(vlday[:-1])/max(len(vlday)-1,1) if len(vlday)>1 else (vlday[0] or 1)
-            enriched.append({
-                "ticker": ticker, "name": meta.get("full_name", ticker),
-                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
-                "last_price": lp, "chg_pct": chg_pct,
-                "volatility": _ann_vol(clday), "sharpe": _sharpe(clday),
-                "market_cap": round(lp*(meta.get("total_shares") or 0), 2),
-                "volume": sum(vlday), "hi52": max(clday), "lo52": min(clday),
-                "vol_spike": round(vlday[-1]/avg_v,2) if avg_v>0 else None,
-                "frozen": bool(meta.get("frozen", False)),
-            })
-        else:
-            enriched.append({
-                "ticker": ticker, "name": meta.get("full_name", ticker),
-                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
-                "last_price": lp, "chg_pct": 0, "volatility": None, "sharpe": None,
-                "market_cap": round(lp*(meta.get("total_shares") or 0), 2),
-                "volume": 0, "hi52": None, "lo52": None, "vol_spike": None,
-                "frozen": bool(meta.get("frozen", False)),
-            })
-
-    if not enriched:
-        return jsonify({"detail": "No market data available"}), 503
-
-    # Global orderbook imbalance
-    global_bid = 0; global_ask = 0
-    if isinstance(ob_all, list):
-        for ob in ob_all:
-            global_bid += ob.get("bid_depth", 0) or 0
-            global_ask += ob.get("ask_depth", 0) or 0
-    total_depth  = global_bid + global_ask
-    global_imbal = round((global_bid-global_ask)/max(total_depth,1)*100, 2)
-
-    chgs = [e["chg_pct"] for e in enriched]
-    ups  = [e for e in enriched if e["chg_pct"] > 0]
-    dns  = [e for e in enriched if e["chg_pct"] < 0]
-    flt  = [e for e in enriched if e["chg_pct"] == 0]
-    vols = [e["volatility"] for e in enriched
-            if isinstance(e.get("volatility"), (int,float)) and e["volatility"] > 0]
-
-    return jsonify({
-        "securities": enriched,
-        "summary": {
-            "total":            len(enriched),
-            "advancing":        len(ups),
-            "declining":        len(dns),
-            "unchanged":        len(flt),
-            "adv_dec_ratio":    round(len(ups)/max(len(dns),1), 2),
-            "avg_return":       round(sum(chgs)/len(chgs), 2) if chgs else 0,
-            "ew_index_return":  round(sum(chgs)/len(chgs), 4) if chgs else 0,
-            "vol_dispersion":   round(statistics.stdev(vols), 2) if len(vols)>1 else 0,
-            "global_imbalance": global_imbal,
-            "total_depth":      total_depth,
-        }
-    }), 200
-
-
-# ── GLOBAL ORDERBOOK AGGREGATOR ───────────────────────────────────────────────
-@app.route("/api/market_orderbook")
-def market_orderbook():
-    s_secs, secs = atlas_get("/securities", ttl=60)
-    if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
-    all_ob = get_all_orderbooks(); s_ob = 200 if all_ob else 503
-    if s_ob != 200 or not isinstance(all_ob, list):
-        return jsonify({"detail": "Cannot fetch orderbook"}), s_ob
-
-    sec_map = {s["ticker"]: s for s in secs}
-    books = []
-    total_bid = 0; total_ask = 0
-
-    for ob in all_ob:
-        ticker  = ob.get("ticker","")
-        bids    = ob.get("bids", [])
-        asks    = ob.get("asks", [])
-        bid_qty = sum(b["quantity"] for b in bids)
-        ask_qty = sum(a["quantity"] for a in asks)
-        total_depth = bid_qty + ask_qty
-        total_bid += bid_qty; total_ask += ask_qty
-
-        shares = sec_map.get(ticker, {}).get("total_shares", 1) or 1
-        spread = None
-        if ob.get("best_ask") and ob.get("best_bid"):
-            spread = round((ob["best_ask"] - ob["best_bid"]) / ob["best_bid"] * 100, 4)
-
-        books.append({
-            "ticker":      ticker,
-            "bid_qty":     bid_qty,
-            "ask_qty":     ask_qty,
-            "total_depth": total_depth,
-            "imbalance":   round((bid_qty - ask_qty) / max(bid_qty + ask_qty, 1) * 100, 2),
-            "liquidity_score": round(total_depth / shares * 100, 4),
-            "spread_pct":  spread,
-            "best_bid":    ob.get("best_bid"),
-            "best_ask":    ob.get("best_ask"),
-            "mid":         ob.get("mid"),
-        })
-
-    books.sort(key=lambda x: x["total_depth"], reverse=True)
-    total = total_bid + total_ask
-
-    return jsonify({
-        "books": books,
-        "global": {
-            "total_bid_depth":  total_bid,
-            "total_ask_depth":  total_ask,
-            "total_depth":      total,
-            "global_imbalance": round((total_bid - total_ask)/max(total,1)*100, 2),
-            "top5_deepest":     [b["ticker"] for b in books[:5]],
-            "most_illiquid":    [b["ticker"] for b in sorted(books, key=lambda x: x["total_depth"])[:5]],
-        }
-    })
-
-# ── EXCHANGE ANALYTICS ────────────────────────────────────────────────────────
-@app.route("/api/exchange_analytics")
-def exchange_analytics():
-    """Exchange analytics — all OHLCV fetched in parallel."""
-    days = int(request.args.get("days", 7))
-    s_secs, secs = atlas_get("/securities", ttl=120)
-    if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
-
-    ner_secs = [s for s in secs if not s["ticker"].startswith("TSE:")]
-    tickers  = [s["ticker"] for s in ner_secs]
-
-    # Parallel OHLCV fetch
-    ohlcv = _parallel_ohlcv(tickers, days, ttl=600)
-
-    ticker_data = []
-    total_mcap  = 0
-    all_vols, all_sharpes, all_chgs = [], [], []
-
-    for sec in ner_secs:
-        t   = sec["ticker"]
-        raw = ohlcv.get(t)
-        if not raw or not raw.get("candles"): continue
-        cs = raw["candles"]
-        closes  = [c["close"]  for c in cs]
-        volumes = [c["volume"] for c in cs]
-        if len(closes) < 2: continue
-
-        mcap = closes[-1] * sec.get("total_shares", 0)
-        total_mcap += mcap
-        chg  = (closes[-1]-closes[0])/closes[0]*100
-        vol  = _ann_vol(closes)
-        sh   = _sharpe(closes)
-        all_vols.append(vol); all_sharpes.append(sh); all_chgs.append(chg)
-
-        ticker_data.append({
-            "ticker":  t, "name": sec.get("full_name", ""),
-            "mcap":    round(mcap, 2),
-            "volume":  sum(volumes),
-            "chg_pct": round(chg, 2),
-            "volatility": vol, "sharpe": sh,
-            "max_dd":  _max_drawdown(closes),
-            "last":    closes[-1],
-            "total_shares": sec.get("total_shares", 0),
-        })
-
-    ticker_data.sort(key=lambda x: x["mcap"], reverse=True)
-    total_vol = sum(t["volume"] for t in ticker_data) or 1
-    for t in ticker_data:
-        t["vol_share_pct"]  = round(t["volume"]/total_vol*100, 2)
-        t["mcap_share_pct"] = round(t["mcap"]/max(total_mcap,1)*100, 2)
-
-    vix_proxy  = round(sum(all_vols)/len(all_vols), 2)     if all_vols    else 0
-    avg_sharpe = round(sum(all_sharpes)/len(all_sharpes),3) if all_sharpes else 0
-    mcap_shares = [t["mcap"]/max(total_mcap,1)*100 for t in ticker_data]
-    hhi         = round(sum(s**2 for s in mcap_shares), 1)
-
-    # Correlation matrix (fast — already have closes in memory)
-    corr_matrix = {}
-    closes_map  = {}
-    for sec in ner_secs:
-        t   = sec["ticker"]
-        raw = ohlcv.get(t)
-        if raw and raw.get("candles"):
-            closes_map[t] = [c["close"] for c in raw["candles"]]
-
-    return jsonify({
-        "tickers": ticker_data,
-        "exchange": {
-            "total_market_cap":  round(total_mcap, 2),
-            "total_volume":      sum(t["volume"] for t in ticker_data),
-            "num_securities":    len(ticker_data),
-            "volatility_index":  vix_proxy,
-            "avg_sharpe":        avg_sharpe,
-            "concentration_hhi": hhi,
-            "avg_return":        round(sum(all_chgs)/len(all_chgs), 2) if all_chgs else 0,
-            "top_by_mcap":       [t["ticker"] for t in ticker_data[:5]],
-            "top_by_volume":     [t["ticker"] for t in sorted(ticker_data, key=lambda x: x["volume"], reverse=True)[:5]],
-        }
-    })
-
-
-# ── LIQUIDITY LAB ─────────────────────────────────────────────────────────────
-@app.route("/api/liquidity/<ticker>")
-def liquidity_lab(ticker):
-    # Use bulk orderbook cache — no per-ticker call
-    ob = get_ticker_orderbook(ticker)
-    if ob is None:
-        return jsonify({"detail": "Orderbook unavailable"}), 503
-    s_sec, secs_data = atlas_get("/securities", ttl=60)
-    sec = next((s for s in (secs_data if isinstance(secs_data, list) else []) if s["ticker"]==ticker), {})
-    total_shares = sec.get("total_shares", 1) or 1
-    s_ob = 200  # we got data from bulk cache
-
-    bids = sorted(ob.get("bids",[]), key=lambda x: x["price"], reverse=True)
-    asks = sorted(ob.get("asks",[]), key=lambda x: x["price"])
-    best_bid = ob.get("best_bid"); best_ask = ob.get("best_ask"); mid = ob.get("mid")
-
-    # Cumulative depth
-    cum_bid_depth = []; cum_ask_depth = []
-    cum = 0
-    for b in bids:
-        cum += b["quantity"]; cum_bid_depth.append({"price": b["price"], "cum_qty": cum, "qty": b["quantity"]})
-    cum = 0
-    for a in asks:
-        cum += a["quantity"]; cum_ask_depth.append({"price": a["price"], "cum_qty": cum, "qty": a["quantity"]})
-
-    # Slippage simulation for various order sizes
-    def sim_slippage(side, qty):
-        book = asks if side=="buy" else list(reversed(bids))
-        filled = 0; cost = 0
-        for level in book:
-            take = min(level["quantity"], qty - filled)
-            cost += take * level["price"]; filled += take
-            if filled >= qty: break
-        if filled == 0: return None
-        avg_px = cost/filled
-        ref = best_ask if side=="buy" else best_bid
-        if not ref: return None
-        slip = (avg_px - ref)/ref*100 if side=="buy" else (ref - avg_px)/ref*100
-        return {"qty": qty, "filled": filled, "avg_px": round(avg_px,4), "slippage_pct": round(slip,4), "cost": round(cost,2)}
-
-    total_shares_float = float(total_shares)
-    sim_sizes = [10, 50, 100, 500, 1000, int(total_shares_float*0.001), int(total_shares_float*0.005)]
-    sim_sizes = sorted(set(s for s in sim_sizes if s > 0))
-
-    slippage_buy  = [r for r in (sim_slippage("buy",  s) for s in sim_sizes) if r]
-    slippage_sell = [r for r in (sim_slippage("sell", s) for s in sim_sizes) if r]
-
-    # Depth imbalance
-    total_bid_qty = sum(b["quantity"] for b in bids)
-    total_ask_qty = sum(a["quantity"] for a in asks)
-    imbalance = round((total_bid_qty-total_ask_qty)/max(total_bid_qty+total_ask_qty,1)*100, 2)
-
-    # Spread
-    spread = round((best_ask-best_bid)/best_bid*100,4) if best_ask and best_bid else None
-    # Liquidity score
-    liq_score = round((total_bid_qty+total_ask_qty)/total_shares*100, 4)
-
-    # Fake wall detection: orders >3x avg size at or within 2% of mid
-    avg_bid_sz = total_bid_qty/max(len(bids),1)
-    avg_ask_sz = total_ask_qty/max(len(asks),1)
-    walls = []
-    if mid:
-        for b in bids:
-            if b["price"] >= mid*0.98 and b["quantity"] > avg_bid_sz*3:
-                walls.append({"side":"bid","price":b["price"],"qty":b["quantity"],"multiple":round(b["quantity"]/avg_bid_sz,1)})
-        for a in asks:
-            if a["price"] <= mid*1.02 and a["quantity"] > avg_ask_sz*3:
-                walls.append({"side":"ask","price":a["price"],"qty":a["quantity"],"multiple":round(a["quantity"]/avg_ask_sz,1)})
-
-    return jsonify({
-        "ticker": ticker, "mid": mid, "best_bid": best_bid, "best_ask": best_ask,
-        "spread_pct": spread, "imbalance_pct": imbalance, "liquidity_score": liq_score,
-        "total_bid_qty": total_bid_qty, "total_ask_qty": total_ask_qty,
-        "cum_bid_depth": cum_bid_depth, "cum_ask_depth": cum_ask_depth,
-        "slippage_buy": slippage_buy, "slippage_sell": slippage_sell,
-        "walls": walls, "total_shares": total_shares,
-        "bids": bids, "asks": asks,
-    })
-
-# ── HOLDER INTELLIGENCE ───────────────────────────────────────────────────────
-@app.route("/api/holder_intel")
-def holder_intel():
-    """Exchange-wide shareholder intelligence — parallel fetches with semaphore throttle."""
-    s_secs, secs = atlas_get("/securities", ttl=120)
-    if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
-
-    # Semaphore limits concurrency to 4 simultaneous shareholder calls (avoids 429)
-    sem = threading.Semaphore(4)
-
-    def fetch_one(sec):
-        t = sec["ticker"]
-        with sem:
-            holders = get_ticker_shareholders(t)
-        if not holders: return None
-        total_qty = sum(h["quantity"] for h in holders)
-        if total_qty == 0: return None
-        shares = [h["quantity"]/total_qty for h in holders]
-        hhi    = round(sum(s**2 for s in shares)*10000, 1)
-        top1  = round(shares[0]*100,2) if shares else 0
-        top3  = round(sum(shares[:3])*100,2) if len(shares)>=3 else round(sum(shares)*100,2)
-        top5  = round(sum(shares[:5])*100,2) if len(shares)>=5 else round(sum(shares)*100,2)
-        top10 = round(sum(shares[:10])*100,2)
-        whales = [h for h in holders if h["quantity"]/total_qty > 0.10]
-        return {
-            "ticker":     t,
-            "name":       sec.get("full_name",""),
-            "num_holders": len(holders),
-            "total_shares_held": total_qty,
-            "hhi":        hhi,
-            "top1_pct":   top1,
-            "top3_pct":   top3,
-            "top5_pct":   top5,
-            "top10_pct":  top10,
-            "whale_count": len(whales),
-            "holders":    holders[:20],
-        }
-
-    all_data = []
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(fetch_one, sec): sec for sec in secs}
-        for f in as_completed(futures):
-            result = f.result()
-            if result: all_data.append(result)
-
-    # Cross-exchange whale tracking
-    whale_map = {}
-    for d in all_data:
-        t = d["ticker"]
-        total = d["total_shares_held"]
-        for h in d["holders"]:
-            uid = h["user_id"]
-            pct = round(h["quantity"]/total*100, 2)
-            if pct >= 5:
-                if uid not in whale_map: whale_map[uid] = []
-                whale_map[uid].append({"ticker": t, "qty": h["quantity"], "pct": pct})
-
-    whales = [{"user_id": uid, "positions": pos, "num_positions": len(pos)}
-              for uid, pos in whale_map.items()]
-    whales.sort(key=lambda x: x["num_positions"], reverse=True)
-
-    return jsonify({
-        "securities": all_data,
-        "whales": whales,
-        "summary": {
-            "most_concentrated":   max(all_data, key=lambda x: x["hhi"])["ticker"] if all_data else None,
-            "most_distributed":    min(all_data, key=lambda x: x["hhi"])["ticker"] if all_data else None,
-            "most_whales":         max(all_data, key=lambda x: x["whale_count"])["ticker"] if all_data else None,
-            "avg_hhi":             round(sum(d["hhi"] for d in all_data)/len(all_data),1) if all_data else 0,
-            "avg_holders":         round(sum(d["num_holders"] for d in all_data)/len(all_data),1) if all_data else 0,
-        }
-    })
-
-@app.route("/api/holder_intel/<ticker>")
-def holder_intel_ticker(ticker):
-    s_atl, d_atl = atlas_get(f"/holder_intel/{ticker}", ttl=60)
-    if s_atl == 200: return jsonify(d_atl), 200
-    holders = get_ticker_shareholders(ticker)
-    if not isinstance(holders, list) or not holders:
-        return jsonify({"detail": "No holders found for ticker"}), 404
-    _, sec_list = atlas_get("/securities", ttl=60)
-    sec = next((s for s in (sec_list if isinstance(sec_list,list) else []) if s["ticker"]==ticker), {})
-    total_shares = sec.get("total_shares", 0)
-    total_held   = sum(h["quantity"] for h in holders) if holders else 0
-
-    if not holders: return jsonify({"holders":[],"stats":{},"ticker":ticker})
-
-    shares_norm = [h["quantity"]/total_held for h in holders]
-    hhi = round(sum(s**2 for s in shares_norm)*10000, 1)
-
-    # Histogram buckets
-    buckets = {"<0.1%":0,"0.1-1%":0,"1-5%":0,"5-10%":0,">10%":0}
-    for h in holders:
-        p = h["quantity"]/total_held*100
-        if p < 0.1:   buckets["<0.1%"]  += 1
-        elif p < 1:   buckets["0.1-1%"] += 1
-        elif p < 5:   buckets["1-5%"]   += 1
-        elif p < 10:  buckets["5-10%"]  += 1
-        else:         buckets[">10%"]   += 1
-
-    return jsonify({
-        "ticker":  ticker,
-        "holders": holders,
-        "total_shares": total_shares,
-        "total_held":   total_held,
-        "float_pct":    round(total_held/total_shares*100,2) if total_shares else None,
-        "stats": {
-            "num_holders": len(holders),
-            "hhi":         hhi,
-            "top1_pct":    round(shares_norm[0]*100,2),
-            "top3_pct":    round(sum(shares_norm[:3])*100,2),
-            "top5_pct":    round(sum(shares_norm[:5])*100,2),
-            "whale_count": sum(1 for s in shares_norm if s>0.10),
-            "gini":        round(sum(abs(a-b) for a in shares_norm for b in shares_norm)/(2*len(shares_norm)**2),4) if len(shares_norm)>1 else 0,
-        },
-        "histogram": buckets,
-    })
-
-# ── BACKTEST ──────────────────────────────────────────────────────────────────
-
-# ══════════════════════════════════════════════════════════════════════════════
-# BACKTEST ENGINE v2  —  clean rewrite
-# Core invariant: buy_hold equity curve MUST track price * (10000/price[0])
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _bt_run(closes, dates, signals, sl_pct=0.0, tp_pct=0.0):
-    """
-    Pure simulation. Returns (equity_curve, trades).
-    signals[i] in {-1, 0, 1}  (1=buy, -1=sell/short-exit)
-    No fractional shares, commission = 0.5% per side, deducted from proceeds/cost.
-    Key fix: qty = floor((cash * 0.995) / price)  so commission never exceeds residual cash.
-    """
-    COMMISSION = 0.005          # 0.5 % per trade
-    cash   = 10_000.0
-    shares = 0
-    pos    = False
-    entry  = 0.0
-    equity = []
-    trades = []
-
-    for i, price in enumerate(closes):
-        if price is None or price <= 0:
-            equity.append(round(cash + shares * (closes[i-1] if i else 0), 4))
-            continue
-
-        sig = signals[i]
-
-        # ── Stop-loss / take-profit ──────────────────────────────────────────
-        if pos and entry > 0:
-            hit_sl = sl_pct > 0 and price <= entry * (1 - sl_pct)
-            hit_tp = tp_pct > 0 and price >= entry * (1 + tp_pct)
-            if hit_sl or hit_tp:
-                proceeds     = shares * price * (1 - COMMISSION)
-                cash        += proceeds
-                action       = "STOP" if hit_sl else "TP"
-                trades.append({"date": dates[i], "action": action,
-                                "price": round(price, 4), "qty": shares,
-                                "value": round(proceeds, 2)})
-                shares = 0; pos = False; entry = 0.0
-
-        # ── Entry ────────────────────────────────────────────────────────────
-        if sig == 1 and not pos:
-            # Buy as many shares as cash allows AFTER commission
-            qty = int(cash / (price * (1 + COMMISSION)))
-            if qty > 0:
-                cost    = qty * price * (1 + COMMISSION)
-                cash   -= cost
-                shares  = qty
-                pos     = True
-                entry   = price
-                trades.append({"date": dates[i], "action": "BUY",
-                                "price": round(price, 4), "qty": qty,
-                                "value": round(cost, 2)})
-
-        # ── Exit ─────────────────────────────────────────────────────────────
-        elif sig == -1 and pos and shares > 0:
-            proceeds     = shares * price * (1 - COMMISSION)
-            cash        += proceeds
-            trades.append({"date": dates[i], "action": "SELL",
-                            "price": round(price, 4), "qty": shares,
-                            "value": round(proceeds, 2)})
-            shares = 0; pos = False; entry = 0.0
-
-        equity.append(round(cash + shares * price, 4))
-
-    return equity, trades
-
-
-def _bt_metrics(equity, closes, trades):
-    start_eq = equity[0] if equity else 10_000
-    end_eq   = equity[-1] if equity else 10_000
-    total_ret  = round((end_eq - 10_000) / 10_000 * 100, 2)
-    bh_ret     = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if len(closes) >= 2 and closes[0] else 0
-    max_dd     = _max_drawdown(equity)
-    sharpe_val = _sharpe(equity)
-    calmar     = round(abs(total_ret / max_dd), 3) if max_dd > 0 else 0
-
-    # Win rate: pair BUY→SELL/STOP/TP
-    buys   = [t for t in trades if t["action"] == "BUY"]
-    exits  = [t for t in trades if t["action"] in ("SELL", "STOP", "TP")]
-    pairs  = list(zip(buys, exits))
-    wins   = sum(1 for b, e in pairs if e["price"] > b["price"])
-    win_rt = round(wins / len(pairs) * 100, 1) if pairs else 0.0
-
-    return {
-        "total_return_pct":    total_ret,
-        "benchmark_return_pct": bh_ret,
-        "alpha_pct":           round(total_ret - bh_ret, 2),
-        "max_drawdown_pct":    max_dd,
-        "sharpe_ratio":        sharpe_val,
-        "calmar_ratio":        calmar,
-        "num_trades":          len(trades),
-        "win_rate":            win_rt,
-        "final_equity":        round(end_eq, 2),
+    const ml=g('p-mid-live');if(ml&&m)ml.textContent='$'+f(m,4);
+  }
+  // Last trade price from market_price endpoint
+  if(mktR.ok&&mktR.d){
+    const last=mktR.d.price||mktR.d.market_price||mktR.d.last_price||midOf(_quote);
+    if(last!=null){
+      _lastPx=last;
+      const e=g('opq-last');
+      if(e){
+        e.textContent=f(last,4);
+        const sec=(BB.secs||[]).find(s=>s.ticker===tk);
+        e.style.color=sec&&sec.change_pct<0?'var(--dn)':'var(--up)';
+      }
     }
+  }
+  // Frozen ticker check — block trading if frozen
+  const sec = (BB.secs||[]).find(s=>s.ticker===tk);
+  const frozen = sec?.frozen || (mktR.ok && mktR.d?.frozen) || false;
+  const sb = g('op-sub');
+  const warn = g('op-warn');
+  if(frozen){
+    if(sb) sb.disabled = true;
+    if(warn){ warn.textContent = '🔒 TICKER FROZEN — trading suspended by exchange'; warn.style.color = 'var(--dn)'; }
+    // Dim the form visually
+    const ticket = document.querySelector('.op-ticket-inner');
+    if(ticket) ticket.style.opacity = '0.55';
+  } else {
+    if(sb && tk) sb.disabled = false;
+    if(warn && warn.textContent.includes('FROZEN')){ warn.textContent = ''; }
+    const ticket = document.querySelector('.op-ticket-inner');
+    if(ticket) ticket.style.opacity = '1';
+  }
+  calcTrail();opPrev();
+}
+
+async function refreshPos(tk){
+  const r=await api('/api/portfolio');if(!r.ok)return;
+  const h=(r.d.holdings||[]).find(h=>h.ticker===tk);
+  g('opa-pos').textContent=h?h.quantity.toLocaleString():'0';
+  if(h){const p=h.unrealized_pnl||0;g('opa-pnl').textContent='$'+f(p,0);g('opa-pnl').style.color=p>=0?'var(--up)':'var(--dn)';}
+  else{g('opa-pnl').textContent='—';g('opa-pnl').style.color='var(--txt3)';}
+}
+
+async function loadFunds(){
+  const r=await apiLive('/api/funds');if(!r.ok)return;
+  _funds=r.d;g('opa-av').textContent='$'+fk(r.d.available||0);
+}
+
+// ── type ───────────────────────────────────────────────────────
+window.opTypeChg=function(){
+  const t=g('op-type').value;
+  buildParams(t);
+  g('op-lp-cell').style.opacity=(t==='market')?.4:1;
+  refreshSub();opPrev();
+};
+
+function isAlgo(t){return['twap','vwap','accumulate','iceberg','participation','arrival','scale'].includes(t);}
+function isWatch(t){return['stop_limit','trailing','bracket','oco','mid_price','aon'].includes(t);}
+function tLbl(t){
+  return{limit:'LMT',market:'MKT',stop_limit:'STP LMT',trailing:'TRAIL STOP',bracket:'BRACKET',
+    oco:'OCO',mid_price:'MID-PRICE',fok:'FOK',ioc:'IOC',aon:'AON',twap:'TWAP',vwap:'VWAP',
+    accumulate:'ACCUM/DIST',iceberg:'ICEBERG',participation:'%VOL',arrival:'ARRIVAL',
+    scale:'SCALE',beta_hedge:'BETA HEDGE',basket:'BASKET'}[t]||t.toUpperCase();
+}
+
+function refreshSub(){
+  const t=g('op-type').value,tk=g('op-tk').value,sb=g('op-sub');
+  sb.disabled=!tk;
+  const cls=isAlgo(t)?'algo':isWatch(t)?'watch':_side;
+  sb.className='op-sub '+cls;
+  const arrow=_side==='buy'?'▲':'▼';
+  if(isAlgo(t))  sb.textContent=`▶ START ${tLbl(t)}`;
+  else if(isWatch(t)) sb.textContent=`⏳ WATCH ${tLbl(t)}`;
+  else sb.textContent=`${arrow} TRANSMIT ${_side.toUpperCase()} ${tLbl(t)}`;
+}
+
+// ── params ─────────────────────────────────────────────────────
+function buildParams(t){
+  const w=g('op-params');w.innerHTML='';
+  const lp=midOf(_quote)||0,qty=nv('op-qty')||100;
+  const P=(id,lbl,type,val,opts={})=>{
+    const d=document.createElement('div');d.className='op-pc';
+    if(opts.w)d.style.minWidth=opts.w;
+    let h='';
+    if(type==='static') h=`<div class="op-pval" id="${id}">${val}</div>`;
+    else if(type==='note') h=`<div class="op-pnote">${val}</div>`;
+    else if(type==='select') h=`<select id="${id}" onchange="opPrev()">${(opts.opts||[]).map(o=>`<option value="${o.v}"${o.v==val?' selected':''}>${o.l}</option>`).join('')}</select>`;
+    else h=`<input type="${type}" id="${id}" value="${val}" step="${opts.step||'any'}" oninput="opPrev()" placeholder="${opts.ph||''}" style="width:${opts.iw||'72px'}">`;
+    d.innerHTML=`<label>${lbl}</label>${h}`;w.appendChild(d);
+  };
+  const Sep=()=>{const d=document.createElement('div');d.className='op-psep';w.appendChild(d);};
+
+  if(t==='limit'){P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});P('_n','','note','Rests in book at limit price until filled or cancelled.');}
+  else if(t==='market'){P('op-exp','EXPIRY HRS','number','1',{iw:'50px'});P('_n','','note','Executes immediately at best available price.');}
+  else if(t==='stop_limit'){
+    P('op-stop','STOP TRIGGER','number',lp?((_side==='buy'?lp*1.02:lp*0.98).toFixed(4)):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-exp','EXPIRY HRS','number','48',{iw:'50px'});
+    P('p-sl-status','STATUS','static','Waiting for last price feed…');
+    P('_n','','note','Uses /market_price for last trade · fires limit when trigger crossed.');
+  }
+  else if(t==='trailing'){
+    P('op-trail-type','TRAIL BY','select','pct',{opts:[{v:'pct',l:'PERCENT %'},{v:'amt',l:'AMOUNT $'}]});
+    P('op-trail-val','TRAIL VALUE','number','3.00',{step:'0.01',iw:'70px'});
+    Sep();P('p-trail-stop','CURRENT STOP','static','—');P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+  }
+  else if(t==='bracket'){
+    P('op-tp','TAKE PROFIT','number',lp?(_side==='buy'?lp*1.05:lp*0.95).toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-sl','STOP LOSS','number',lp?(_side==='buy'?lp*0.97:lp*1.03).toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-exp','EXPIRY HRS','number','48',{iw:'50px'});
+    P('_n','','note','Entry @ LMT · TP+SL placed on fill · first fill cancels other.');
+  }
+  else if(t==='oco'){
+    P('op-oco1','LEG 1 LMT','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('op-oco2','LEG 2 LMT','number',lp?(_side==='buy'?lp*0.97:lp*1.03).toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    Sep();P('_n','','note','When one leg fills the other is auto-cancelled. Polls every 5s.');
+  }
+  else if(t==='aon'){
+    P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+    P('_n','','note','Checks book depth — only fires if full qty available at limit price.');
+  }
+  else if(t==='mid_price'){
+    P('p-mid-live','LIVE MID','static',lp?'$'+f(lp,4):'—');
+    P('op-mid-off','OFFSET $','number','0',{step:'0.0001',iw:'70px'});
+    P('op-mid-int','REFRESH S','number','15',{step:'1',iw:'50px'});
+    P('op-exp','EXPIRY HRS','number','2',{iw:'50px'});
+  }
+  else if(t==='fok'){P('op-exp','EXPIRY HRS','number','1',{iw:'50px'});P('_n','','note','Must fill entire qty immediately or order is cancelled.');}
+  else if(t==='ioc'){P('op-ioc-wait','CANCEL AFTER S','number','5',{step:'1',iw:'50px'});P('_n','','note','Partial fills accepted · remainder cancelled after timeout.');}
+  else if(t==='twap'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-twap-dur','DURATION MIN','number','60',{step:'5',iw:'55px'});
+    P('op-twap-sl','SLICES','number','6',{step:'1',iw:'42px'});
+    P('op-twap-rand','RANDOMISE','select','yes',{opts:[{v:'yes',l:'YES ±20%'},{v:'no',l:'NO'}]});
+    Sep();P('p-slice-sz','SLICE SIZE','static',Math.ceil(qty/6)+' sh');
+  }
+  else if(t==='vwap'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-vwap-dur','DURATION MIN','number','60',{step:'5',iw:'55px'});
+    P('op-vwap-sl','SLICES','number','8',{step:'1',iw:'42px'});
+    P('op-vwap-urg','URGENCY','select','neutral',{opts:[{v:'passive',l:'PASSIVE'},{v:'neutral',l:'NEUTRAL'},{v:'aggressive',l:'AGGRESSIVE'}]});
+    Sep();P('_n','','note','Best-efforts VWAP · weights slices by historical volume.');
+  }
+  else if(t==='accumulate'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-acc-dur','DURATION MIN','number','90',{step:'5',iw:'55px'});
+    P('op-acc-minw','MIN WAIT S','number','20',{step:'5',iw:'50px'});
+    P('op-acc-maxw','MAX WAIT S','number','120',{step:'10',iw:'55px'});
+    P('op-acc-var','SIZE VAR %','number','40',{step:'5',iw:'50px'});
+    Sep();P('_n','','note','Random size + timing · hides accumulation from market.');
+  }
+  else if(t==='iceberg'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-ice-show','DISPLAY SIZE','number',Math.max(1,Math.ceil(qty/5)),{step:'1',iw:'60px'});
+    P('p-ice-hidden','HIDDEN QTY','static',Math.max(0,qty-Math.ceil(qty/5))+' sh');
+    Sep();P('op-exp','EXPIRY HRS','number','4',{iw:'50px'});
+  }
+  else if(t==='participation'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-part-pct','TARGET % VOL','number','10',{step:'1',iw:'50px'});
+    P('op-part-dur','DURATION MIN','number','60',{step:'5',iw:'55px'});
+    Sep();P('_n','','note','Sizes slices to represent target % of estimated intraday volume.');
+  }
+  else if(t==='arrival'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-arr-urg','URGENCY','select','neutral',{opts:[{v:'passive',l:'PASSIVE'},{v:'neutral',l:'NEUTRAL'},{v:'aggressive',l:'AGGRESSIVE'}]});
+    P('op-arr-dur','MAX DUR MIN','number','30',{step:'5',iw:'55px'});
+    Sep();P('_n','','note','Targets arrival price · urgency controls speed vs impact tradeoff.');
+  }
+  else if(t==='scale'){
+    P('op-scale-start','START PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});
+    P('op-scale-step','STEP $','number','0.10',{step:'0.01',iw:'70px'});
+    P('op-scale-lvl','LEVELS','number','5',{step:'1',iw:'42px'});
+    P('op-scale-mult','SIZE MULT','number','1.0',{step:'0.1',iw:'55px'});
+    Sep();P('p-scale-tot','TOTAL QTY','static','—');P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+  }
+  else if(t==='beta_hedge'){
+    P('op-lp-a','LMT PRICE','number',lp?lp.toFixed(4):'0',{step:'0.0001',iw:'90px'});Sep();
+    P('op-beta','POSITION BETA','number','1.0',{step:'0.01',iw:'65px'});
+    P('op-htk','HEDGE TICKER','select','',{opts:[{v:'',l:'SELECT…'},...(BB.secs||[]).map(s=>({v:s.ticker,l:s.ticker}))],w:'110px'});
+    P('op-hbeta','HEDGE BETA','number','1.0',{step:'0.01',iw:'65px'});
+    Sep();P('p-hedge-qty','HEDGE QTY','static','—');
+  }
+  else if(t==='basket'){
+    P('_n','','note','Enter comma-separated tickers below, one order per line.');
+    P('op-basket-tks','TICKERS (comma)','text','',{iw:'160px',ph:'RTG,NER,…'});
+    P('op-basket-qty','QTY EACH','number','100',{step:'1',iw:'60px'});
+    P('op-exp','EXPIRY HRS','number','24',{iw:'50px'});
+  }
+  opPrev();
+}
+
+// ── preview ────────────────────────────────────────────────────
+window.opPrev=function(){
+  const t=g('op-type').value,qty=nv('op-qty');
+  const lp=getLp(t)||midOf(_quote)||0;
+  const val=qty*lp,comm=val*CR,tot=_side==='buy'?val+comm:val-comm;
+  const fmt=v=>v?'$'+f(v,2):'—';
+  g('opb-val').textContent=fmt(val);
+  g('opb-com').textContent=comm?'$'+f(comm,2):'—';
+  g('opb-tot').textContent=fmt(tot);
+  const w=g('op-warn');w.textContent='';
+  if(_funds&&_side==='buy'&&tot>0&&tot>(_funds.available||0))w.textContent='⚠ INSUFFICIENT FUNDS';
+  const slEl=g('op-twap-sl')||g('op-vwap-sl');
+  const sw=g('opb-slice-wrap');
+  if(slEl){sw.style.display='flex';g('opb-slice').textContent=Math.ceil(qty/(+slEl.value||1))+' sh/sl';}
+  else sw.style.display='none';
+  calcTrail();
+  const ih=g('p-ice-hidden');if(ih)ih.textContent=Math.max(0,qty-(nv('op-ice-show')||1))+' sh';
+  const st=g('p-scale-tot');if(st){let t2=0;const lv=nv('op-scale-lvl')||5,mu=nv('op-scale-mult')||1;for(let i=0;i<lv;i++)t2+=Math.round(qty*Math.pow(mu,i));st.textContent=t2.toLocaleString();}
+  const ss=g('p-slice-sz');if(ss)ss.textContent=Math.ceil(qty/(nv('op-twap-sl')||6))+' sh';
+  const hq=g('p-hedge-qty');if(hq)hq.textContent=Math.round(qty*(nv('op-beta')||1)/(nv('op-hbeta')||1)).toLocaleString()+' sh';
+};
+
+function getLp(t){const ae=g('op-lp-a');if(ae)return+ae.value||0;if(t==='market')return midOf(_quote)||0;return nv('op-lp');}
+function calcTrail(){const e=g('p-trail-stop');if(!e||!_quote)return;const last=_lastPx||midOf(_quote);if(!last)return;const tv=nv('op-trail-val')||3,tt=sv('op-trail-type')||'pct';const stop=tt==='pct'?(_side==='sell'?last*(1-tv/100):last*(1+tv/100)):(_side==='sell'?last-tv:last+tv);e.textContent='$'+f(stop,4);}
+
+// ── modal ──────────────────────────────────────────────────────
+window.opModal=function(){
+  const tk=g('op-tk').value;if(!tk){lg('Select a ticker.','warn');return;}
+  const qty=nv('op-qty');if(!qty){lg('Enter quantity.','warn');return;}
+  // Final frozen check before showing modal
+  const sec=(BB.secs||[]).find(s=>s.ticker===tk);
+  if(sec?.frozen){lg(`✗ ${tk} is frozen — trading suspended by the exchange.`,'err');return;}
+  const t=g('op-type').value,lp=getLp(t),val=qty*lp,comm=val*CR;
+  const rows=[['SECURITY',tk,'color:var(--org);font-size:13px'],['ACTION',_side.toUpperCase(),_side==='buy'?'color:var(--up)':'color:var(--dn)'],['ORDER TYPE',tLbl(t),''],['QUANTITY',qty.toLocaleString(),'']];
+  if(lp)rows.push(['LIMIT PRICE','$'+f(lp,4),'']);
+  if(val)rows.push(['EST. VALUE','$'+f(val,2),'']);
+  if(comm)rows.push(['COMMISSION','$'+f(comm,2)+' (0.5%)','color:var(--yel)']);
+  if(t==='stop_limit')rows.push(['TRIGGER','$'+f(nv('op-stop'),4),'color:var(--yel)']);
+  if(t==='trailing')rows.push(['TRAIL VAL',nv('op-trail-val')+(sv('op-trail-type')==='pct'?'%':'$'),'']);
+  if(t==='bracket'){rows.push(['TAKE PROFIT','$'+f(nv('op-tp'),4),'color:var(--up)']);rows.push(['STOP LOSS','$'+f(nv('op-sl'),4),'color:var(--dn)']);}
+  if(t==='oco'){rows.push(['LEG 1','$'+f(nv('op-oco1'),4),'']);rows.push(['LEG 2','$'+f(nv('op-oco2'),4),'']);}
+  if(t==='twap'||t==='vwap'){rows.push(['SLICES',nv('op-twap-sl')||nv('op-vwap-sl'),''],['DURATION',(nv('op-twap-dur')||nv('op-vwap-dur'))+'min','']);}
+  if(t==='iceberg')rows.push(['DISPLAY SIZE',nv('op-ice-show')+' sh','']);
+  if(t==='scale'){rows.push(['LEVELS',nv('op-scale-lvl'),''],['STEP','$'+f(nv('op-scale-step'),4),'']);}
+  if(t==='arrival')rows.push(['URGENCY',sv('op-arr-urg').toUpperCase(),'']);
+  if(t==='beta_hedge'){rows.push(['HEDGE',sv('op-htk'),''],['HEDGE QTY',Math.round(qty*(nv('op-beta')||1)/(nv('op-hbeta')||1)).toLocaleString(),'']);}
+  g('opm-body').innerHTML=rows.map(r=>`<div class="op-mr"><span class="op-mk">${r[0]}</span><span class="op-mv" style="${r[2]||''}">${r[1]}</span></div>`).join('');
+  const sl=g('opm-side');sl.textContent=_side.toUpperCase();sl.style.color=_side==='buy'?'var(--up)':'var(--dn)';
+  g('opm-title').textContent=isAlgo(t)?'CONFIRM ALGO':isWatch(t)?'CONFIRM WATCHER':'CONFIRM ORDER';
+  const ok=g('opm-ok');ok.className='op-mok '+(isAlgo(t)?'algo':isWatch(t)?'watch':_side);
+  ok.textContent=isAlgo(t)?'▶ START ALGO':isWatch(t)?'⏳ ACTIVATE':(_side==='buy'?'▲ CONFIRM BUY':'▼ CONFIRM SELL');
+  const we=g('opm-warn');
+  if(_funds&&_side==='buy'&&val+comm>(_funds.available||0)){we.style.display='block';we.textContent='⚠ Estimated total exceeds available balance.';}
+  else we.style.display='none';
+  g('opm-bg').classList.add('show');
+};
+window.opmClose=()=>g('opm-bg').classList.remove('show');
+
+// ── execute ────────────────────────────────────────────────────
+window.opExec=async function(){
+  opmClose();
+  const tk=g('op-tk').value,qty=nv('op-qty'),t=g('op-type').value;
+  const lp=getLp(t),exp=Math.max(1,Math.round(nv('op-exp')||24));
+
+  const exch=tk.startsWith('TSE:')?'TSE':'NER';
+  if(t==='limit'){
+    lg(`[${exch}] Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
+    r.ok?lg(`✓ [${exch}] LMT placed · ${r.d.order_id?.slice(0,10)}…`,'ok'):lg(`✗ ${r.d.detail||r.d.error||JSON.stringify(r.d)}`,'err');
+    doRefresh();return;
+  }
+  if(t==='market'){
+    lg(`[${exch}] Placing ${_side.toUpperCase()} MKT ${qty}×${tk}…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_market`,{ticker:tk,quantity:qty,expiry_hours:exp});
+    r.ok?lg(`✓ [${exch}] MKT placed · ${r.d.order_id?.slice(0,10)||''}`,'ok'):lg(`✗ ${r.d.detail||r.d.error||JSON.stringify(r.d)}`,'err');
+    doRefresh();return;
+  }
+  if(t==='fok'){
+    lg(`FOK ${_side.toUpperCase()} ${qty}×${tk} @ $${f(lp,4)}…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:1});
+    if(!r.ok){lg(`✗ FOK place failed: ${r.d.detail}`,'err');return;}
+    const oid=r.d.order_id;
+    lg(`FOK placed · checking fill in 1s…`,'info');
+    await sleep(1000);
+    // Use apiLive — never cached, always fresh
+    const chk=await apiLive('/api/orders_open');
+    const orders=Array.isArray(chk.d)?chk.d:[];
+    const still=orders.find(o=>o.order_id===oid);
+    if(still){
+      await cxOid(oid);
+      lg(`✗ FOK: not filled — cancelled`,'warn');
+    }else{
+      lg(`✓ FOK: filled immediately`,'ok');
+    }
+    doRefresh();return;
+  }
+  if(t==='ioc'){
+    const wait=Math.max(1,nv('op-ioc-wait')||5);
+    lg(`IOC ${_side.toUpperCase()} ${qty}×${tk} · cancel after ${wait}s…`,'info');
+    const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:1});
+    if(!r.ok){lg(`✗ IOC place failed: ${r.d.detail}`,'err');return;}
+    const oid=r.d.order_id;
+    lg(`IOC placed · waiting ${wait}s…`,'info');
+    await sleep(wait*1000);
+    const chk=await apiLive('/api/orders_open');
+    const orders=Array.isArray(chk.d)?chk.d:[];
+    const still=orders.find(o=>o.order_id===oid);
+    if(still){
+      await cxOid(oid);
+      lg(`IOC: remainder cancelled after ${wait}s`,'warn');
+    }else{
+      lg(`✓ IOC: fully filled within ${wait}s`,'ok');
+    }
+    doRefresh();return;
+  }
+  if(t==='aon'){
+    // Check book depth before placing
+    lg(`AON check: need ${qty} available at $${f(lp,4)}…`,'info');
+    const r=await apiLive(`/api/liquidity/${tk}`);
+    if(r.ok){
+      const book=_side==='buy'?(r.d.asks||[]).filter(a=>a.price<=lp):(r.d.bids||[]).filter(b=>b.price>=lp);
+      const avail=book.reduce((s,l)=>s+l.quantity,0);
+      if(avail<qty){lg(`✗ AON: only ${avail} available at limit (need ${qty}) — not placed`,'warn');return;}
+    }
+    const r2=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
+    r2.ok?lg(`✓ AON placed — full qty available`,'ok'):lg(`✗ AON failed: ${r2.d.detail}`,'err');
+    doRefresh();return;
+  }
+  if(t==='scale'){
+    const start=nv('op-scale-start'),step=nv('op-scale-step')||0.10,lvl=nv('op-scale-lvl')||5,mult=nv('op-scale-mult')||1;
+    lg(`Scale: ${lvl} levels step $${f(step,4)} mult×${mult}`,'info');
+    for(let i=0;i<lvl;i++){
+      const px=_side==='buy'?start-i*step:start+i*step,sz=Math.max(1,Math.round(qty*Math.pow(mult,i)));
+      const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:sz,limit_price:px4(px),expiry_hours:exp});
+      lg(`  L${i+1}: ${sz}×${tk} @ $${f(px,4)} ${r.ok?'✓':'✗ '+r.d.detail}`,r.ok?'ok':'err');
+      if(!r.ok)break; // stop if rate limited
+      await sleep(300); // small gap to avoid rate limiting
+    }
+    doRefresh();return;
+  }
+  if(t==='beta_hedge'){
+    const bp=nv('op-beta')||1,hb=nv('op-hbeta')||1,htk=sv('op-htk');
+    if(!htk){lg('Select hedge ticker.','warn');return;}
+    const hQty=Math.round(qty*bp/hb);
+    lg(`Beta Hedge: ${qty}×${tk} (β=${bp}) → hedge ${hQty}×${htk} (β=${hb})`,'info');
+    const r1=await apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp),expiry_hours:exp});
+    if(!r1.ok){lg(`✗ Leg1 failed: ${r1.d.detail}`,'err');return;}
+    lg(`✓ Leg1 ${tk} placed`,'ok');
+    const hq=await api(`/api/liquidity/${htk}`),hLp=midOf(hq.d)||lp;
+    const hSide=_side==='buy'?'sell':'buy';
+    const r2=await apiPost(`/api/orders/${hSide}_limit`,{ticker:htk,quantity:hQty,limit_price:px4(hLp),expiry_hours:exp});
+    r2.ok?lg(`✓ Hedge ${hSide.toUpperCase()} ${hQty}×${htk} @ $${f(hLp,4)}`,'ok'):lg(`✗ Hedge failed: ${r2.d.detail}`,'err');
+    doRefresh();return;
+  }
+  if(t==='basket'){
+    const tks=(sv('op-basket-tks')||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const bqty=nv('op-basket-qty')||qty;
+    if(!tks.length){lg('Enter tickers for basket.','warn');return;}
+    lg(`Basket: ${tks.length} tickers × ${bqty} each`,'info');
+    for(const btk of tks){
+      const bq=await api(`/api/liquidity/${btk}`);
+      const bLp=midOf(bq.d)||0;
+      if(!bLp){lg(`✗ ${btk}: no price — skipped`,'warn');continue;}
+      const r=await apiPost(`/api/orders/${_side}_limit`,{ticker:btk,quantity:bqty,limit_price:px4(bLp),expiry_hours:exp});
+      lg(`  ${btk}: ${r.ok?'✓':'✗ '+r.d.detail}`,r.ok?'ok':'err');
+      await sleep(200);
+    }
+    doRefresh();return;
+  }
+  spawnJob(t,tk,qty,lp,exp);
+};
+
+// ── order helpers ──────────────────────────────────────────────
+async function cxOid(id){
+  try{await fetch(`/api/orders_open/${id}`,{method:'DELETE'});}catch(e){}
+}
+async function fireLmt(side,tk,qty,px,exph){
+  const expHrs=Math.max(1,Math.round(exph||24));
+  const r=await apiPost(`/api/orders/${side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(px),expiry_hours:expHrs});
+  if(r.ok){setTimeout(doRefresh,1500);return r.d;}
+  lg(`✗ Limit ${qty}×${tk}@${px4(px)} failed (${r.s}): ${r.d.detail}`,'err');return null;
+}
+async function fireMkt(side,tk,qty){
+  const r=await apiPost(`/api/orders/${side}_market`,{ticker:tk,quantity:qty,expiry_hours:1});
+  if(r.ok){lg(`✓ MKT fired ${qty}×${tk}`,'ok');setTimeout(doRefresh,1500);return r.d;}
+  lg(`✗ MKT failed: ${r.d.detail}`,'err');return null;
+}
+// Always-fresh open orders check
+async function getOpenOrders(){
+  const r=await apiLive('/api/orders_open');
+  if(!r.ok)return[];
+  return Array.isArray(r.d)?r.d:[];
+}
+
+// ── spawn job ──────────────────────────────────────────────────
+function spawnJob(t,tk,qty,lp,exp){
+  let j;
+  const base={id:'J'+Date.now(),status:'watching',placed:0,total:qty,startMs:Date.now(),info:'',tick:null};
+
+  if(t==='stop_limit'){
+    const stop=nv('op-stop');
+    j={...base,label:'STP LMT',type:'stop_limit',tk,qty,lp,exp,side:_side,stop,info:`Trigger:$${f(stop,4)}`};
+    j.tick=async()=>{
+      // Use real last trade price, not mid
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||mktR.d.last_price||null):null;
+      if(last==null){j.info=`Waiting for price feed…`;renderJobs();return;}
+      const hit=j.side==='buy'?last>=stop:last<=stop;
+      j.info=`Last $${f(last,4)} vs trigger $${f(stop,4)} — ${hit?'⚡ FIRING':'watching'}`;
+      const sEl=g('p-sl-status');if(sEl)sEl.textContent=j.info;
+      renderJobs();
+      if(hit){
+        const r=await fireLmt(j.side,tk,qty,getLp('stop_limit'),exp);
+        if(r)lg(`✓ Stop-Limit fired @ $${f(lp,4)}`,'ok');
+        killJob(j.id);
+      }
+    };
+    lg(`⏳ Stop-Limit WATCH: ${_side.toUpperCase()} ${qty}×${tk} trigger $${f(stop,4)}`,'info');
+  }
+  else if(t==='trailing'){
+    const tt=sv('op-trail-type'),tv=nv('op-trail-val')||3;let peak=null;
+    j={...base,label:'TRAIL',type:'trailing',tk,qty,lp,exp,side:_side,trailType:tt,trailVal:tv,peak:null};
+    j.tick=async()=>{
+      const mktR=await api(`/api/market_price/${tk}`);
+      const last=mktR.ok?(mktR.d.price||mktR.d.market_price||null):null;
+      if(last==null)return;
+      if(j.side==='sell'){
+        if(!peak||last>peak)peak=last;
+        const stop=tt==='pct'?peak*(1-tv/100):peak-tv;
+        j.info=`Peak $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        if(last<=stop){await fireMkt(j.side,tk,qty);killJob(j.id);lg(`✓ Trailing Stop triggered`,'ok');}
+      }else{
+        if(!peak||last<peak)peak=last;
+        const stop=tt==='pct'?peak*(1+tv/100):peak+tv;
+        j.info=`Floor $${f(peak,4)} → Stop $${f(stop,4)} | Last $${f(last,4)}`;
+        if(last>=stop){await fireMkt(j.side,tk,qty);killJob(j.id);lg(`✓ Trailing Stop triggered`,'ok');}
+      }
+      renderJobs();
+    };
+    lg(`⏳ Trailing Stop: ${_side.toUpperCase()} ${qty}×${tk} trail ${tv}${tt==='pct'?'%':'$'}`,'info');
+  }
+  else if(t==='bracket'){
+    const tp=nv('op-tp'),sl2=nv('op-sl');
+    j={...base,label:'BRACKET',tk,qty,side:_side,status:'running'};
+    (async()=>{
+      lg(`Bracket: entry $${f(lp,4)} | TP $${f(tp,4)} | SL $${f(sl2,4)}`,'info');
+      const entR=await fireLmt(j.side,tk,qty,lp,exp);
+      if(!entR?.order_id){lg('✗ Bracket entry failed','err');return;}
+      lg(`✓ Entry placed ${entR.order_id.slice(0,10)}…`,'ok');
+      // Wait for fill — poll until entry order disappears from open orders
+      lg('Bracket: waiting for entry fill…','info');
+      let filled=false;
+      for(let i=0;i<120&&!filled;i++){ // up to 10min
+        await sleep(5000);
+        const open=await getOpenOrders();
+        if(!open.find(o=>o.order_id===entR.order_id)){filled=true;}
+      }
+      if(!filled){lg('Bracket: entry not filled after timeout — cancelling','warn');await cxOid(entR.order_id);return;}
+      lg('Bracket: entry filled → placing TP+SL','ok');
+      const opp=j.side==='buy'?'sell':'buy';
+      const[tpR,slR]=await Promise.all([
+        apiPost(`/api/orders/${opp}_limit`,{ticker:tk,quantity:qty,limit_price:px4(tp),expiry_hours:exp}),
+        apiPost(`/api/orders/${opp}_limit`,{ticker:tk,quantity:qty,limit_price:px4(sl2),expiry_hours:exp})
+      ]);
+      tpR.ok?lg(`✓ TP @ $${f(tp,4)}`,'ok'):lg('✗ TP failed: '+tpR.d.detail,'err');
+      slR.ok?lg(`✓ SL @ $${f(sl2,4)}`,'ok'):lg('✗ SL failed: '+slR.d.detail,'err');
+      if(tpR.ok&&slR.ok){
+        const tpId=tpR.d.order_id,slId=slR.d.order_id;
+        j.id1=tpId;j.id2=slId;syncSession();
+        j.status='watching';j.info='Monitoring TP and SL';
+        j.tick=async()=>{
+          const open=await getOpenOrders();
+          const ids=open.map(o=>o.order_id);
+          if(!ids.includes(tpId)&&ids.includes(slId)){await cxOid(slId);lg('Bracket: TP filled → SL cancelled','ok');killJob(j.id);}
+          else if(!ids.includes(slId)&&ids.includes(tpId)){await cxOid(tpId);lg('Bracket: SL hit → TP cancelled','ok');killJob(j.id);}
+          else if(!ids.includes(tpId)&&!ids.includes(slId)){lg('Bracket: both resolved','ok');killJob(j.id);}
+          else j.info=`TP:${ids.includes(tpId)?'open':'filled'} SL:${ids.includes(slId)?'open':'filled'}`;
+          renderJobs();
+        };
+        _jobs.push(j);renderJobs();
+      }
+    })();return;
+  }
+  else if(t==='oco'){
+    const lp1=nv('op-oco1'),lp2=nv('op-oco2');
+    (async()=>{
+      const[r1,r2]=await Promise.all([
+        apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp1),expiry_hours:exp}),
+        apiPost(`/api/orders/${_side}_limit`,{ticker:tk,quantity:qty,limit_price:px4(lp2),expiry_hours:exp})
+      ]);
+      r1.ok?lg(`✓ OCO Leg1 @ $${f(lp1,4)}`,'ok'):lg('✗ OCO Leg1 failed: '+r1.d.detail,'err');
+      r2.ok?lg(`✓ OCO Leg2 @ $${f(lp2,4)}`,'ok'):lg('✗ OCO Leg2 failed: '+r2.d.detail,'err');
+      if(r1.ok&&r2.ok){
+        const id1=r1.d.order_id,id2=r2.d.order_id;
+        const jj={...base,id:'J'+Date.now(),label:'OCO',type:'oco',tk,qty,lp,exp,side:_side,total:qty,status:'watching',info:'Watching legs',id1,id2};
+        jj.tick=async()=>{
+          const open=await getOpenOrders(); // always fresh
+          const ids=open.map(o=>o.order_id);
+          const has1=ids.includes(id1),has2=ids.includes(id2);
+          if(!has1&&has2){await cxOid(id2);lg('OCO: Leg1 filled → Leg2 cancelled','ok');killJob(jj.id);}
+          else if(!has2&&has1){await cxOid(id1);lg('OCO: Leg2 filled → Leg1 cancelled','ok');killJob(jj.id);}
+          else if(!has1&&!has2){lg('OCO: both resolved','ok');killJob(jj.id);}
+          else jj.info=`Leg1:${has1?'open':'gone'} Leg2:${has2?'open':'gone'}`;
+          renderJobs();
+        };
+        _jobs.push(jj);renderJobs();
+      }
+    })();return;
+  }
+  else if(t==='mid_price'){
+    const off=nv('op-mid-off'),intS=Math.max(5,nv('op-mid-int')||15);
+    j={...base,label:'MID-PRICE',tk,qty,side:_side,status:'running',nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el<j.nextAt)return;
+      const r=await api(`/api/liquidity/${tk}`);if(!r.ok)return;
+      const m=midOf(r.d);if(!m)return;
+      const px=m+off;j.info=`Mid $${f(m,4)} + offset = $${f(px,4)}`;
+      await fireLmt(j.side,tk,qty,px,exp);
+      killJob(j.id);
+    };
+    j.nextAt=0;lg(`Mid-Price: ${_side.toUpperCase()} ${qty}×${tk} @ mid${off>=0?'+':''}${off}`,'info');
+  }
+  else if(t==='twap'){
+    const durMin=nv('op-twap-dur')||60,slices=Math.max(1,nv('op-twap-sl')||6),rand=sv('op-twap-rand')==='yes';
+    const intMs=Math.round(durMin*60*1000/slices);
+    j={...base,label:'TWAP',type:'twap',tk,qty,lp,exp,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,nextAt:0,durMin,slices,rand,intMs};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(el>durMin*60*1000+30000){lg(`TWAP: window expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if(j.remaining<=0){lg(`✓ TWAP complete — ${qty} placed`,'ok');killJob(j.id);return;}
+      if(el<j.nextAt)return;
+      const base2=Math.ceil(qty/slices);
+      const sz=Math.min(j.remaining,rand?Math.max(1,Math.round(base2*(0.8+Math.random()*0.4))):base2);
+      const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+      const r=await fireLmt(j.side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+      j.info=`${j.placed}/${qty} placed · ${j.slicesDone}/${slices} slices`;
+      j.nextAt=j.slicesDone*intMs;renderJobs();
+    };
+    j.nextAt=0;lg(`▶ TWAP: ${qty}×${tk} over ${durMin}min in ${slices} slices`,'info');
+  }
+  else if(t==='vwap'){
+    const durMin=nv('op-vwap-dur')||60,slices=Math.max(1,nv('op-vwap-sl')||8),urg=sv('op-vwap-urg');
+    j={...base,label:'VWAP',type:'vwap',tk,qty,lp,exp,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:slices,weights:null,nextAt:0,durMin,slices,urg};
+    (async()=>{
+      if(!_ohlcv){const r=await api(`/api/analytics/ohlcv/${tk}?days=30`);_ohlcv=r.ok&&r.d.ohlcv?r.d.ohlcv:null;}
+      let weights=Array(slices).fill(1/slices);
+      if(_ohlcv?.length>1){
+        const vols=_ohlcv.map(c=>c.volume||0),totV=vols.reduce((s,v)=>s+v,0);
+        if(totV>0){const norm=vols.map(v=>v/totV),perSl=Math.ceil(norm.length/slices);weights=Array.from({length:slices},(_,i)=>{const ch=norm.slice(i*perSl,(i+1)*perSl);return ch.reduce((s,v)=>s+v,0)||1/slices;});const ws=weights.reduce((s,v)=>s+v,0);weights=weights.map(w=>w/ws);}
+      }
+      if(urg==='aggressive')weights=weights.map((_,i)=>Math.pow(1.5,slices-i)).map((v,_,a)=>v/a.reduce((s,x)=>s+x,0));
+      else if(urg==='passive')weights=weights.map((_,i)=>Math.pow(1.5,i)).map((v,_,a)=>v/a.reduce((s,x)=>s+x,0));
+      j.weights=weights;
+      const intMs=Math.round(durMin*60*1000/slices);
+      j.tick=async()=>{
+        const el=Date.now()-j.startMs;
+        if(el>durMin*60*1000+30000){lg(`VWAP: expired — placed ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+        if(j.remaining<=0){lg(`✓ VWAP complete`,'ok');killJob(j.id);return;}
+        if(el<j.nextAt)return;
+        const wi=j.slicesDone<slices?j.weights[j.slicesDone]:1/slices,sz=Math.max(1,Math.min(j.remaining,Math.round(qty*wi)));
+        const expHrs=Math.max(1,Math.ceil((durMin*60*1000-el)/3600000)+1);
+        const r=await fireLmt(j.side,tk,sz,lp,expHrs);
+        if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+        j.info=`${j.placed}/${qty} · ${j.slicesDone}/${slices} (${urg})`;
+        j.nextAt=j.slicesDone*intMs;renderJobs();
+      };
+      j.nextAt=0;lg(`▶ VWAP (${urg}): ${qty}×${tk} over ${durMin}min`,'info');
+    })();
+  }
+  else if(t==='accumulate'){
+    const durMin=nv('op-acc-dur')||90,minW=nv('op-acc-minw')||20,maxW=nv('op-acc-maxw')||120,v=(nv('op-acc-var')||40)/100;
+    const totMs=durMin*60*1000;
+    j={...base,label:'ACCUM',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(j.remaining<=0){lg(`✓ Accumulate complete`,'ok');killJob(j.id);return;}
+      if(el>totMs+15000){lg(`Accumulate: expired — ${j.placed}/${qty}`,'warn');killJob(j.id);return;}
+      if(el<j.nextAt)return;
+      const left=Math.max(1,totMs-el),avgInt=(minW+maxW)/2*1000,est=Math.max(1,Math.ceil(left/avgInt));
+      // random size with proper variance: base ± variance%
+      const base3=Math.ceil(j.remaining/est);
+      const randFactor=1+(Math.random()*2-1)*v;
+      const sz=Math.max(1,Math.min(j.remaining,Math.round(base3*randFactor)));
+      const expHrs=Math.max(1,Math.ceil((totMs-el)/3600000)+1);
+      const r=await fireLmt(j.side,tk,sz,lp,expHrs);
+      if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+      j.info=`${j.placed}/${qty} placed · last slice: ${sz} sh`;
+      j.nextAt=el+(minW+(maxW-minW)*Math.random())*1000;
+      renderJobs();
+    };
+    j.nextAt=0;lg(`▶ Accum/Dist: ${qty}×${tk} over ${durMin}min (±${Math.round(v*100)}% variance)`,'info');
+  }
+  else if(t==='iceberg'){
+    const show=Math.max(1,nv('op-ice-show')||1);
+    j={...base,label:'ICEBERG',tk,qty,side:_side,status:'running',remaining:qty,placed:0,lastOid:null};
+    const fireSlice=async()=>{
+      if(j.remaining<=0){lg(`✓ Iceberg complete`,'ok');killJob(j.id);return;}
+      const sz=Math.min(show,j.remaining);
+      lg(`Iceberg: placing ${sz} visible of ${j.remaining} remaining`,'info');
+      const r=await fireLmt(j.side,tk,sz,lp,exp);
+      if(r?.order_id){j.lastOid=r.order_id;j.info=`Waiting for fill (${j.placed}/${qty} done)`;}
+      renderJobs();
+    };
+    j.tick=async()=>{
+      if(!j.lastOid){await fireSlice();return;}
+      const open=await getOpenOrders(); // fresh, not cached
+      const alive=open.find(o=>o.order_id===j.lastOid);
+      if(!alive){
+        // slice filled or expired — place next
+        const filled=Math.min(show,j.remaining);
+        j.placed+=filled;j.remaining-=filled;
+        j.info=`${j.placed}/${qty} placed`;j.lastOid=null;
+        if(j.remaining>0)await fireSlice();
+        else{lg(`✓ Iceberg complete`,'ok');killJob(j.id);}
+        renderJobs();
+      }
+    };
+    _jobs.push(j);renderJobs();j.tick();return;
+  }
+  else if(t==='participation'){
+    const pct=nv('op-part-pct')||10,durMin=nv('op-part-dur')||60;
+    j={...base,label:'%VOL',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,nextAt:0};
+    (async()=>{
+      if(!_ohlcv){const r=await api(`/api/analytics/ohlcv/${tk}?days=20`);_ohlcv=r.ok&&r.d.ohlcv?r.d.ohlcv:null;}
+      const avgVol=_ohlcv?.length?_ohlcv.reduce((s,c)=>s+(c.volume||0),0)/_ohlcv.length:10000;
+      const intMs=30000,volPerInt=avgVol/480,sliceQty=Math.max(1,Math.round(volPerInt*pct/100));
+      j.totalSlices=Math.ceil(qty/sliceQty);j.info=`Avg vol ${fk(Math.round(avgVol))} · slice ${sliceQty} sh`;
+      j.tick=async()=>{
+        const el=Date.now()-j.startMs;
+        if(j.remaining<=0){lg(`✓ %VOL complete`,'ok');killJob(j.id);return;}
+        if(el>durMin*60*1000+15000){lg('%VOL: expired','warn');killJob(j.id);return;}
+        if(el<j.nextAt)return;
+        const sz=Math.min(sliceQty,j.remaining);
+        const r=await fireLmt(j.side,tk,sz,lp,1);
+        if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+        j.info=`${j.placed}/${qty} · ${pct}% of ~${Math.round(volPerInt)}/interval`;j.nextAt=el+intMs;renderJobs();
+      };
+      j.nextAt=0;lg(`▶ %VOL (${pct}%): ${qty}×${tk}`,'info');
+    })();
+  }
+  else if(t==='arrival'){
+    const urg=sv('op-arr-urg')||'neutral',maxDur=nv('op-arr-dur')||30;
+    const arrPx=_lastPx||midOf(_quote)||lp;
+    const cfg={passive:{intMs:120000,slices:4},neutral:{intMs:60000,slices:6},aggressive:{intMs:20000,slices:10}}[urg];
+    j={...base,label:'ARRIVAL',tk,qty,side:_side,status:'running',remaining:qty,placed:0,slicesDone:0,totalSlices:cfg.slices,nextAt:0};
+    j.tick=async()=>{
+      const el=Date.now()-j.startMs;
+      if(j.remaining<=0){lg(`✓ Arrival complete`,'ok');killJob(j.id);return;}
+      if(el>maxDur*60*1000+10000){lg('Arrival: expired','warn');killJob(j.id);return;}
+      if(el<j.nextAt)return;
+      const curM=_lastPx||midOf(_quote)||arrPx,drift=((curM-arrPx)/arrPx*100).toFixed(3);
+      const adjPx=urg==='aggressive'?curM:arrPx+(curM-arrPx)*0.3;
+      const sz=Math.max(1,Math.min(j.remaining,Math.ceil(qty/cfg.slices)));
+      const expHrs=Math.max(1,Math.ceil((maxDur*60*1000-el)/3600000)+1);
+      const r=await fireLmt(j.side,tk,sz,adjPx,expHrs);
+      if(r?.order_id){j.placed+=sz;j.remaining-=sz;j.slicesDone++;}
+      j.info=`${j.placed}/${qty} · drift ${drift}% vs $${f(arrPx,4)}`;j.nextAt=el+cfg.intMs;renderJobs();
+    };
+    j.nextAt=0;lg(`▶ Arrival (${urg}): ${qty}×${tk} arrival px $${f(arrPx,4)}`,'info');
+  }
+
+  if(!j)return;
+  _jobs.push(j);renderJobs();syncSession();
+}
+
+// ── job management ─────────────────────────────────────────────
+function killJob(id){const j=_jobs.find(j=>j.id===id);if(j){j.status='done';j.tick=null;}renderJobs();syncSession();}
+window.stopJob=id=>{killJob(id);lg('Job stopped.','warn');syncSession();};
+function tickJobs(){_jobs.filter(j=>j.status!=='done'&&j.tick).forEach(j=>{try{j.tick();}catch(e){console.error('Job tick:',e);}});}
+
+function renderJobs(){
+  const alive=_jobs.filter(j=>j.status!=='done');
+  g('ct-algos').textContent=alive.length?'('+alive.length+')':'';
+  const w=g('op-jobs');
+  if(!_jobs.length){w.innerHTML='<div class="loading" style="padding:14px">No active algos or watchers.</div>';return;}
+  w.innerHTML=_jobs.slice().reverse().map(j=>{
+    const done=j.status==='done',pct=j.total>0?Math.round(j.placed/j.total*100):0;
+    const bc=done?'jb-done':j.status==='running'?'jb-run':'jb-watch';
+    return`<div class="jr">
+      <span class="dim" style="min-width:58px">${new Date(j.startMs).toLocaleTimeString('en-GB',{hour12:false})}</span>
+      <span style="color:${j.side==='buy'?'var(--up)':'var(--dn)'};font-weight:700;min-width:34px">${j.side.toUpperCase()}</span>
+      <span class="org" style="font-weight:700;min-width:48px">${j.tk}</span>
+      <span style="min-width:76px;color:var(--txt)">${j.label}</span>
+      <span class="jbadge ${bc}">${done?'DONE':j.status.toUpperCase()}</span>
+      ${j.total>0?`<div class="jbar"><div class="jbar-f" style="width:${pct}%"></div></div><span class="dim" style="min-width:30px;font-size:9px">${pct}%</span>`:''}
+      <span class="dim" style="flex:1;padding-left:8px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.info||''}</span>
+      ${!done?`<button class="jkill" onclick="stopJob('${j.id}')">■ STOP</button>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ── open orders ────────────────────────────────────────────────
+async function loadOpenOrders(){
+  const r=await apiLive('/api/orders_open'),tb=g('op-open-body');
+  const orders=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!orders.length){tb.innerHTML='<tr><td colspan="9" class="loading">No open orders</td></tr>';g('ct-open').textContent='';return;}
+  g('ct-open').textContent='('+orders.length+')';
+  tb.innerHTML=orders.map(o=>`<tr>
+    <td class="dim" style="font-size:9px">${(o.order_id||'').slice(0,12)}…</td>
+    <td class="wht" style="font-weight:700">${o.ticker||'—'}</td>
+    <td style="color:${o.order_type==='buy'?'var(--up)':'var(--dn)'};font-weight:700">${(o.order_type||'').toUpperCase()}</td>
+    <td class="dim">${(o.sub_type||'LIMIT').toUpperCase()}</td>
+    <td class="r wht">${o.quantity!=null?o.quantity.toLocaleString():'—'}</td>
+    <td class="r yel">${o.price!=null?'$'+f(o.price,4):'MKT'}</td>
+    <td class="dim" style="font-size:9px">${o.expiry?new Date(o.expiry).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}):'—'}</td>
+    <td class="dim" style="font-size:9px">${o.status||'—'}</td>
+    <td><button class="cx-btn" onclick="opCx('${o.order_id}')">✕</button></td>
+  </tr>`).join('');
+}
+window.opCx=async function(id){
+  const r=await fetch(`/api/orders_open/${id}`,{method:'DELETE'}),d=await r.json();
+  r.ok?lg(`Order ${id.slice(0,10)}… cancelled`,'warn'):lg(`Cancel failed: ${d.detail}`,'err');
+  setTimeout(loadOpenOrders,700);
+};
+window.opCancelAll=async function(){
+  const r=await apiLive('/api/orders_open');
+  const orders=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!orders.length){lg('No open orders.','info');return;}
+  await Promise.all(orders.map(o=>fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'})));
+  lg(`Cancelled ${orders.length} order(s).`,'warn');setTimeout(loadOpenOrders,700);
+};
+
+// ── fills ──────────────────────────────────────────────────────
+async function loadFills(){
+  const r=await apiLive('/api/transactions?type=Trade&limit=60'),tb=g('op-fills-body');
+  const data=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!data.length){tb.innerHTML='<tr><td colspan="7" class="loading">No recent fills</td></tr>';return;}
+  tb.innerHTML=data.slice(0,50).map(tx=>`<tr>
+    <td class="dim" style="font-size:9px">${tx.timestamp?new Date(tx.timestamp).toLocaleTimeString('en-GB',{hour12:false}):'—'}</td>
+    <td class="wht" style="font-weight:700">${tx.ticker||'—'}</td>
+    <td style="color:${(tx.amount||0)>0?'var(--up)':'var(--dn)'};font-weight:700">${(tx.amount||0)>0?'BUY':'SELL'}</td>
+    <td class="r">${tx.quantity!=null?tx.quantity.toLocaleString():'—'}</td>
+    <td class="r yel">${tx.price!=null?'$'+f(tx.price,4):'—'}</td>
+    <td class="r wht">${tx.amount!=null?'$'+f(Math.abs(tx.amount),2):'—'}</td>
+    <td class="r dn">${tx.commission!=null?'$'+f(tx.commission,2):'—'}</td>
+  </tr>`).join('');
+}
+
+// ── exec quality ──────────────────────────────────────────────
+let _eqChart=null;
+async function loadExecQuality(){
+  const tb=g('eq-body');
+  tb.innerHTML='<tr><td colspan="12" class="loading">LOADING FILLS…</td></tr>';
+  const r=await apiLive('/api/transactions?type=Trade&limit=100');
+  const fills=r.ok&&Array.isArray(r.d)?r.d:[];
+  if(!fills.length){tb.innerHTML='<tr><td colspan="12" class="loading">No fill history found</td></tr>';return;}
+
+  // Enrich with market data at fill time
+  const secR=await apiLive('/api/securities');
+  const prices={};
+  if(secR.ok&&Array.isArray(secR.d)) secR.d.forEach(s=>{prices[s.ticker]={mid:s.market_price,bid:s.bid_price||s.market_price,ask:s.ask_price||s.market_price};});
+
+  let totalSlip=0,totalIS=0,totalComm=0,vsVwapSum=0,vsArrSum=0,n=0;
+  const slips=[];
+
+  tb.innerHTML=fills.slice(0,60).map(tx=>{
+    const side=(tx.amount||0)>0?'BUY':'SELL';
+    const fillPx=tx.price||0;
+    const qty=tx.quantity||0;
+    const comm=tx.commission||0;
+    const mkt=prices[tx.ticker]||{mid:fillPx,bid:fillPx,ask:fillPx};
+    const mid=mkt.mid||fillPx;
+    // Slippage: how much worse than mid did we fill?
+    const slipBps=mid>0?((side==='BUY'?(fillPx-mid):(mid-fillPx))/mid*10000):0;
+    // Implementation shortfall (vs arrival = mid at fill time, simplified)
+    const isBps=slipBps; // same since we don't have pre-order snapshot
+    // vs VWAP: approximate as deviation from mid (proxy)
+    const vsVwap=slipBps; const vsArr=slipBps;
+    totalSlip+=slipBps; totalIS+=isBps; vsVwapSum+=vsVwap; vsArrSum+=vsArr; totalComm+=comm; n++;
+    slips.push(slipBps);
+    const rat=slipBps<0?'✅ POSITIVE':slipBps<0.5?'🟢 EXCELLENT':slipBps<2?'🟡 GOOD':slipBps<5?'🟠 FAIR':'🔴 POOR';
+    const sc=slipBps<0?'var(--up)':slipBps<2?'var(--up)':slipBps<5?'var(--yel)':'var(--dn)';
+    return `<tr>
+      <td class="dim" style="font-size:9px">${tx.timestamp?new Date(tx.timestamp).toLocaleTimeString('en-GB',{hour12:false}):'—'}</td>
+      <td class="wht" style="font-weight:700">${tx.ticker||'—'}</td>
+      <td style="color:${side==='BUY'?'var(--up)':'var(--dn)'};font-weight:700">${side}</td>
+      <td class="r">${qty.toLocaleString()}</td>
+      <td class="r yel">${fillPx?'$'+f(fillPx,4):'—'}</td>
+      <td class="r dim">${mid?'$'+f(mid,4):'—'}</td>
+      <td class="r" style="color:${sc};font-weight:700">${slipBps.toFixed(2)} bps</td>
+      <td class="r dim">${vsVwap.toFixed(2)} bps</td>
+      <td class="r dim">${isBps.toFixed(2)} bps</td>
+      <td class="r">${tx.amount!=null?'$'+f(Math.abs(tx.amount),2):'—'}</td>
+      <td class="r dn">${comm?'$'+f(comm,2):'—'}</td>
+      <td>${rat}</td>
+    </tr>`;
+  }).join('');
+
+  // KPIs
+  const S=(id,v,c)=>{const e=g(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+  const avgSlip=n?totalSlip/n:0,avgIS=n?totalIS/n:0,avgVwap=n?vsVwapSum/n:0,avgArr=n?vsArrSum/n:0;
+  S('eq-slip',(avgSlip>=0?'+':'')+avgSlip.toFixed(2)+' bps',avgSlip<2?'var(--up)':avgSlip<5?'var(--yel)':'var(--dn)');
+  S('eq-is',(avgIS>=0?'+':'')+avgIS.toFixed(2)+' bps',avgIS<2?'var(--up)':avgIS<5?'var(--yel)':'var(--dn)');
+  S('eq-vwap',(avgVwap>=0?'+':'')+avgVwap.toFixed(2)+' bps');
+  S('eq-arr',(avgArr>=0?'+':'')+avgArr.toFixed(2)+' bps');
+  S('eq-comm','$'+f(totalComm,2),'var(--dn)');
+  S('eq-cnt',n+' fills','var(--wht)');
+
+  // Slippage histogram
+  if(_eqChart){_eqChart.destroy();_eqChart=null;}
+  const bins=[-5,-3,-1,0,0.5,1,2,3,5,10,999];
+  const lbls=['<-5','-5→-3','-3→-1','-1→0','0→0.5','0.5→1','1→2','2→3','3→5','5→10','>10'];
+  const counts=new Array(bins.length).fill(0);
+  slips.forEach(s=>{ for(let i=0;i<bins.length;i++){if(s<bins[i]){counts[i]++;break;}} });
+  const ctx=g('eq-slip-c');
+  if(ctx) _eqChart=new Chart(ctx,{type:'bar',data:{labels:lbls,datasets:[{data:counts,backgroundColor:counts.map((_,i)=>i<4?'rgba(0,200,83,.6)':i<6?'rgba(255,214,0,.6)':'rgba(244,67,54,.6)'),borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>`${c.parsed.y} fills`}}},scales:{x:{grid:{color:'#1a1a1a'},ticks:{maxRotation:45,color:'#444',font:{size:9}}},y:{grid:{color:'#1a1a1a'},ticks:{color:'#444'}}}}});
+
+  // Benchmark panel
+  const excellent=slips.filter(s=>s<2).length,poor=slips.filter(s=>s>=5).length;
+  const score=Math.max(0,Math.min(100,100-avgSlip*8)).toFixed(0);
+  g('eq-bench').innerHTML=`
+    <div class="rm"><span class="k">EXEC SCORE</span><span class="v" style="color:${score>=80?'var(--up)':score>=50?'var(--yel)':'var(--dn)'};font-size:14px">${score}/100</span></div>
+    <div class="rm"><span class="k">EXCELLENT (&lt;2bps)</span><span class="v up">${excellent} (${n?(excellent/n*100).toFixed(0):0}%)</span></div>
+    <div class="rm"><span class="k">POOR (&gt;5bps)</span><span class="v ${poor>0?'dn':'up'}">${poor} (${n?(poor/n*100).toFixed(0):0}%)</span></div>
+    <div class="rm"><span class="k">TOTAL COMM DRAG</span><span class="v dn">$${f(totalComm,2)}</span></div>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">
+      Slippage = fill price deviation from market mid at execution time, in basis points (1 bps = 0.01%).
+      Negative slippage = filled better than mid (price improvement).
+    </div>`;
+}
+
+// ── audit trail ───────────────────────────────────────────────
+let _auditEvents=[];
+async function loadAuditTrail(){
+  g('audit-body').innerHTML='<tr><td colspan="11" class="loading">LOADING AUDIT TRAIL…</td></tr>';
+  // Pull fills + open orders + TSE orders
+  const [fillsR, openR, tseR, tseHistR] = await Promise.all([
+    apiLive('/api/transactions?type=Trade&limit=200'),
+    apiLive('/api/orders_open'),
+    apiLive('/api/tse/orders'),
+    apiLive('/api/tse/orders/history'),
+  ]);
+
+  const events=[];
+  const mkEvent=(ts,evt,exch,tk,side,qty,px,val,type,oid,note)=>({ts:ts||Date.now(),evt,exch,tk,side,qty,px,val,type,oid:oid||'',note:note||''});
+
+  // NER fills → FILLED events
+  if(fillsR.ok&&Array.isArray(fillsR.d)){
+    fillsR.d.forEach(tx=>{
+      const side=(tx.amount||0)>0?'BUY':'SELL';
+      events.push(mkEvent(tx.timestamp,'FILLED','NER',tx.ticker||'—',side,tx.quantity||0,tx.price||0,Math.abs(tx.amount||0),'FILL',tx.transaction_id||'',`Comm: $${f(tx.commission||0,2)}`));
+    });
+  }
+  // NER open orders → OPEN events
+  const nerOpen=(openR.ok&&(Array.isArray(openR.d)?openR.d:openR.d?.orders||[]))||[];
+  nerOpen.forEach(o=>{
+    events.push(mkEvent(o.created_at||o.timestamp,'OPEN','NER',o.ticker||'—',(o.side||'').toUpperCase(),o.quantity||0,o.price||0,(o.quantity||0)*(o.price||0),o.order_type||'LIMIT',o.order_id||o.id||'','Resting'));
+  });
+  // TSE open orders
+  const tseOpen=(tseR.ok&&(Array.isArray(tseR.d)?tseR.d:tseR.d?.orders||tseR.d?.open_orders||[]))||[];
+  tseOpen.forEach(o=>{
+    events.push(mkEvent(o.created_at||o.timestamp,'OPEN','TSE',o.symbol||o.ticker||'—',(o.side||'').toUpperCase(),o.quantity||o.qty||0,o.price||0,(o.quantity||o.qty||0)*(o.price||0),o.order_type||'LIMIT',o.order_id||o.id||'','Resting'));
+  });
+  // TSE history
+  const tseHist=(tseHistR.ok&&(Array.isArray(tseHistR.d)?tseHistR.d:tseHistR.d?.orders||tseHistR.d?.history||[]))||[];
+  tseHist.forEach(o=>{
+    const evt=o.status==='filled'||o.status==='FILLED'?'FILLED':o.status==='cancelled'||o.status==='CANCELLED'?'CANCELLED':'CLOSED';
+    events.push(mkEvent(o.updated_at||o.created_at||o.timestamp,evt,'TSE',o.symbol||o.ticker||'—',(o.side||'').toUpperCase(),o.quantity||o.qty||0,o.price||0,(o.quantity||o.qty||0)*(o.price||0),o.order_type||'LIMIT',o.order_id||o.id||'',''));
+  });
+  // Also add session activity log entries as ALGO events
+  const logEl=g('op-log');
+  if(logEl){
+    [...logEl.children].slice(0,50).forEach(el=>{
+      const txt=el.textContent||'';
+      if(txt.includes('▶')||txt.includes('✅')||txt.includes('PLACED')){
+        events.push({ts:new Date().toISOString(),evt:'ALGO',exch:'NER',tk:'',side:'',qty:0,px:0,val:0,type:'ALGO',oid:'',note:txt.substring(0,80)});
+      }
+    });
+  }
+
+  // Sort newest first
+  events.sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  _auditEvents=events;
+  g('audit-cnt').textContent=events.length;
+  renderAudit();
+}
+
+window.renderAudit=function(){
+  const exch=(g('audit-filt-exch')?.value||'').toUpperCase();
+  const side=(g('audit-filt-side')?.value||'').toUpperCase();
+  const tk=(g('audit-filt-tk')?.value||'').toUpperCase();
+  const filtered=_auditEvents.filter(e=>
+    (!exch||e.exch===exch)&&
+    (!side||e.side===side)&&
+    (!tk||e.tk.includes(tk))
+  );
+  const evtColor={FILLED:'var(--up)',OPEN:'var(--org)',CANCELLED:'var(--dn)',CLOSED:'var(--txt3)',ALGO:'var(--cyn)'};
+  g('audit-body').innerHTML=filtered.slice(0,150).map(e=>`<tr>
+    <td class="dim" style="font-size:9px">${e.ts?new Date(e.ts).toLocaleString('en-GB',{hour12:false,day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—'}</td>
+    <td style="color:${evtColor[e.evt]||'var(--txt)'};font-weight:700;font-size:10px">${e.evt}</td>
+    <td><span style="padding:1px 5px;font-size:8px;font-weight:700;background:${e.exch==='TSE'?'rgba(0,229,255,.12)':'rgba(255,152,0,.12)'};color:${e.exch==='TSE'?'var(--cyn)':'var(--org)'}">${e.exch}</span></td>
+    <td class="wht" style="font-weight:700">${e.tk||'—'}</td>
+    <td style="color:${e.side==='BUY'?'var(--up)':'e.side==='SELL'?'var(--dn)':'var(--txt3)'}">${e.side||'—'}</td>
+    <td class="r">${e.qty?e.qty.toLocaleString():'—'}</td>
+    <td class="r yel">${e.px?'$'+f(e.px,4):'—'}</td>
+    <td class="r">${e.val?'$'+f(e.val,2):'—'}</td>
+    <td class="dim" style="font-size:9px">${e.type||'—'}</td>
+    <td class="dim" style="font-size:9px;max-width:80px;overflow:hidden;text-overflow:ellipsis" title="${e.oid}">${e.oid?e.oid.substring(0,14)+'…':''}</td>
+    <td class="dim" style="font-size:9px">${e.note||''}</td>
+  </tr>`).join('');
+};
+
+window.exportAudit=function(){
+  const rows=[['TIMESTAMP','EVENT','EXCHANGE','TICKER','SIDE','QTY','PRICE','VALUE','TYPE','ORDER_ID','NOTE']];
+  _auditEvents.forEach(e=>rows.push([e.ts,e.evt,e.exch,e.tk,e.side,e.qty,e.px,e.val,e.type,e.oid,e.note]));
+  const csv=rows.map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='audit_trail_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+};
+
+// ── log ────────────────────────────────────────────────────────
+function lg(msg,type='info'){
+  const el=g('op-log');if(!el)return;
+  const c={info:'var(--txt3)',ok:'var(--up)',warn:'var(--yel)',err:'var(--dn)'}[type];
+  const d=document.createElement('div');
+  d.style.cssText=`padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.3);color:${c}`;
+  d.innerHTML=`<span class="dim">${new Date().toLocaleTimeString('en-GB',{hour12:false})}</span>  ${msg}`;
+  el.prepend(d);while(el.children.length>200)el.removeChild(el.lastChild);
+}
+
+// ── blotter tabs ───────────────────────────────────────────────
+window.opBTab=function(el){
+  document.querySelectorAll('.op-tab').forEach(t=>t.classList.remove('act'));
+  ['open','algos','fills','execq','audit','log'].forEach(v=>{const e=g('bv-'+v);if(e)e.style.display='none';});
+  el.classList.add('act');
+  const v=g('bv-'+el.dataset.v);if(v)v.style.display='flex';
+  if(el.dataset.v==='fills')loadFills();
+  if(el.dataset.v==='open')loadOpenOrders();
+  if(el.dataset.v==='execq')loadExecQuality();
+  if(el.dataset.v==='audit')loadAuditTrail();
+};
+
+// ── analytics tools ────────────────────────────────────────────
+window.opTool=function(id){
+  const fly=g('op-fly');
+  if(_tool===id&&fly.classList.contains('show')){opCloseTool();return;}
+  _tool=id;
+  ['siz','liq','sim','imp'].forEach(k=>{const b=g('tb-'+k);if(b)b.classList.remove('on');});
+  const b=g('tb-'+id);if(b)b.classList.add('on');
+  if(id==='siz')renderSizer();
+  else if(id==='liq')renderLiq();
+  else if(id==='imp') renderImpact();
+  else renderSim();
+  fly.classList.add('show');
+};
+window.opCloseTool=function(){
+  g('op-fly').classList.remove('show');
+  ['siz','liq','sim'].forEach(k=>g('tb-'+k).classList.remove('on'));
+  _tool=null;
+};
+
+function renderSizer(){
+  g('op-fly-title').textContent='⚖ POSITION SIZER';
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">RISK-BASED QUANTITY CALCULATOR</div>
+    <div class="op-fly-r"><label>Portfolio Value ($)</label><input id="ps-pv" type="number" value="${_funds?Math.round(_funds.available):10000}" step="100"></div>
+    <div class="op-fly-r"><label>Risk Per Trade (%)</label><input id="ps-rp" type="number" value="2" step="0.1"></div>
+    <div class="op-fly-r"><label>Entry Price ($)</label><input id="ps-ep" type="number" value="${midOf(_quote)?(midOf(_quote)).toFixed(4):0}" step="0.0001"></div>
+    <div class="op-fly-r"><label>Stop Price ($)</label><input id="ps-sp" type="number" value="${_quote?.best_bid?(_quote.best_bid*0.97).toFixed(4):0}" step="0.0001"></div>
+    <button class="op-fly-btn" onclick="calcSizer()">▶ CALCULATE</button>
+    <div class="op-fly-result" id="ps-res">Enter values above.</div>
+  </div>`;
+}
+window.calcSizer=function(){
+  const pv=+g('ps-pv').value,rp=+g('ps-rp').value,ep=+g('ps-ep').value,sp=+g('ps-sp').value;
+  if(!ep||!sp||ep===sp){g('ps-res').textContent='Invalid prices.';return;}
+  const riskAmt=pv*rp/100,riskPerSh=Math.abs(ep-sp),qty=Math.floor(riskAmt/riskPerSh),posVal=qty*ep;
+  g('ps-res').innerHTML=`<span class="org" style="font-weight:700">OPTIMAL QTY: ${qty.toLocaleString()} sh</span><br>
+    Risk/share: $${f(riskPerSh,4)} · Max risk: $${f(riskAmt,2)}<br>Position value: $${f(posVal,2)}<br>
+    Commission est.: $${f(posVal*CR,2)}<br>
+    <button onclick="g('op-qty').value=${qty};opPrev();opCloseTool()" class="btn btn-xs on" style="margin-top:4px">APPLY ${qty} SH →</button>`;
+};
+
+function renderLiq(){
+  g('op-fly-title').textContent='📊 LIQUIDITY CHECKER';
+  const tk=g('op-tk').value;
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">ORDER SIZE vs MARKET DEPTH${tk?' — '+tk:''}</div>
+    <div class="op-fly-result" id="lq-res"><span class="dim">Loading…</span></div>
+  </div>`;
+  if(!tk){g('lq-res').textContent='Select a ticker first.';return;}
+  (async()=>{
+    const[lr,or]=await Promise.all([api(`/api/liquidity/${tk}`),api(`/api/analytics/ohlcv/${tk}?days=20`)]);
+    if(!lr.ok){g('lq-res').textContent='Unavailable.';return;}
+    const d=lr.d,qty=nv('op-qty');
+    const avgVol=or.ok&&or.d.ohlcv?or.d.ohlcv.reduce((s,c)=>s+(c.volume||0),0)/or.d.ohlcv.length:null;
+    const depth=(_side==='buy'?d.total_ask_qty:d.total_bid_qty)||0;
+    const pct=depth?((qty/depth)*100).toFixed(1):'?';
+    const big=+pct>20,dtU=avgVol&&qty?Math.ceil(qty/avgVol):null;
+    const sl=(_side==='buy'?d.slippage_buy:d.slippage_sell)||[];
+    const cl=sl.length?sl.reduce((p,c)=>Math.abs(c.qty-qty)<Math.abs(p.qty-qty)?c:p,sl[0]):null;
+    g('lq-res').innerHTML=`<span style="font-weight:700;color:${big?'var(--dn)':'var(--up)'}">${big?'⚠ LARGE ORDER':'✓ NORMAL SIZE'}</span><br>
+      Order ${qty.toLocaleString()} sh = <span style="color:${big?'var(--dn)':'var(--yel)'}">${pct}% of visible book</span><br>
+      ${avgVol?`Avg daily vol: ${fk(Math.round(avgVol))} · Days to unwind: <span style="color:${dtU>5?'var(--dn)':'var(--txt)'};font-weight:700">${dtU}</span><br>`:''}
+      ${cl?`Est. slippage: <span class="${cl.slippage_pct>0.5?'dn':'yel'}" style="font-weight:700">${cl.slippage_pct!=null?cl.slippage_pct.toFixed(3)+'%':'—'}</span><br>`:''}
+      <span class="dim">Spread: ${d.spread_pct!=null?d.spread_pct.toFixed(3)+'%':'—'} · Imbalance: ${d.imbalance_pct!=null?d.imbalance_pct.toFixed(1)+'%':'—'}</span>`;
+  })();
+}
+
+function renderSim(){
+  g('op-fly-title').textContent='⚡ FILL SIMULATOR';
+  const tk=g('op-tk').value;
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">HOW MUCH FILLS AT YOUR LIMIT RIGHT NOW?</div>
+    <div class="op-fly-r"><label>Limit Price ($)</label><input id="fs-px" type="number" value="${nv('op-lp')||midOf(_quote)||0}" step="0.0001"></div>
+    <div class="op-fly-r"><label>Qty</label><input id="fs-qty" type="number" value="${nv('op-qty')||100}" step="1"></div>
+    <div class="op-fly-r"><label>Side</label><select id="fs-side"><option value="buy" ${_side==='buy'?'selected':''}>BUY</option><option value="sell" ${_side==='sell'?'selected':''}>SELL</option></select></div>
+    <button class="op-fly-btn" onclick="runSim('${tk}')">▶ SIMULATE vs LIVE BOOK</button>
+    <div class="op-fly-result" id="fs-res"><span class="dim">Click simulate.</span></div>
+  </div>`;
+}
+window.runSim=async function(tk){
+  if(!tk){g('fs-res').textContent='Select a ticker first.';return;}
+  g('fs-res').textContent='Fetching live book…';
+  const r=await api(`/api/liquidity/${tk}`);if(!r.ok){g('fs-res').textContent='Unavailable.';return;}
+  const d=r.d,px=+g('fs-px').value,qty=+g('fs-qty').value,side=g('fs-side').value;
+  const book=side==='buy'?[...(d.asks||[])].sort((a,b)=>a.price-b.price):[...(d.bids||[])].sort((a,b)=>b.price-a.price);
+  const eligible=book.filter(l=>side==='buy'?l.price<=px:l.price>=px);
+  let filled=0,cost=0;
+  for(const l of eligible){const t=Math.min(l.quantity,qty-filled);cost+=t*l.price;filled+=t;if(filled>=qty)break;}
+  const pct=((filled/qty)*100).toFixed(1),avgPx=filled?cost/filled:0;
+  const col=filled>=qty?'var(--up)':filled>0?'var(--yel)':'var(--dn)';
+  g('fs-res').innerHTML=`<span style="font-weight:700;color:${col}">FILL: ${filled.toLocaleString()} / ${qty.toLocaleString()} (${pct}%)</span><br>
+    ${filled<qty?`<span class="dn">Unfilled: ${(qty-filled).toLocaleString()} sh</span><br>`:''}
+    ${filled?`Avg fill px: $${f(avgPx,4)} · Cost: $${f(cost,2)}<br>`:'No eligible liquidity at this price.<br>'}
+    <span class="dim">Eligible levels: ${eligible.length} · Total qty: ${eligible.reduce((s,l)=>s+l.quantity,0).toLocaleString()}</span>`;
+};
 
 
-@app.route("/api/backtest", methods=["POST"])
-def backtest():
-    body     = request.json or {}
-    ticker   = body.get("ticker", "").upper()
-    days     = min(int(body.get("days", 90)), 365)
-    strategy = body.get("strategy", "buy_hold")
-    params   = body.get("params", {})
+async function renderImpact(){
+  g('op-fly-title').textContent='🎯 PRE-TRADE MARKET IMPACT ESTIMATOR';
+  const tk=g('op-tk')?.value||'';
+  const qty=nv('op-qty')||100;
+  const mid=midOf(_quote)||0;
+  g('op-fly-body').innerHTML=`<div class="op-fly-sec" style="grid-column:1/-1">
+    <div class="op-fly-stitle">ESTIMATE MARKET IMPACT BEFORE YOU TRADE</div>
+    <div class="op-fly-r"><label>Ticker</label><input id="imp-tk" value="${tk}" style="text-transform:uppercase"></div>
+    <div class="op-fly-r"><label>Order Size (shares)</label><input id="imp-qty" type="number" value="${qty}" step="1"></div>
+    <div class="op-fly-r"><label>Side</label><select id="imp-side"><option value="buy" ${_side==='buy'?'selected':''}>BUY</option><option value="sell" ${_side==='sell'?'selected':''}>SELL</option></select></div>
+    <div class="op-fly-r"><label>Order Type</label><select id="imp-type"><option value="market">MARKET (immediate)</option><option value="twap">TWAP (spread over time)</option><option value="vwap">VWAP (vol-weighted)</option></select></div>
+    <button class="op-fly-btn" onclick="runImpact()">▶ ESTIMATE IMPACT</button>
+    <div class="op-fly-result" id="imp-res"><span class="dim">Configure and click estimate.</span></div>
+  </div>`;
+}
+window.runImpact=async function(){
+  const tk=(g('imp-tk')?.value||'').toUpperCase();
+  const qty=+g('imp-qty')?.value||100;
+  const side=g('imp-side')?.value||'buy';
+  const type=g('imp-type')?.value||'market';
+  if(!tk){g('imp-res').innerHTML='<span class="dn">Enter a ticker.</span>';return;}
+  g('imp-res').innerHTML='<span class="dim">Fetching orderbook depth…</span>';
+  const r=await api(`/api/liquidity/${tk}`);
+  if(!r.ok){g('imp-res').innerHTML='<span class="dn">Unavailable for this ticker.</span>';return;}
+  const d=r.d;
+  const book=side==='buy'?[...(d.asks||[])].sort((a,b)=>a.price-b.price):[...(d.bids||[])].sort((a,b)=>b.price-a.price);
+  const mid=(d.mid_price||((d.best_bid||0)+(d.best_ask||0))/2)||0;
+  if(!book.length||!mid){g('imp-res').innerHTML='<span class="dn">Insufficient orderbook data.</span>';return;}
+  // Walk the book
+  let rem=qty,cost=0,levels=0;
+  for(const l of book){if(rem<=0)break;const t=Math.min(l.quantity,rem);cost+=t*l.price;rem-=t;levels++;}
+  const filled=qty-rem,avgPx=filled?cost/filled:0;
+  const slipBps=mid>0?Math.abs(avgPx-mid)/mid*10000:0;
+  const totalDepth=(d.total_bid_qty||0)+(d.total_ask_qty||0);
+  const mktParticipation=totalDepth>0?(qty/totalDepth*100):0;
+  // Estimate impact by order type
+  const impactMultiplier=type==='market'?1:type==='twap'?0.3:0.25;
+  const adjustedSlip=slipBps*impactMultiplier;
+  const dollarImpact=mid*qty*(adjustedSlip/10000);
+  const slipColor=adjustedSlip<2?'var(--up)':adjustedSlip<5?'var(--yel)':'var(--dn)';
+  const mktColor=mktParticipation<5?'var(--up)':mktParticipation<20?'var(--yel)':'var(--dn)';
+  g('imp-res').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px">
+      <div style="padding:5px;background:var(--bg2);border:1px solid var(--bdr)"><div style="font-size:8px;color:var(--txt3)">EST. SLIPPAGE</div><div style="font-size:14px;font-weight:700;color:${slipColor}">${adjustedSlip.toFixed(2)} bps</div></div>
+      <div style="padding:5px;background:var(--bg2);border:1px solid var(--bdr)"><div style="font-size:8px;color:var(--txt3)">DOLLAR IMPACT</div><div style="font-size:14px;font-weight:700;color:${slipColor}">$${f(dollarImpact,2)}</div></div>
+      <div style="padding:5px;background:var(--bg2);border:1px solid var(--bdr)"><div style="font-size:8px;color:var(--txt3)">MKT PARTICIPATION</div><div style="font-size:13px;font-weight:700;color:${mktColor}">${mktParticipation.toFixed(1)}%</div></div>
+      <div style="padding:5px;background:var(--bg2);border:1px solid var(--bdr)"><div style="font-size:8px;color:var(--txt3)">BOOK LEVELS HIT</div><div style="font-size:13px;font-weight:700;color:var(--wht)">${levels}</div></div>
+    </div>
+    <div style="font-size:9px;color:var(--txt3);line-height:1.8">
+      Strategy: <strong style="color:var(--org)">${type.toUpperCase()}</strong> · Avg fill px: <strong style="color:var(--yel)">$${f(avgPx,4)}</strong> · Mid: $${f(mid,4)}<br>
+      ${rem>0?`<span class="dn">⚠ Only ${filled.toLocaleString()} of ${qty.toLocaleString()} shares fill immediately — ${rem.toLocaleString()} sh would queue.</span><br>`:'<span class="up">✅ Full size absorbs into current book</span><br>'}
+      ${type!=='market'?`<span class="dim">Impact reduced ${((1-impactMultiplier)*100).toFixed(0)}% vs market order by spreading execution over time.</span>`:'<span class="dim">Use TWAP/VWAP to reduce estimated impact by up to 75%.</span>'}
+    </div>`;
+};
 
-    if not ticker:
-        return jsonify({"detail": "ticker required"}), 400
+function doRefresh(){setTimeout(()=>{loadOpenOrders();loadFunds();const tk=g('op-tk').value;if(tk)refreshPos(tk);},1200);}
 
-    status, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
-    if status != 200:
-        return jsonify(raw), status
-
-    candles = _norm_candles(raw.get("candles", []), days=days)
-    if len(candles) < 3:
-        return jsonify({"detail": f"Not enough data ({len(candles)} candles)"}), 400
-
-    closes = [float(c["close"]) for c in candles]
-    dates  = [c["date"]         for c in candles]
-    highs  = [float(c.get("high",  c["close"])) for c in candles]
-    lows   = [float(c.get("low",   c["close"])) for c in candles]
-
-    # ── Signal generation ────────────────────────────────────────────────────
-    signals = [0] * len(closes)
-
-    if strategy == "buy_hold":
-        # One buy on day 0, never sell — equity tracks price exactly
-        signals[0] = 1
-
-    elif strategy == "sma_cross":
-        fast = int(params.get("fast", 5))
-        slow = int(params.get("slow", 20))
-        f_ma = _sma(closes, fast)
-        s_ma = _sma(closes, slow)
-        for i in range(1, len(closes)):
-            if f_ma[i] and s_ma[i] and f_ma[i-1] and s_ma[i-1]:
-                if f_ma[i] > s_ma[i] and f_ma[i-1] <= s_ma[i-1]:  signals[i] =  1
-                elif f_ma[i] < s_ma[i] and f_ma[i-1] >= s_ma[i-1]: signals[i] = -1
-
-    elif strategy == "rsi":
-        p   = int(params.get("rsi_period", 14))
-        ob  = float(params.get("overbought", 70))
-        os_ = float(params.get("oversold",   30))
-        rsi = _rsi(closes, p)
-        for i in range(1, len(closes)):
-            if rsi[i] and rsi[i-1]:
-                if   rsi[i] < os_ and rsi[i-1] >= os_: signals[i] =  1
-                elif rsi[i] > ob  and rsi[i-1] <= ob:  signals[i] = -1
-
-    elif strategy == "macd":
-        ml, sl2, _ = _macd(closes,
-                            int(params.get("fast", 12)),
-                            int(params.get("slow", 26)),
-                            int(params.get("signal", 9)))
-        for i in range(1, len(closes)):
-            if ml[i] and sl2[i] and ml[i-1] and sl2[i-1]:
-                if   ml[i] > sl2[i] and ml[i-1] <= sl2[i-1]: signals[i] =  1
-                elif ml[i] < sl2[i] and ml[i-1] >= sl2[i-1]: signals[i] = -1
-
-    elif strategy == "bb_reversal":
-        bb_u, _, bb_l = _bollinger(closes)
-        for i in range(1, len(closes)):
-            if bb_l[i] and closes[i] < bb_l[i] and closes[i-1] >= bb_l[i-1]:  signals[i] =  1
-            elif bb_u[i] and closes[i] > bb_u[i] and closes[i-1] <= bb_u[i-1]: signals[i] = -1
-
-    # ── Simulate ─────────────────────────────────────────────────────────────
-    sl_pct = float(params.get("stop_loss_pct",   0)) / 100
-    tp_pct = float(params.get("take_profit_pct", 0)) / 100
-    equity, trades = _bt_run(closes, dates, signals, sl_pct=sl_pct, tp_pct=tp_pct)
-    metrics        = _bt_metrics(equity, closes, trades)
-
-    # Buy-and-hold reference curve (always correct regardless of strategy)
-    bh_curve = [round(10_000 * p / closes[0], 2) for p in closes]
-
-    return jsonify({
-        "ticker":      ticker,
-        "strategy":    strategy,
-        "days":        days,
-        "dates":       dates,
-        "closes":      closes,
-        "equity_curve": equity,
-        "bh_curve":    bh_curve,
-        "signals":     signals,
-        "trades":      trades,
-        "metrics":     metrics,
-    })
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SESSION PERSISTENCE — algo jobs & watchlist
-# ══════════════════════════════════════════════════════════════════════════════
-import json as _json_mod
-
-_SESSION_FILE = os.path.join(os.path.dirname(__file__), "session_state.json")
-
-def _load_session():
-    try:
-        if os.path.exists(_SESSION_FILE):
-            with open(_SESSION_FILE, "r") as f:
-                return _json_mod.load(f)
-    except Exception:
-        pass
-    return {"algos": [], "watchlist": []}
-
-def _save_session(data):
-    try:
-        with open(_SESSION_FILE, "w") as f:
-            _json_mod.dump(data, f)
-    except Exception as ex:
-        print(f"[session] save error: {ex}")
-
-@app.route("/api/session/algos", methods=["GET"])
-def session_algos_get():
-    """Return persisted algo jobs (serializable fields only, no tick functions)."""
-    s = _load_session()
-    return jsonify(s.get("algos", [])), 200
-
-@app.route("/api/session/algos", methods=["POST"])
-def session_algos_post():
-    """Save/replace the full algo jobs list."""
-    try:
-        jobs = request.get_json(silent=True) or []
-        s = _load_session()
-        s["algos"] = jobs
-        _save_session(s)
-        return jsonify({"ok": True, "count": len(jobs)}), 200
-    except Exception as ex:
-        return jsonify({"ok": False, "detail": str(ex)}), 500
-
-@app.route("/api/session/algos/<job_id>", methods=["DELETE"])
-def session_algos_delete(job_id):
-    """Remove a single job by id."""
-    s = _load_session()
-    before = len(s.get("algos", []))
-    s["algos"] = [j for j in s.get("algos", []) if j.get("id") != job_id]
-    _save_session(s)
-    return jsonify({"ok": True, "removed": before - len(s["algos"])}), 200
-
-@app.route("/api/session/watchlist", methods=["GET"])
-def session_watchlist_get():
-    s = _load_session()
-    return jsonify(s.get("watchlist", [])), 200
-
-@app.route("/api/session/watchlist", methods=["POST"])
-def session_watchlist_post():
-    try:
-        wl = request.get_json(silent=True) or []
-        s = _load_session()
-        s["watchlist"] = wl
-        _save_session(s)
-        return jsonify({"ok": True}), 200
-    except Exception as ex:
-        return jsonify({"ok": False, "detail": str(ex)}), 500
-
-# ── WEBHOOK RECEIVER (NER → Flask → SSE clients) ─────────────────────────────
-@app.route("/webhook/ner", methods=["POST"])
-def webhook_ner():
-    """
-    Receives NER market_update webhooks.
-    Payload: {event, ticker, market_price, frozen, orderbook, updated_at}
-    Stores latest state and broadcasts to all SSE clients.
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-        ticker = data.get("ticker")
-        if not ticker:
-            return jsonify({"ok": False, "detail": "No ticker"}), 400
-
-        # Update SSE state cache
-        _sse_state[ticker] = {
-            "ticker":       ticker,
-            "market_price": data.get("market_price"),
-            "frozen":       data.get("frozen", False),
-            "orderbook":    data.get("orderbook", {}),
-            "updated_at":   data.get("updated_at", ""),
-        }
-
-        # Broadcast to all SSE subscribers
-        sse_broadcast("market_update", _sse_state[ticker])
-        return jsonify({"ok": True}), 200
-    except Exception as ex:
-        return jsonify({"ok": False, "detail": str(ex)}), 500
-
-
-# ── SSE STREAM (Flask → browser) ──────────────────────────────────────────────
-@app.route("/api/stream")
-def sse_stream():
-    """
-    Server-Sent Events endpoint.
-    Immediately sends current state for all known tickers, then streams live updates.
-    Clients: EventSource('/api/stream')
-    """
-    def generate():
-        q = queue.Queue(maxsize=200)
-        with _sse_lock:
-            _sse_queues.add(q)
-
-        # Send current state snapshot to new subscriber
-        try:
-            if _sse_state:
-                snapshot = {"tickers": list(_sse_state.values())}
-                yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
-
-            # Heartbeat comment every 25s to keep connection alive through proxies
-            last_hb = time.time()
-            while True:
-                try:
-                    msg = q.get(timeout=25)
-                    yield msg
-                    last_hb = time.time()
-                except queue.Empty:
-                    # Send SSE comment as heartbeat (ignored by EventSource)
-                    yield f": heartbeat {int(time.time())}\n\n"
-                    last_hb = time.time()
-        except GeneratorExit:
-            pass
-        finally:
-            with _sse_lock:
-                _sse_queues.discard(q)
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",   # disable nginx buffering
-            "Connection": "keep-alive",
-        }
-    )
-
-
-# ── SSE STATE ENDPOINT (for initial load without waiting for webhook) ──────────
-@app.route("/api/stream/state")
-def sse_state():
-    """Returns current SSE state snapshot (for clients that missed the snapshot event)."""
-    return jsonify({"tickers": list(_sse_state.values())}), 200
-
-
-# ── PAGES ─────────────────────────────────────────────────────────────────────
-@app.route("/api/atlas-proxy")
-def atlas_proxy():
-    path   = request.args.get("path", "/status")
-    params = {k: v for k, v in request.args.items() if k != "path"}
-    s, d   = atlas_get(path, params=params or None, ttl=10)
-    return jsonify(d), s
-
-@app.route("/")
-def index():           return render_template("terminal.html")
-@app.route("/page/<name>")
-def page(name):
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug"]
-    if name not in allowed: return "Not found", 404
-    return render_template(f"pages/{name}.html")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VERSION 4 ENDPOINTS — Rolling correlation, pairs, Monte Carlo, VaR, fundamentals
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ── FUNDAMENTALS (uses /securities/{ticker}/stats) ────────────────────────────
-@app.route("/api/fundamentals/<ticker>")
-def fundamentals(ticker):
-    s, d = atlas_get(f"/analytics/ticker_stats/{ticker}", ttl=600)
-    if s != 200: return jsonify({"detail": d.get("detail","Not found")}), s
-    s2, sec = atlas_get(f"/securities/{ticker}", ttl=60)
-    sec = sec if s2 == 200 else {}
-    return jsonify({
-        "ticker":       ticker,
-        "eps":          d.get("eps"),
-        "pe_ratio":     d.get("pe_ratio"),
-        "pb_ratio":     d.get("pb_ratio"),
-        "roa_percent":  d.get("roa_percent"),
-        "book_value":   d.get("book_value"),
-        "net_profit":   d.get("net_profit"),
-        "market_price": d.get("market_price"),
-        "total_shares": d.get("total_shares"),
-        "market_cap":   round(d.get("market_price",0)*d.get("total_shares",0),2) if d.get("market_price") and d.get("total_shares") else None,
-        "shareholder_count": sec.get("shareholder_count"),
-    })
-
-# ── TRANSACTION HISTORY ────────────────────────────────────────────────────────
-@app.route("/api/transactions")
-def transactions():
-    limit  = request.args.get("limit", 50)
-    ticker = request.args.get("ticker")
-    offset = request.args.get("offset", 0)
-    ttype  = request.args.get("type", "")
-    atl_params = {"limit": limit}
-    if ticker: atl_params["ticker"] = ticker
-    s_atl, d_atl = atlas_get("/transactions", params=atl_params, ttl=10)
-    if s_atl == 200: return jsonify(d_atl), 200
-    params = {"limit": limit, "offset": offset}
-    if ttype: params["type"] = ttype
-    s, d = cached_get("/transactions", params=params, auth=True, ttl=10)  # short cache
-    return jsonify(d), s
-
-# ── OPEN ORDERS ────────────────────────────────────────────────────────────────
-@app.route("/api/orders_open")
-def orders_open():
-    s, d = cached_get("/orders", auth=True, ttl=5)  # short cache
-    return jsonify(d), s
-
-@app.route("/api/orders_open/<order_id>", methods=["DELETE"])
-def cancel_order(order_id):
-    import requests as req
-    url = f"{NER_BASE}/orders/{order_id}"
-    r = req.delete(url, headers=AUTH_H, timeout=(4, 8))
-    try: return jsonify(r.json()), r.status_code
-    except: return jsonify({"detail":"Error"}), r.status_code
-
-# ── FUNDS ─────────────────────────────────────────────────────────────────────
-@app.route("/api/funds")
-def funds():
-    s, d = cached_get("/funds", auth=True, ttl=8)  # short cache
-    return jsonify(d), s
-
-# ── ROLLING CORRELATION + PAIRS SPREAD ────────────────────────────────────────
-@app.route("/api/rolling_correlation")
-def rolling_correlation():
-    t1 = request.args.get("t1",""); t2 = request.args.get("t2","")
-    days   = int(request.args.get("days", 60))
-    window = int(request.args.get("window", 14))
-    if not t1 or not t2: return jsonify({"detail":"t1 and t2 required"}), 400
-    _, r1 = atlas_get(f"/analytics/ohlcv/{t1}", params={"days":days}, ttl=60)
-    _, r2 = atlas_get(f"/analytics/ohlcv/{t2}", params={"days":days}, ttl=60)
-    c1 = [c["close"] for c in _norm_candles(r1.get("candles",[]))]
-    c2 = [c["close"] for c in _norm_candles(r2.get("candles",[]))]
-    dates = [c["date"] for c in _norm_candles(r1.get("candles",[]))]
-    n = min(len(c1), len(c2)); c1=c1[-n:]; c2=c2[-n:]; dates=dates[-n:]
-    if n < window+2: return jsonify({"detail":"Not enough data","dates":[],"corr":[],"spread":[],"spread_z":[]}), 200
-    # Daily returns
-    r1d = [(c1[i]-c1[i-1])/c1[i-1] for i in range(1,n)]
-    r2d = [(c2[i]-c2[i-1])/c2[i-1] for i in range(1,n)]
-    # Rolling Pearson correlation
-    corrs = [None]  # offset by 1 for dates alignment
-    for i in range(len(r1d)):
-        if i < window-1: corrs.append(None); continue
-        a = r1d[i-window+1:i+1]; b = r2d[i-window+1:i+1]
-        ma = sum(a)/window; mb = sum(b)/window
-        num = sum((a[j]-ma)*(b[j]-mb) for j in range(window))
-        da  = (sum((x-ma)**2 for x in a))**0.5
-        db  = (sum((x-mb)**2 for x in b))**0.5
-        corrs.append(round(num/da/db,4) if da*db>0 else None)
-    # Normalized spread (pairs trading signal)
-    base1=c1[0]; base2=c2[0]
-    norm1 = [c/base1*100 for c in c1]
-    norm2 = [c/base2*100 for c in c2]
-    spread = [round(norm1[i]-norm2[i],4) for i in range(n)]
-    sp_vals = [s for s in spread if s is not None]
-    sp_mean = sum(sp_vals)/len(sp_vals) if sp_vals else 0
-    sp_std  = (sum((s-sp_mean)**2 for s in sp_vals)/len(sp_vals))**0.5 if len(sp_vals)>1 else 1
-    spread_z = [round((s-sp_mean)/sp_std,4) if sp_std>0 else 0 for s in spread]
-    # Current Pearson (full period)
-    full_corr = corrs[-1] if corrs else None
-    # Static full-period pearson
-    if len(r1d) >= 2:
-        am=sum(r1d)/len(r1d); bm=sum(r2d)/len(r2d)
-        num=sum((r1d[i]-am)*(r2d[i]-bm) for i in range(len(r1d)))
-        da=(sum((x-am)**2 for x in r1d))**0.5; db=(sum((x-bm)**2 for x in r2d))**0.5
-        full_corr = round(num/da/db,4) if da*db>0 else None
-    return jsonify({
-        "dates": dates, "corr": corrs, "spread": spread, "spread_z": spread_z,
-        "norm1": [round(v,4) for v in norm1], "norm2": [round(v,4) for v in norm2],
-        "sp_mean": round(sp_mean,4), "sp_std": round(sp_std,4),
-        "full_corr": full_corr, "t1": t1, "t2": t2,
-        "current_spread_z": spread_z[-1] if spread_z else None,
-    })
-
-# ── EXCHANGE CORRELATION MATRIX (all-pairs for convergence index) ─────────────
-@app.route("/api/correlation_matrix")
-def correlation_matrix():
-    days = int(request.args.get("days", 30))
-    _, secs_data = atlas_get("/securities", ttl=60)
-    tickers = [s["ticker"] for s in (secs_data if isinstance(secs_data,list) else [])][:20]  # cap at 20
-    # Fetch closes for all
-    closes_map = {}
-    for t in tickers:
-        _, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=600)
-        cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
-        if len(cs) >= 5: closes_map[t] = cs
-    valid = list(closes_map.keys())
-    # Align lengths
-    min_len = min(len(v) for v in closes_map.values()) if closes_map else 0
-    if min_len < 3: return jsonify({"tickers":[],"matrix":[],"avg_corr":0})
-    rets = {}
-    for t in valid:
-        c = closes_map[t][-min_len:]
-        r = [(c[i]-c[i-1])/c[i-1] for i in range(1,len(c))]
-        rets[t] = r
-    # Build matrix
-    matrix = []
-    all_corrs = []
-    for t1 in valid:
-        row = []
-        for t2 in valid:
-            if t1==t2: row.append(1.0); continue
-            a=rets[t1]; b=rets[t2]
-            n=min(len(a),len(b)); a=a[:n]; b=b[:n]
-            am=sum(a)/n; bm=sum(b)/n
-            num=sum((a[i]-am)*(b[i]-bm) for i in range(n))
-            da=(sum((x-am)**2 for x in a))**0.5; db=(sum((x-bm)**2 for x in b))**0.5
-            c_val = round(num/da/db,4) if da*db>0 else 0
-            row.append(c_val); all_corrs.append(abs(c_val))
-        matrix.append(row)
-    avg_corr = round(sum(all_corrs)/len(all_corrs),4) if all_corrs else 0
-    return jsonify({"tickers":valid,"matrix":matrix,"avg_corr":avg_corr})
-
-# ── MONTE CARLO ───────────────────────────────────────────────────────────────
-@app.route("/api/monte_carlo", methods=["POST"])
-def monte_carlo():
-    import random, math
-    body = request.json or {}
-    ticker = body.get("ticker",""); days = int(body.get("days",60))
-    n_sims = min(int(body.get("sims",1000)),2000); horizon = int(body.get("horizon",30))
-    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
-    cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
-    if len(cs) < 5: return jsonify({"detail":"Not enough data"}), 404
-    rets = [(cs[i]-cs[i-1])/cs[i-1] for i in range(1,len(cs))]
-    mu  = sum(rets)/len(rets)
-    std = (sum((r-mu)**2 for r in rets)/len(rets))**0.5
-    start = cs[-1]
-    # Run simulations
-    sim_ends = []
-    paths_sample = []  # store 50 paths for chart
-    random.seed(42)
-    for sim in range(n_sims):
-        price = start; path = [start]
-        for _ in range(horizon):
-            # Box-Muller normal
-            u1=random.random(); u2=random.random()
-            z = math.sqrt(-2*math.log(max(u1,1e-10)))*math.cos(2*math.pi*u2)
-            price *= (1 + mu + std*z)
-            price = max(price, 0.0001)
-            path.append(round(price,4))
-        sim_ends.append(round(path[-1],4))
-        if sim < 50: paths_sample.append(path)
-    sim_ends.sort()
-    n = len(sim_ends)
-    pct5  = sim_ends[int(n*0.05)]
-    pct25 = sim_ends[int(n*0.25)]
-    pct50 = sim_ends[int(n*0.50)]
-    pct75 = sim_ends[int(n*0.75)]
-    pct95 = sim_ends[int(n*0.95)]
-    # Drawdown distribution from paths_sample
-    max_dds = []
-    for path in paths_sample:
-        peak=path[0]; dd=0
-        for p in path:
-            if p>peak: peak=p
-            dd = max(dd,(peak-p)/peak if peak>0 else 0)
-        max_dds.append(round(dd*100,2))
-    prob_profit = round(sum(1 for e in sim_ends if e>start)/n*100,1)
-    prob_dd20   = round(sum(1 for d in max_dds if d>20)/len(max_dds)*100,1) if max_dds else 0
-    return jsonify({
-        "ticker":ticker,"start":start,"horizon":horizon,"sims":n_sims,
-        "p5":pct5,"p25":pct25,"p50":pct50,"p75":pct75,"p95":pct95,
-        "prob_profit":prob_profit,"prob_dd20":prob_dd20,
-        "paths":paths_sample,"sim_ends":sim_ends[::max(1,n//200)],  # sampled for histogram
-        "mu_daily":round(mu*100,4),"std_daily":round(std*100,4),
-    })
-
-# ── PARAMETER SENSITIVITY HEATMAP ─────────────────────────────────────────────
-@app.route("/api/param_sensitivity", methods=["POST"])
-def param_sensitivity():
-    body     = request.json or {}
-    ticker   = body.get("ticker", "")
-    days     = int(body.get("days", 90))
-    strategy = body.get("strategy", "sma_cross")
-
-    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=600)
-    cs = [c["close"] for c in _norm_candles(raw.get("candles", []), days=days)]
-    n  = len(cs)
-    if n < 8:
-        return jsonify({"detail": f"Not enough data ({n} candles, need at least 8)"}), 404
-
-    def run_sma(fast, slow):
-        if fast >= slow or slow >= n: return None
-        sma_f = [None if i < fast-1 else sum(cs[i-fast+1:i+1])/fast for i in range(n)]
-        sma_s = [None if i < slow-1 else sum(cs[i-slow+1:i+1])/slow for i in range(n)]
-        pos = 0; equity = cs[0]
-        for i in range(1, n):
-            if sma_f[i] and sma_s[i] and sma_f[i-1] and sma_s[i-1]:
-                if sma_f[i] > sma_s[i] and sma_f[i-1] <= sma_s[i-1] and pos == 0:
-                    pos = equity / cs[i]
-                elif sma_f[i] < sma_s[i] and sma_f[i-1] >= sma_s[i-1] and pos > 0:
-                    equity = pos * cs[i]; pos = 0
-        if pos > 0: equity = pos * cs[-1]
-        return round((equity - cs[0]) / cs[0] * 100, 2)
-
-    def run_rsi(period, ob, os_):
-        if period >= n: return None
-        r = [None] * period
-        for i in range(period, n):
-            g = [max(cs[j]-cs[j-1], 0) for j in range(i-period+1, i+1)]
-            l = [max(cs[j-1]-cs[j], 0) for j in range(i-period+1, i+1)]
-            ag, al = sum(g)/period, sum(l)/period
-            r.append(100.0 if al == 0 else round(100 - 100/(1+ag/al), 2))
-        pos = 0; equity = cs[0]
-        for i in range(1, len(r)):
-            if r[i] and r[i-1]:
-                if r[i] > os_ and r[i-1] <= os_ and pos == 0:
-                    pos = equity / cs[i]
-                elif r[i] < ob and r[i-1] >= ob and pos > 0:
-                    equity = pos * cs[i]; pos = 0
-        if pos > 0: equity = pos * cs[-1]
-        return round((equity - cs[0]) / cs[0] * 100, 2)
-
-    # ── Dynamic grid: scale parameter ranges to available candles ────────────
-    # SMA: max slow = floor(n * 0.6), capped at 50; generate ~5 meaningful steps
-    def _steps(lo, hi, count):
-        """Generate `count` evenly-spaced integer steps from lo to hi inclusive."""
-        if hi <= lo: return [lo]
-        step = max(1, (hi - lo) // (count - 1))
-        vals = list(range(lo, hi + 1, step))
-        if vals[-1] != hi: vals.append(hi)
-        return vals[:count]
-
-    results = {"strategy": strategy, "ticker": ticker, "candles": n}
-
-    if strategy == "sma_cross":
-        max_slow = max(4, min(50, int(n * 0.6)))
-        max_fast = max(2, min(20, int(max_slow * 0.5)))
-        slow_range = _steps(max(4, max_slow // 5), max_slow, 5)
-        fast_range = _steps(2, max(3, slow_range[0] - 1), 5)
-        results.update({
-            "rows": fast_range, "cols": slow_range,
-            "row_label": "Fast SMA", "col_label": "Slow SMA",
-            "rows_data": [[run_sma(f, s) for s in slow_range] for f in fast_range],
-        })
-
-    elif strategy == "rsi":
-        max_period = max(4, min(25, int(n * 0.4)))
-        periods   = _steps(3, max_period, 5)
-        ob_levels = [60, 65, 70, 75] if n >= 20 else [65, 70]
-        results.update({
-            "rows": periods, "cols": ob_levels,
-            "row_label": "RSI Period", "col_label": "Overbought Level",
-            "rows_data": [[run_rsi(p, ob, 100-ob) for ob in ob_levels] for p in periods],
-        })
-
-    results["bh_return"] = round((cs[-1] - cs[0]) / cs[0] * 100, 2) if cs[0] else 0
-    return jsonify(results)
-
-# ── PORTFOLIO VaR + METRICS ───────────────────────────────────────────────────
-@app.route("/api/portfolio_analytics")
-def portfolio_analytics():
-    days = int(request.args.get("days", 60))
-    # Get portfolio
-    s, pf = cached_get("/portfolio", auth=True, ttl=10)
-    if s != 200: return jsonify({"detail":"Portfolio unavailable"}), s
-    holdings = pf.get("holdings", [])
-    if not holdings: return jsonify({"detail":"No holdings"}), 200
-    # Fetch price histories
-    hist_data = {}
-    for h in holdings:
-        _, raw = atlas_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=600)
-        cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
-        if cs: hist_data[h["ticker"]] = cs
-    if not hist_data: return jsonify({"detail":"No price data"}), 200
-    # Build portfolio return series (weighted daily returns)
-    min_len = min(len(v) for v in hist_data.values())
-    total_mktval = sum(h["market_value"] for h in holdings if h["ticker"] in hist_data)
-    if total_mktval <= 0: return jsonify({"detail":"Zero market value"}), 200
-    weights = {h["ticker"]: h["market_value"]/total_mktval for h in holdings if h["ticker"] in hist_data}
-    # Daily portfolio returns
-    port_rets = []
-    for i in range(1, min_len):
-        day_ret = 0
-        for t, w in weights.items():
-            cs = hist_data[t]
-            n = len(cs)
-            idx_curr = n - min_len + i; idx_prev = idx_curr - 1
-            if idx_curr < n and idx_prev >= 0 and cs[idx_prev] > 0:
-                day_ret += w * (cs[idx_curr]-cs[idx_prev])/cs[idx_prev]
-        port_rets.append(round(day_ret,6))
-    if len(port_rets) < 5: return jsonify({"detail":"Insufficient return data"}), 200
-    # VaR (Historical Simulation)
-    sorted_rets = sorted(port_rets)
-    n = len(sorted_rets)
-    var95 = abs(sorted_rets[int(n*0.05)])
-    var99 = abs(sorted_rets[int(n*0.01)]) if n >= 100 else abs(sorted_rets[0])
-    cvar95 = abs(sum(sorted_rets[:max(1,int(n*0.05))])/max(1,int(n*0.05)))
-    # Beta to EW index
-    ew_rets = []
-    for i in range(1, min_len):
-        day=0; cnt=0
-        for t in hist_data:
-            cs=hist_data[t]; idx=len(cs)-min_len+i
-            if idx>0 and idx<len(cs) and cs[idx-1]>0:
-                day+=(cs[idx]-cs[idx-1])/cs[idx-1]; cnt+=1
-        if cnt: ew_rets.append(day/cnt)
-    beta = None
-    if len(ew_rets) >= 5 and len(port_rets) >= 5:
-        n2=min(len(ew_rets),len(port_rets))
-        pr=port_rets[:n2]; er=ew_rets[:n2]
-        pm=sum(pr)/n2; em=sum(er)/n2
-        cov=sum((pr[i]-pm)*(er[i]-em) for i in range(n2))/n2
-        var_mkt=sum((e-em)**2 for e in er)/n2
-        beta = round(cov/var_mkt,3) if var_mkt>0 else None
-    # Sortino
-    neg_rets=[r for r in port_rets if r<0]
-    downside_std=(sum(r**2 for r in neg_rets)/len(neg_rets))**0.5 if neg_rets else 0
-    avg_ret=sum(port_rets)/len(port_rets)
-    sortino=round(avg_ret/downside_std*(252**0.5),3) if downside_std>0 else None
-    # Sharpe
-    std_ret=(sum((r-avg_ret)**2 for r in port_rets)/len(port_rets))**0.5
-    sharpe=round(avg_ret/std_ret*(252**0.5),3) if std_ret>0 else None
-    # Per-holding attribution
-    attribution=[]
-    for h in holdings:
-        if h["ticker"] not in hist_data: continue
-        cs=hist_data[h["ticker"]]
-        total_ret=round((cs[-1]-cs[0])/cs[0]*100,2) if cs[0]>0 else 0
-        contribution=round(weights.get(h["ticker"],0)*total_ret,3)
-        attribution.append({"ticker":h["ticker"],"weight":round(weights.get(h["ticker"],0)*100,2),"return":total_ret,"contribution":contribution})
-    attribution.sort(key=lambda x:x["contribution"],reverse=True)
-    # Kelly sizing per holding
-    kelly=[]
-    for h in holdings:
-        if h["ticker"] not in hist_data: continue
-        cs=hist_data[h["ticker"]]
-        if len(cs)<2: continue
-        rets=[(cs[i]-cs[i-1])/cs[i-1] for i in range(1,len(cs))]
-        mu2=sum(rets)/len(rets); var2=sum((r-mu2)**2 for r in rets)/len(rets)
-        k=round(mu2/var2*100,1) if var2>0 else 0
-        kelly.append({"ticker":h["ticker"],"kelly_pct":max(0,min(k,100)),"current_pct":round(weights.get(h["ticker"],0)*100,2)})
-    return jsonify({
-        "var95_pct":round(var95*100,3),"var99_pct":round(var99*100,3),
-        "cvar95_pct":round(cvar95*100,3),
-        "beta":beta,"sortino":sortino,"sharpe":sharpe,
-        "port_rets":port_rets,"ew_rets":ew_rets,
-        "attribution":attribution,"kelly":kelly,
-        "days":days,"n_obs":len(port_rets),
-    })
-
-
-# ── DEBUG — check raw NER shareholders response ───────────────────────────────
-@app.route("/api/debug/shareholders/<ticker>")
-def debug_shareholders(ticker):
-    """Exposes raw NER /shareholders response for debugging."""
-    try:
-        r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
-                         params={"ticker": ticker}, timeout=6)
-        return jsonify({
-            "status": r.status_code,
-            "is_list": isinstance(r.json(), list),
-            "count": len(r.json()) if isinstance(r.json(), list) else None,
-            "sample": r.json()[:3] if isinstance(r.json(), list) else r.json(),
-            "cache_keys": list(_sh_ticker_cache.keys()),
-        }), 200
-    except Exception as ex:
-        return jsonify({"error": str(ex)}), 500
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    print(f"\n  Bloomberg Terminal — NER Exchange")
-    print(f"  http://localhost:{port}\n")
-
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+})();
+</script>
