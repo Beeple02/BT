@@ -139,7 +139,7 @@ def atlas_get(path, params=None, ttl=30):
             return e["s"], e["d"]
         stale = e
     try:
-        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=10)
+        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=6)
         try:
             d = r.json()
         except Exception:
@@ -610,7 +610,7 @@ def _parallel_ohlcv(tickers, days, ttl=600):
     def fetch(t):
         s, d = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=ttl)
         return t, (d if s == 200 and isinstance(d, dict) else None)
-    with ThreadPoolExecutor(max_workers=16) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(fetch, t): t for t in tickers}
         for f in as_completed(futures):
             t, d = f.result()
@@ -623,7 +623,7 @@ def market_breadth():
     days = int(request.args.get("days", 7))
 
     # Fetch securities meta + breadth + orderbook in parallel
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:
         f_secs  = ex.submit(atlas_get, "/securities",     None,           120)
         f_bread = ex.submit(atlas_get, "/market/breadth", {"days": days}, 30)
         f_ob    = ex.submit(atlas_get, "/orderbook",      None,           10)
@@ -1863,26 +1863,4 @@ if __name__ == "__main__":
     print(f"\n  Bloomberg Terminal — NER Exchange")
     print(f"  http://localhost:{port}\n")
 
-# ── CACHE WARMER ─────────────────────────────────────────────────────────────
-def _warm_cache():
-    """Pre-fetch all heavy data on startup so first user request is near-instant."""
-    import time as _t
-    _t.sleep(3)  # let Flask finish binding
-    try:
-        print("[warm] Starting cache warm-up...")
-        t0 = _t.time()
-        _, secs = atlas_get("/securities", ttl=120)
-        tickers = [s["ticker"] for s in secs] if isinstance(secs, list) else []
-        print(f"[warm] {len(tickers)} tickers — firing parallel OHLCV...")
-        atlas_get("/market/breadth", params={"days": 7},  ttl=30)
-        atlas_get("/market/breadth", params={"days": 30}, ttl=30)
-        for d in [7, 30, 60, 90]:
-            _parallel_ohlcv(tickers, d, ttl=600)
-        atlas_get("/orderbook", ttl=10)
-        print(f"[warm] Done in {_t.time()-t0:.1f}s — all pages will load instantly")
-    except Exception as e:
-        print(f"[warm] Non-fatal warm-up error: {e}")
-
-    threading.Thread(target=_warm_cache, daemon=True).start()
-
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
