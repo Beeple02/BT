@@ -643,6 +643,23 @@ def _parallel_ohlcv(tickers, days, ttl=600):
             results[t] = d
     return results
 
+@app.route("/api/securities")
+def securities():
+    """List of all securities with metadata. Used by terminal init, market page, and many others."""
+    s, d = atlas_get("/securities", ttl=60)
+    if s != 200:
+        # Fallback to NER directly
+        s, d = cached_get("/securities", ttl=60)
+    return jsonify(d), s
+
+@app.route("/api/securities/<path:ticker>")
+def security_detail(ticker):
+    """Single security detail."""
+    s, d = atlas_get(f"/securities/{ticker}", ttl=60)
+    if s != 200:
+        s, d = cached_get(f"/securities/{ticker}", ttl=60)
+    return jsonify(d), s
+
 @app.route("/api/market_breadth")
 def market_breadth():
     """Parallel-fetch version — all OHLCV fired concurrently, no serial loops."""
