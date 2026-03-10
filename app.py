@@ -23,10 +23,10 @@ app = Flask(
 
 NER_BASE   = "http://150.230.117.88:8082"
 TSE_BASE   = "https://market.installe.us"
-ATLAS_BASE = "https://atlas-production-1438.up.railway.app"
-ATLAS_KEY  = os.environ.get("ATLAS_API_KEY", "atl_bloomberg_terminal_mMx1azUAKFulsaZqdDmAf2VZfCPbkZfs")
+ATLAS_BASE = os.environ.get("ATLAS_URL", "https://atlas-production-1438.up.railway.app").rstrip("/")
+ATLAS_KEY  = os.environ.get("ATLAS_API_KEY") or ""
 ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
-TSE_KEY  = os.environ.get("TSE_API_KEY", "exch_live_dfe5e4f0820de420c525a8e8057493e865ac3b654e1fd3a65b60cde9ea183d35")
+TSE_KEY  = os.environ.get("TSE_API_KEY") or ""
 TSE_H    = {"X-API-Key": TSE_KEY}
 
 # TSE cache — separate from NER cache
@@ -61,7 +61,7 @@ _session.mount("http://", requests.adapters.HTTPAdapter(
     pool_maxsize=8,
     max_retries=0   # retries handled manually
 ))
-API_KEY  = os.environ.get("NER_API_KEY", "ner_l7nBYB_pFwRvVPcW2rum-UeI9qrJh2BWekgG__BDeYk")
+API_KEY  = os.environ.get("NER_API_KEY") or ""
 AUTH_H   = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 PUB_H    = {"Content-Type": "application/json"}
 _cache: dict = {}
