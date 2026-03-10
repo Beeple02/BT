@@ -56,17 +56,23 @@
 
 <div class="pf-view" id="pv-risk" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
-    <div class="win" style="width:270px;border-right:0">
+    <div class="win" style="width:230px;border-right:0;display:flex;flex-direction:column">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION</span></div></div>
       <div class="scroll" id="pf-risk-conc"><div class="loading">LOADING</div></div>
     </div>
-    <div class="win" style="flex:1;border-right:0">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CORRELATION MATRIX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Pearson daily returns</div></div>
-      <div class="scroll" style="padding:8px" id="pf-corr"><div class="loading">LOADING</div></div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bdr)">
+      <div class="win" style="flex:1;border-bottom:1px solid var(--bdr)">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CORRELATION MATRIX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Pearson daily returns</div></div>
+        <div class="scroll" style="padding:8px" id="pf-corr"><div class="loading">LOADING</div></div>
+      </div>
+      <div class="win" style="height:160px;border-top:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">VAR CONTRIBUTION BY HOLDING</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">95% confidence, 1-day</div></div>
+        <div class="scroll" style="padding:6px" id="pf-var-contrib"><div class="loading">LOADING</div></div>
+      </div>
     </div>
-    <div class="win" style="width:240px">
+    <div class="win" style="width:260px;display:flex;flex-direction:column">
       <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RISK METRICS</span></div></div>
-      <div style="padding:6px" id="pf-risk-met"><div class="loading">LOADING</div></div>
+      <div class="scroll" style="padding:6px;flex:1" id="pf-risk-met"><div class="loading">LOADING</div></div>
     </div>
   </div>
 </div>
@@ -299,15 +305,100 @@ function renderRisk(){
 
   const weights=holds.map(h=>(h.market_value||0)/Math.max(_pf.total_equity,1));
   const hhi=weights.reduce((s,w)=>s+w*w,0), maxW=Math.max(...weights)*100;
-  const vols=holds.map(h=>{ const hist=_histories[h.ticker]; if(!hist||hist.length<2) return null; const rets=hist.map((p,i)=>i?((p.price-hist[i-1].price)/hist[i-1].price):0).slice(1); const avg=rets.reduce((s,v)=>s+v,0)/rets.length; return Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/rets.length)*(252**.5)*100; });
-  const portVol=vols.filter(Boolean).length?(holds.reduce((s,h,i)=>vols[i]!=null?s+(weights[i]*vols[i]):s,0)).toFixed(1):'—';
-  document.getElementById('pf-risk-met').innerHTML=`
-    <div class="rm"><span class="k">HOLDINGS</span><span class="v wht">${holds.length}</span></div>
-    <div class="rm"><span class="k">EFF. HOLDINGS</span><span class="v wht">${(1/Math.max(hhi,0.01)).toFixed(1)}</span></div>
-    <div class="rm"><span class="k">TOP WEIGHT</span><span class="v ${maxW>50?'dn':maxW>30?'yel':'up'}">${maxW.toFixed(1)}%</span></div>
-    <div class="rm"><span class="k">PORT. VOL (wtd)</span><span class="v yel">${portVol}% pa</span></div>
-    <div class="rm"><span class="k">CASH RATIO</span><span class="v">${(_pf.total_equity?((_pf.balance||0)/_pf.total_equity*100).toFixed(1):'—')}%</span></div>
-    <div class="rm"><span class="k">HEALTH</span><span class="v cyn">${calcHealth(holds,_pf.balance,_pf.total_equity)}/100</span></div>`;
+
+  // Per-holding daily return arrays
+  const holdRets = holds.map(h=>{
+    const hist=_histories[h.ticker];
+    if(!hist||hist.length<3) return null;
+    return hist.map((p,i)=>i?((p.price-hist[i-1].price)/hist[i-1].price):0).slice(1);
+  });
+
+  // Portfolio daily returns (weighted sum)
+  const minLen = Math.min(...holdRets.filter(Boolean).map(r=>r.length));
+  let portRets = [];
+  if(minLen > 2){
+    for(let i=0;i<minLen;i++){
+      let r=0;
+      holds.forEach((h,hi)=>{ if(holdRets[hi]) r+=weights[hi]*(holdRets[hi][holdRets[hi].length-minLen+i]||0); });
+      portRets.push(r);
+    }
+  }
+
+  // Vol annualised
+  const annVol = rets => { if(!rets||rets.length<2) return null; const avg=rets.reduce((s,v)=>s+v,0)/rets.length; return Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/rets.length)*(252**.5)*100; };
+  const portVolNum = annVol(portRets);
+  const portVol = portVolNum!=null ? portVolNum.toFixed(1) : '—';
+
+  // VaR 95% (historical parametric)
+  const var95 = rets => { if(!rets||rets.length<5) return null; const s=[...rets].sort((a,b)=>a-b); return -s[Math.floor(s.length*0.05)]*100; };
+  const cvar95 = rets => { if(!rets||rets.length<5) return null; const s=[...rets].sort((a,b)=>a-b); const cut=Math.floor(s.length*0.05); return -s.slice(0,cut+1).reduce((a,b)=>a+b,0)/(cut+1)*100; };
+  const pVaR  = var95(portRets);
+  const pCVaR = cvar95(portRets);
+
+  // Sortino (downside deviation only)
+  const sortino = rets => { if(!rets||rets.length<5) return null; const neg=rets.filter(r=>r<0); if(!neg.length) return null; const dd=Math.sqrt(neg.reduce((s,v)=>s+v*v,0)/neg.length)*(252**.5); const avg=rets.reduce((s,v)=>s+v,0)/rets.length*252; return dd>0?(avg/dd).toFixed(2):'—'; };
+
+  // Beta vs equal-weight index
+  const beta = (rH, rM) => { if(!rH||!rM||rH.length<5) return null; const n=Math.min(rH.length,rM.length); const h=rH.slice(-n),m=rM.slice(-n); const mAvg=m.reduce((s,v)=>s+v,0)/n; const cov=h.reduce((s,v,i)=>s+(v-(h.reduce((a,b)=>a+b,0)/n))*(m[i]-mAvg),0)/n; const mVar=m.reduce((s,v)=>s+(v-mAvg)**2,0)/n; return mVar>0?(cov/mVar).toFixed(2):null; };
+
+  // Market returns (equal weight across all held tickers)
+  const mktRets = portRets; // use portfolio as proxy when no index available
+
+  // Skewness + Kurtosis
+  const skewKurt = rets => { if(!rets||rets.length<5) return {skew:'—',kurt:'—'}; const n=rets.length,avg=rets.reduce((s,v)=>s+v,0)/n,std=Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/n); if(!std) return {skew:'—',kurt:'—'}; const sk=(rets.reduce((s,v)=>s+((v-avg)/std)**3,0)/n).toFixed(2); const kt=((rets.reduce((s,v)=>s+((v-avg)/std)**4,0)/n)-3).toFixed(2); return {skew:sk,kurt:kt}; };
+  const {skew,kurt} = skewKurt(portRets);
+
+  // Max drawdown from equity curve
+  let peak2=-Infinity,maxDD2=0;
+  portRets.reduce((eq,r)=>{ const v=eq*(1+r); if(v>peak2) peak2=v; maxDD2=Math.max(maxDD2,(peak2-v)/peak2*100); return v; },(_pf.total_equity||10000));
+
+  // Sharpe
+  const portSharpe = portRets.length>5 ? (()=>{ const avg=portRets.reduce((s,v)=>s+v,0)/portRets.length*252; const std=Math.sqrt(portRets.reduce((s,v)=>s+(v-portRets.reduce((a,b)=>a+b,0)/portRets.length)**2,0)/portRets.length)*(252**.5); return std>0?(avg/std).toFixed(2):'—'; })() : '—';
+
+  const sortR = sortino(portRets);
+  const gc2 = v => isNaN(+v)||v==='—'?'var(--txt)':(+v>=0?'var(--up)':'var(--dn)');
+
+  // Section header helper
+  const sh = label => `<div style="font-size:8px;letter-spacing:2px;color:var(--txt3);padding:8px 4px 4px;border-bottom:1px solid var(--bdr);margin-bottom:4px">${label}</div>`;
+  const rm2 = (k,v,c) => `<div class="rm"><span class="k">${k}</span><span class="v" style="color:${c||'var(--txt)'}">${v}</span></div>`;
+
+  document.getElementById('pf-risk-met').innerHTML =
+    sh('PORTFOLIO') +
+    rm2('HOLDINGS',         holds.length,                              'var(--wht)') +
+    rm2('EFF. HOLDINGS',    (1/Math.max(hhi,0.01)).toFixed(1),        'var(--wht)') +
+    rm2('TOP WEIGHT',       maxW.toFixed(1)+'%',                       maxW>50?'var(--dn)':maxW>30?'var(--yel)':'var(--up)') +
+    rm2('CASH RATIO',       (_pf.total_equity?((_pf.balance||0)/_pf.total_equity*100).toFixed(1):'—')+'%', '') +
+    rm2('HEALTH',           calcHealth(holds,_pf.balance,_pf.total_equity)+'/100', 'var(--cyn)') +
+    sh('RETURN / RISK') +
+    rm2('ANN. VOLATILITY',  portVol+'% pa',                            'var(--yel)') +
+    rm2('SHARPE RATIO',     portSharpe,                                gc2(portSharpe)) +
+    rm2('SORTINO RATIO',    sortR||'—',                                gc2(sortR)) +
+    rm2('MAX DRAWDOWN',     '-'+maxDD2.toFixed(2)+'%',                 'var(--dn)') +
+    sh('TAIL RISK') +
+    rm2('VAR 95% (1D)',     pVaR!=null?  '-'+pVaR.toFixed(2)+'%':'—',  'var(--dn)') +
+    rm2('CVAR 95% (1D)',    pCVaR!=null? '-'+pCVaR.toFixed(2)+'%':'—', 'var(--dn)') +
+    sh('DISTRIBUTION') +
+    rm2('SKEWNESS',         skew,  +skew<-0.5?'var(--dn)':+skew>0.5?'var(--up)':'var(--txt)') +
+    rm2('EXCESS KURTOSIS',  kurt,  +kurt>1?'var(--yel)':'var(--txt)');
+
+  // VaR contribution panel
+  const varContribs = holds.map((h,i)=>{
+    const rets = holdRets[i];
+    const v = var95(rets);
+    const mv = h.market_value||0;
+    return { ticker:h.ticker, varPct: v, varDollar: v!=null?mv*v/100:null, weight:weights[i]*100 };
+  }).filter(x=>x.varDollar!=null).sort((a,b)=>b.varDollar-a.varDollar);
+
+  const maxVarD = Math.max(...varContribs.map(x=>x.varDollar),1);
+  document.getElementById('pf-var-contrib').innerHTML = varContribs.map(x=>`
+    <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bdr)">
+      <span style="width:48px;font-size:9px;color:var(--wht);font-weight:700">${x.ticker}</span>
+      <div style="flex:1;height:6px;background:var(--bg3)">
+        <div style="width:${(x.varDollar/maxVarD*100).toFixed(1)}%;height:100%;background:rgba(244,67,54,.6)"></div>
+      </div>
+      <span style="width:52px;text-align:right;font-size:9px;color:var(--dn)">-${x.varDollar.toFixed(0)}</span>
+      <span style="width:38px;text-align:right;font-size:9px;color:var(--txt3)">${x.varPct.toFixed(2)}%</span>
+    </div>`).join('') || '<div class="loading">Insufficient history</div>';
 }
 
 function renderEquityCurve(){
