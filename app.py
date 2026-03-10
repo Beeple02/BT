@@ -5,7 +5,6 @@ Architecture: Flask proxy backend + split HTML page files
 Run: python app.py → http://localhost:5000
 """
 import os, time, math, statistics, json, queue, threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from flask import Flask, jsonify, request, render_template, Response, stream_with_context
 
@@ -21,12 +20,9 @@ app = Flask(
     static_folder=_STAT_DIR,
 )
 
-NER_BASE   = "http://150.230.117.88:8082"
-TSE_BASE   = "https://market.installe.us"
-ATLAS_BASE = os.environ.get("ATLAS_URL", "https://atlas-production-1438.up.railway.app").rstrip("/")
-ATLAS_KEY  = os.environ.get("ATLAS_API_KEY") or ""
-ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
-TSE_KEY  = os.environ.get("TSE_API_KEY") or ""
+NER_BASE = "http://150.230.117.88:8082"
+TSE_BASE = "https://market.installe.us"
+TSE_KEY  = os.environ.get("TSE_API_KEY", "exch_live_dfe5e4f0820de420c525a8e8057493e865ac3b654e1fd3a65b60cde9ea183d35")
 TSE_H    = {"X-API-Key": TSE_KEY}
 
 # TSE cache — separate from NER cache
@@ -61,7 +57,7 @@ _session.mount("http://", requests.adapters.HTTPAdapter(
     pool_maxsize=8,
     max_retries=0   # retries handled manually
 ))
-API_KEY  = os.environ.get("NER_API_KEY") or ""
+API_KEY  = os.environ.get("NER_API_KEY", "ner_l7nBYB_pFwRvVPcW2rum-UeI9qrJh2BWekgG__BDeYk")
 AUTH_H   = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 PUB_H    = {"Content-Type": "application/json"}
 _cache: dict = {}
@@ -121,68 +117,6 @@ def cached_get(path, params=None, auth=False, ttl=15):
         _cache[key] = {"ts": time.time(), "s": result[0], "d": result[1]}
     return result
 
-# ── Atlas helper ──────────────────────────────────────────────────────────────
-_atlas_cache: dict = {}
-_atlas_cache_lock = threading.Lock()
-
-_ATLAS_ONLY_PREFIXES = (
-    "/market/", "/analytics/", "/history/", "/ohlcv/",
-    "/orderbook", "/securities", "/derived", "/shareholders/",
-    "/price/", "/holder_intel/",
-)
-
-def atlas_get(path, params=None, ttl=30):
-    key = path + str(params or {})
-    with _atlas_cache_lock:
-        e = _atlas_cache.get(key)
-        if e and time.time() - e["ts"] < ttl:
-            return e["s"], e["d"]
-        stale = e
-    try:
-        r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=6)
-        try:
-            d = r.json()
-        except Exception:
-            d = {}
-        if r.status_code == 200:
-            with _atlas_cache_lock:
-                _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
-            return 200, d
-        print(f"[atlas] {path} → HTTP {r.status_code}")
-        # Stale cache is better than error
-        if stale: return stale["s"], stale["d"]
-        # Only fall back to NER for paths it handles; never fall back for Atlas-only routes
-        atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
-        if atlas_only:
-            return r.status_code, d
-    except Exception as ex:
-        print(f"[atlas] {path} exception: {ex}")
-        if e: return e["s"], e["d"]
-        atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
-        if atlas_only:
-            return 503, {"detail": str(ex)}
-    return cached_get(path, params=params, ttl=ttl)
-
-def _norm_candles(candles, days=None):
-    """Sort candles oldest-first, fix Atlas DD-MM-YY dates, enforce days cutoff.
-    Atlas ignores the days param and returns all candles — we filter here."""
-    from datetime import datetime, timedelta, timezone
-    cutoff = None
-    if days:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
-    out = []
-    for cv in candles:
-        d = cv.get("date", "")
-        # Fix DD-MM-YY → YYYY-MM-DD (e.g. "30-12-25" → "2025-12-30")
-        if d and len(d) == 8 and d[2] == "-" and d[5] == "-":
-            p = d.split("-")
-            d = f"20{p[2]}-{p[1]}-{p[0]}"
-        if cutoff and d and d < cutoff:
-            continue
-        out.append({**cv, "date": d})
-    out.sort(key=lambda x: x.get("date", ""))
-    return out
-
 # Bulk orderbook cache — one call, filter by ticker in Python
 _ob_cache = {"ts": 0, "data": None}
 _OB_TTL = 10  # seconds
@@ -193,7 +127,7 @@ def get_all_orderbooks():
     if time.time() - _ob_cache["ts"] < _OB_TTL and _ob_cache["data"] is not None:
         return _ob_cache["data"]
     try:
-        r = _session.get(f"{ATLAS_BASE}/orderbook", headers=ATLAS_H, timeout=10)
+        r = _session.get(f"{NER_BASE}/orderbook", headers=PUB_H, timeout=8)
         if r.status_code == 200:
             data = r.json()
             _ob_cache = {"ts": time.time(), "data": data}
@@ -223,13 +157,13 @@ def get_ticker_shareholders(ticker):
     e = _sh_ticker_cache.get(ticker)
     if e and time.time() - e["ts"] < _SH_TICKER_TTL:
         return e["data"]
-    # Throttling now handled by semaphore in caller — no sleep here
+    # Throttle: never hit NER shareholders faster than once per 200ms globally
+    gap = time.time() - _sh_last_fetch
+    if gap < 0.2:
+        time.sleep(0.2 - gap)
+    _sh_last_fetch = time.time()
     try:
         # Try with X-API-Key for better compatibility
-        s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
-        if s_atl == 200 and isinstance(data_atl, list):
-            _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data_atl}
-            return data_atl
         r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
                          params={"ticker": ticker}, timeout=6)
         if r.status_code == 200:
@@ -264,37 +198,44 @@ def ner_post(path, payload, _retries=2):
             return 503, {"detail": str(e)}
     return 429, {"detail": "Order rate limited by NER — please wait and retry."}
 
-def tse_post(path, payload):
-    """POST to TSE exchange API."""
-    try:
-        r = _session.post(f"{TSE_BASE}{path}", headers=TSE_H, json=payload, timeout=(4, 10))
-        try:
-            d = r.json()
-        except Exception:
-            d = {}
-        return r.status_code, d
-    except Exception as e:
-        return 503, {"detail": str(e)}
-
 # ── Pass-through proxies ──────────────────────────────────────────────────────
 # Tickers that exist on both exchanges — user can pick via ?exchange= param
 _DUAL_LISTED = {"GCC"}
 
 @app.route("/api/securities")
 def securities():
-    """Merged NER + TSE securities list from Atlas (single source of truth).
-    Atlas already contains TSE tickers with source='tse' and ticker='TSE:XXX'.
-    We just tag exchange field from source to avoid duplicates."""
-    s, secs = atlas_get("/securities", ttl=60)
+    """Merged NER + TSE securities list. TSE adds exchange field to all entries."""
+    s, ner = cached_get("/securities", ttl=60)
     if s != 200:
-        return jsonify(secs), s
+        return jsonify(ner), s
 
-    # Tag exchange from source field — Atlas is the single source of truth
-    for sec in secs:
-        src_field = sec.get("source", "ner")
-        sec["exchange"] = "TSE" if src_field == "tse" else "NER"
+    # Tag NER securities
+    for sec in ner:
+        sec["exchange"] = "NER"
 
-    return jsonify(secs), 200
+    # Fetch TSE stocks
+    ts, tse_stocks = tse_get("/api/v1/stocks", ttl=60)
+    if ts == 200 and isinstance(tse_stocks, list):
+        ner_tickers = {sec["ticker"] for sec in ner}
+        for stk in tse_stocks:
+            sym = stk.get("symbol", "")
+            if not sym:
+                continue
+            # Dual-listed: keep NER entry, just tag it; add TSE as separate entry with suffix
+            if sym in ner_tickers:
+                if sym in _DUAL_LISTED:
+                    # Add TSE variant with exchange tag — ticker stays same, exchange differs
+                    tse_entry = _tse_stock_to_sec(stk)
+                    tse_entry["exchange"] = "TSE"
+                    tse_entry["_dual"] = True
+                    ner.append(tse_entry)
+                # else: same ticker not in dual list — skip TSE to avoid confusion
+            else:
+                entry = _tse_stock_to_sec(stk)
+                entry["exchange"] = "TSE"
+                ner.append(entry)
+
+    return jsonify(ner), 200
 
 def _tse_stock_to_sec(stk):
     """Normalize TSE StockResponse to NER securities format."""
@@ -360,7 +301,7 @@ def tse_market(symbol):
 
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
-    s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify({"market_price": d.get("market_price")} if s==200 else d), s
+    s, d = cached_get(f"/market_price/{ticker}", ttl=15); return jsonify(d), s
 
 @app.route("/api/shareholders")
 def shareholders():
@@ -384,94 +325,29 @@ def orderbook():
 
 @app.route("/api/analytics/price_history/<ticker>")
 def price_history(ticker):
-    s, d = atlas_get(f"/history/{ticker}",
-                     params={"days": request.args.get("days", 30)}, ttl=120)
-    if s == 200 and isinstance(d, dict):
-        d = d.get("data", [])
+    s, d = cached_get(f"/analytics/price_history/{ticker}",
+                      params={"days": request.args.get("days", 30)}, ttl=120)
     return jsonify(d), s
 
-@app.route("/api/history/<path:ticker>")
-def trade_history(ticker):
-    """Raw trade history from Atlas — used by TSE ticker page for recent prints."""
-    limit = int(request.args.get("limit", 50))
-    s, d = atlas_get(f"/history/{ticker}", params={"limit": limit}, ttl=15)
-    return jsonify(d), s
-
-@app.route("/api/analytics/ohlcv/<path:ticker>")
+@app.route("/api/analytics/ohlcv/<ticker>")
 def ohlcv(ticker):
-    days = request.args.get("days", 30)
-    s, d = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=120)
-    if s != 200 or not isinstance(d, dict):
-        return jsonify({"ticker": ticker, "candles": [], "detail": "No data"}), 200
-    # Normalise candle dates
-    d["candles"] = _norm_candles(d.get("candles", []))
-    return jsonify(d), 200
+    s, d = cached_get(f"/analytics/ohlcv/{ticker}",
+                      params={"days": request.args.get("days", 30)}, ttl=120)
+    return jsonify(d), s
 
 @app.route("/api/portfolio")
 def portfolio():
     s, d = cached_get("/portfolio", auth=True, ttl=0); return jsonify(d), s  # always live
 
 # ── Trading ───────────────────────────────────────────────────────────────────
-def _is_tse(payload):
-    return str(payload.get("ticker","")).upper().startswith("TSE:")
-
-def _build_tse_order(payload, side, order_type):
-    """Translate terminal NER-style payload to TSE OrderCreate schema.
-    TSE uses: symbol (bare, no TSE: prefix), side (buy/sell lowercase),
-    order_type (limit/market), limit_price, quantity, idempotency_key.
-    """
-    import uuid as _uuid
-    ticker = str(payload.get("ticker",""))
-    # Strip TSE: prefix — TSE just wants the bare symbol e.g. "GOLD" not "TSE:GOLD"
-    symbol = ticker.split(":", 1)[-1] if ":" in ticker else ticker
-    tse_payload = {
-        "instrument_type": "stock",
-        "symbol":          symbol,
-        "side":            side,          # "buy" or "sell"
-        "order_type":      order_type,    # "limit" or "market"
-        "quantity":        payload.get("quantity"),
-        "idempotency_key": str(_uuid.uuid4()),
-        "time_in_force":   "GTC",
-    }
-    if order_type == "limit":
-        tse_payload["limit_price"] = payload.get("limit_price")
-    return tse_payload
-
 @app.route("/api/orders/buy_limit",   methods=["POST"])
-def buy_limit():
-    p = request.json or {}
-    if _is_tse(p):
-        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "buy", "limit"))
-    else:
-        s,d = ner_post("/orders/buy_limit", p)
-    return jsonify(d), s
-
+def buy_limit():   s,d=ner_post("/orders/buy_limit",   request.json); return jsonify(d),s
 @app.route("/api/orders/sell_limit",  methods=["POST"])
-def sell_limit():
-    p = request.json or {}
-    if _is_tse(p):
-        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "sell", "limit"))
-    else:
-        s,d = ner_post("/orders/sell_limit", p)
-    return jsonify(d), s
-
+def sell_limit():  s,d=ner_post("/orders/sell_limit",  request.json); return jsonify(d),s
 @app.route("/api/orders/buy_market",  methods=["POST"])
-def buy_market():
-    p = request.json or {}
-    if _is_tse(p):
-        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "buy", "market"))
-    else:
-        s,d = ner_post("/orders/buy_market", p)
-    return jsonify(d), s
-
+def buy_market():  s,d=ner_post("/orders/buy_market",  request.json); return jsonify(d),s
 @app.route("/api/orders/sell_market", methods=["POST"])
-def sell_market():
-    p = request.json or {}
-    if _is_tse(p):
-        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "sell", "market"))
-    else:
-        s,d = ner_post("/orders/sell_market", p)
-    return jsonify(d), s
+def sell_market(): s,d=ner_post("/orders/sell_market", request.json); return jsonify(d),s
 
 # ── Analytics math helpers ────────────────────────────────────────────────────
 def _sma(s, n):
@@ -567,13 +443,12 @@ def _downside_vol(closes):
     if not neg: return 0.0
     return round((sum(r**2 for r in neg)/len(neg))**0.5 * (252**0.5) * 100, 2)
 
-@app.route("/api/ticker_stats/<path:ticker>")
+@app.route("/api/ticker_stats/<ticker>")
 def ticker_stats(ticker):
     days = int(request.args.get("days", 60))
-    s, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
-    if s != 200 or not isinstance(raw, dict):
-        return jsonify({"detail": "No data from Atlas", "status": s}), 404
-    candles = _norm_candles(raw.get("candles", []), days=days)
+    s, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
+    if s != 200: return jsonify({"detail": raw.get("detail","API error"), "status": s}), s
+    candles = raw.get("candles", [])
     if not candles: return jsonify({"detail": "No candle data available"}), 404
 
     closes  = [c["close"]  for c in candles]
@@ -651,191 +526,87 @@ def compare():
     days    = int(request.args.get("days", 30))
     result  = {}
     for t in tickers:
-        s, raw = atlas_get(f"/history/{t}", params={"days": days}, ttl=60)
-        if s != 200 or not isinstance(raw, dict): continue
-        pts = raw.get("data", [])
-        if not isinstance(pts, list) or len(pts) == 0: continue
-        # Sort oldest-first (Atlas returns newest-first)
-        pts_sorted = sorted(pts, key=lambda p: p.get("timestamp",""))
-        base = pts_sorted[0].get("price")
-        if not base or base == 0: continue
-        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in pts_sorted]
+        s, raw = cached_get(f"/analytics/price_history/{t}", params={"days": days}, ttl=60)
+        if s != 200 or not raw or not isinstance(raw, list) or len(raw) == 0:
+            continue
+        base = raw[0]["price"]
+        if base == 0: continue
+        result[t] = [{"ts": p["timestamp"][:10], "norm": round((p["price"]/base - 1)*100, 4)} for p in raw]
     return jsonify(result)
 
 # ── MARKET BREADTH ────────────────────────────────────────────────────────────
-
-def _parallel_ohlcv(tickers, days, ttl=600):
-    """Fetch /analytics/ohlcv for multiple tickers in parallel. Returns {ticker: raw_dict}."""
-    results = {}
-    def fetch(t):
-        s, d = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=ttl)
-        return t, (d if s == 200 and isinstance(d, dict) else None)
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(fetch, t): t for t in tickers}
-        for f in as_completed(futures):
-            t, d = f.result()
-            results[t] = d
-    return results
-
 @app.route("/api/market_breadth")
 def market_breadth():
-    """Parallel-fetch version — all OHLCV fired concurrently, no serial loops."""
     days = int(request.args.get("days", 7))
+    s, secs = cached_get("/securities", ttl=60)
+    if s != 200: return jsonify({"detail": "Cannot fetch securities"}), s
 
-    # Fetch securities meta + breadth + orderbook in parallel
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f_secs  = ex.submit(atlas_get, "/securities",     None,           120)
-        f_bread = ex.submit(atlas_get, "/market/breadth", {"days": days}, 30)
-        f_ob    = ex.submit(atlas_get, "/orderbook",      None,           10)
-        _, secs_raw = f_secs.result()
-        s_br, d_br  = f_bread.result()
-        _, ob_all   = f_ob.result()
-
-    sec_meta = {}
-    if isinstance(secs_raw, list):
-        for s in secs_raw:
-            sec_meta[s["ticker"]] = s
-
-    all_tickers = list(sec_meta.keys())
-
-    # Fire all OHLCV calls in parallel (cache hits after first load = ~0ms)
-    ohlcv_30  = _parallel_ohlcv(all_tickers, 30,   ttl=600)
-    ohlcv_day = _parallel_ohlcv(all_tickers, days, ttl=600) if days != 30 else ohlcv_30
-
-    raw_secs = []
-    if s_br == 200 and isinstance(d_br, dict) and d_br.get("securities"):
-        raw_secs = d_br["securities"] if isinstance(d_br["securities"], list) else []
-
-    enriched = []
-    tickers_seen = set()
-
-    for item in raw_secs:
-        ticker = item.get("ticker", "")
-        if not ticker: continue
-        tickers_seen.add(ticker)
-        meta    = sec_meta.get(ticker, {})
-        derived = meta.get("derived", {}) or {}
-        lp      = meta.get("market_price") or item.get("last_price") or 0
-
-        vol       = item.get("volatility") or derived.get("volatility_7d")
-        shrp      = item.get("sharpe")
-        chg_pct   = item.get("chg_pct")
-        prd_hi    = item.get("hi52")
-        prd_lo    = item.get("lo52")
-        vol_spike = item.get("vol_spike")
-        vlday     = []
-
-        o30 = ohlcv_30.get(ticker)
-        if o30 and isinstance(o30, dict):
-            cs30 = _norm_candles(o30.get("candles", []), days=30)
-            if len(cs30) >= 2:
-                cl30 = [c["close"] for c in cs30]
-                if vol  is None: vol  = _ann_vol(cl30)
-                if shrp is None: shrp = _sharpe(cl30)
-
-        oday = ohlcv_day.get(ticker)
-        if oday and isinstance(oday, dict):
-            csday = _norm_candles(oday.get("candles", []), days=days)
-            if len(csday) >= 2:
-                clday = [c["close"]  for c in csday]
-                vlday = [c["volume"] for c in csday]
-                if chg_pct is None:
-                    chg_pct = round((clday[-1]-clday[0])/clday[0]*100, 2) if clday[0] else 0
-                if prd_hi    is None: prd_hi    = round(max(clday), 4)
-                if prd_lo    is None: prd_lo    = round(min(clday), 4)
-                if vol_spike is None and len(vlday) > 1:
-                    avg_v     = sum(vlday[:-1])/max(len(vlday)-1, 1)
-                    vol_spike = round(vlday[-1]/avg_v, 2) if avg_v > 0 else None
-
-        enriched.append({
-            "ticker":     ticker,
-            "name":       meta.get("full_name", ticker),
-            "exchange":   "TSE" if ticker.startswith("TSE:") else "NER",
-            "last_price": lp,
-            "chg_pct":    chg_pct if chg_pct is not None else 0,
-            "volatility": vol,
-            "sharpe":     shrp,
-            "market_cap": item.get("market_cap") or round(lp*(meta.get("total_shares") or 0), 2),
-            "volume":     sum(vlday) if vlday else 0,
-            "hi52":       prd_hi,
-            "lo52":       prd_lo,
+    results = []
+    for sec in secs:
+        ticker = sec["ticker"]
+        os2, raw = cached_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
+        if os2 != 200 or not raw.get("candles"): continue
+        cs = raw["candles"]
+        closes  = [c["close"]  for c in cs]
+        volumes = [c["volume"] for c in cs]
+        if len(closes) < 2: continue
+        chg = (closes[-1]-closes[0])/closes[0]*100
+        vol_total = sum(volumes)
+        ann_v = _ann_vol(closes)
+        prd_hi = max(closes)
+        prd_hi_pct = round((closes[-1] - prd_hi) / prd_hi * 100, 2) if prd_hi else None
+        avg_vol = sum(volumes[:-1]) / max(len(volumes)-1, 1) if len(volumes) > 1 else volumes[0]
+        vol_spike = round(volumes[-1] / avg_vol, 2) if avg_vol > 0 else None
+        results.append({
+            "ticker":    ticker,
+            "name":      sec.get("full_name",""),
+            "chg_pct":   round(chg, 2),
+            "last_price": closes[-1],
+            "total_shares": sec.get("total_shares", 0),
+            "market_cap": round(closes[-1] * sec.get("total_shares", 0), 2),
+            "volume":    vol_total,
+            "volatility": ann_v,
+            "sharpe":    _sharpe(closes),
+            "max_dd":    _max_drawdown(closes),
+            "prd_hi_pct": prd_hi_pct,
             "vol_spike":  vol_spike,
-            "frozen":     bool(meta.get("frozen", False)),
+            "frozen":     sec.get("frozen", False),
         })
 
-    # Any tickers in sec_meta not returned by breadth
-    for ticker, meta in sec_meta.items():
-        if ticker in tickers_seen: continue
-        lp   = meta.get("market_price") or 0
-        oday = ohlcv_day.get(ticker)
-        csday, clday, vlday = [], [], []
-        if oday and isinstance(oday, dict):
-            csday = _norm_candles(oday.get("candles", []), days=days)
-        if len(csday) >= 2:
-            clday     = [c["close"]  for c in csday]
-            vlday     = [c["volume"] for c in csday]
-            chg_pct   = round((clday[-1]-clday[0])/clday[0]*100, 2) if clday[0] else 0
-            avg_v     = sum(vlday[:-1])/max(len(vlday)-1,1) if len(vlday)>1 else (vlday[0] or 1)
-            enriched.append({
-                "ticker": ticker, "name": meta.get("full_name", ticker),
-                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
-                "last_price": lp, "chg_pct": chg_pct,
-                "volatility": _ann_vol(clday), "sharpe": _sharpe(clday),
-                "market_cap": round(lp*(meta.get("total_shares") or 0), 2),
-                "volume": sum(vlday), "hi52": max(clday), "lo52": min(clday),
-                "vol_spike": round(vlday[-1]/avg_v,2) if avg_v>0 else None,
-                "frozen": bool(meta.get("frozen", False)),
-            })
-        else:
-            enriched.append({
-                "ticker": ticker, "name": meta.get("full_name", ticker),
-                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
-                "last_price": lp, "chg_pct": 0, "volatility": None, "sharpe": None,
-                "market_cap": round(lp*(meta.get("total_shares") or 0), 2),
-                "volume": 0, "hi52": None, "lo52": None, "vol_spike": None,
-                "frozen": bool(meta.get("frozen", False)),
-            })
+    if not results: return jsonify({"detail": "No data"}), 503
 
-    if not enriched:
-        return jsonify({"detail": "No market data available"}), 503
+    ups   = [r for r in results if r["chg_pct"] > 0]
+    downs = [r for r in results if r["chg_pct"] < 0]
+    flat  = [r for r in results if r["chg_pct"] == 0]
+    chgs  = [r["chg_pct"] for r in results]
+    vols  = [r["volatility"] for r in results if r["volatility"] > 0]
 
-    # Global orderbook imbalance
-    global_bid = 0; global_ask = 0
-    if isinstance(ob_all, list):
-        for ob in ob_all:
-            global_bid += ob.get("bid_depth", 0) or 0
-            global_ask += ob.get("ask_depth", 0) or 0
-    total_depth  = global_bid + global_ask
-    global_imbal = round((global_bid-global_ask)/max(total_depth,1)*100, 2)
-
-    chgs = [e["chg_pct"] for e in enriched]
-    ups  = [e for e in enriched if e["chg_pct"] > 0]
-    dns  = [e for e in enriched if e["chg_pct"] < 0]
-    flt  = [e for e in enriched if e["chg_pct"] == 0]
-    vols = [e["volatility"] for e in enriched
-            if isinstance(e.get("volatility"), (int,float)) and e["volatility"] > 0]
+    # Equal-weight index
+    ew_return = round(sum(chgs)/len(chgs), 4) if chgs else 0
+    # Vol dispersion
+    vol_disp  = round(statistics.stdev(vols), 2) if len(vols) > 1 else 0
 
     return jsonify({
-        "securities": enriched,
+        "securities": results,
         "summary": {
-            "total":            len(enriched),
-            "advancing":        len(ups),
-            "declining":        len(dns),
-            "unchanged":        len(flt),
-            "adv_dec_ratio":    round(len(ups)/max(len(dns),1), 2),
-            "avg_return":       round(sum(chgs)/len(chgs), 2) if chgs else 0,
-            "ew_index_return":  round(sum(chgs)/len(chgs), 4) if chgs else 0,
-            "vol_dispersion":   round(statistics.stdev(vols), 2) if len(vols)>1 else 0,
-            "global_imbalance": global_imbal,
-            "total_depth":      total_depth,
+            "total": len(results),
+            "advancing": len(ups),
+            "declining": len(downs),
+            "unchanged": len(flat),
+            "adv_dec_ratio": round(len(ups)/max(len(downs),1), 2),
+            "avg_return": round(sum(chgs)/len(chgs), 2) if chgs else 0,
+            "median_return": round(statistics.median(chgs), 2) if chgs else 0,
+            "ew_index_return": ew_return,
+            "vol_dispersion": vol_disp,
+            "top_gainer": max(results, key=lambda x: x["chg_pct"])["ticker"] if results else None,
+            "top_loser":  min(results, key=lambda x: x["chg_pct"])["ticker"] if results else None,
         }
-    }), 200
-
+    })
 
 # ── GLOBAL ORDERBOOK AGGREGATOR ───────────────────────────────────────────────
 @app.route("/api/market_orderbook")
 def market_orderbook():
-    s_secs, secs = atlas_get("/securities", ttl=60)
+    s_secs, secs = cached_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
     all_ob = get_all_orderbooks(); s_ob = 200 if all_ob else 503
     if s_ob != 200 or not isinstance(all_ob, list):
@@ -890,25 +661,18 @@ def market_orderbook():
 # ── EXCHANGE ANALYTICS ────────────────────────────────────────────────────────
 @app.route("/api/exchange_analytics")
 def exchange_analytics():
-    """Exchange analytics — all OHLCV fetched in parallel."""
     days = int(request.args.get("days", 7))
-    s_secs, secs = atlas_get("/securities", ttl=120)
+    s_secs, secs = cached_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
-    ner_secs = [s for s in secs if not s["ticker"].startswith("TSE:")]
-    tickers  = [s["ticker"] for s in ner_secs]
-
-    # Parallel OHLCV fetch
-    ohlcv = _parallel_ohlcv(tickers, days, ttl=600)
-
     ticker_data = []
-    total_mcap  = 0
-    all_vols, all_sharpes, all_chgs = [], [], []
+    total_mcap = 0
+    all_vols = []; all_sharpes = []; all_chgs = []
 
-    for sec in ner_secs:
-        t   = sec["ticker"]
-        raw = ohlcv.get(t)
-        if not raw or not raw.get("candles"): continue
+    for sec in secs:
+        t = sec["ticker"]
+        os2, raw = cached_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=180)
+        if os2 != 200 or not raw.get("candles"): continue
         cs = raw["candles"]
         closes  = [c["close"]  for c in cs]
         volumes = [c["volume"] for c in cs]
@@ -922,7 +686,7 @@ def exchange_analytics():
         all_vols.append(vol); all_sharpes.append(sh); all_chgs.append(chg)
 
         ticker_data.append({
-            "ticker":  t, "name": sec.get("full_name", ""),
+            "ticker":  t, "name": sec.get("full_name",""),
             "mcap":    round(mcap, 2),
             "volume":  sum(volumes),
             "chg_pct": round(chg, 2),
@@ -933,24 +697,20 @@ def exchange_analytics():
         })
 
     ticker_data.sort(key=lambda x: x["mcap"], reverse=True)
+
+    # Capital flow: volume-weighted
     total_vol = sum(t["volume"] for t in ticker_data) or 1
     for t in ticker_data:
-        t["vol_share_pct"]  = round(t["volume"]/total_vol*100, 2)
+        t["vol_share_pct"] = round(t["volume"]/total_vol*100, 2)
         t["mcap_share_pct"] = round(t["mcap"]/max(total_mcap,1)*100, 2)
 
-    vix_proxy  = round(sum(all_vols)/len(all_vols), 2)     if all_vols    else 0
-    avg_sharpe = round(sum(all_sharpes)/len(all_sharpes),3) if all_sharpes else 0
-    mcap_shares = [t["mcap"]/max(total_mcap,1)*100 for t in ticker_data]
-    hhi         = round(sum(s**2 for s in mcap_shares), 1)
+    # Exchange-level indices
+    vix_proxy = round(sum(all_vols)/len(all_vols), 2) if all_vols else 0
+    avg_sharpe = round(sum(all_sharpes)/len(all_sharpes), 3) if all_sharpes else 0
 
-    # Correlation matrix (fast — already have closes in memory)
-    corr_matrix = {}
-    closes_map  = {}
-    for sec in ner_secs:
-        t   = sec["ticker"]
-        raw = ohlcv.get(t)
-        if raw and raw.get("candles"):
-            closes_map[t] = [c["close"] for c in raw["candles"]]
+    # HHI of market cap concentration
+    mcap_shares = [t["mcap"]/max(total_mcap,1)*100 for t in ticker_data]
+    hhi = round(sum(s**2 for s in mcap_shares), 1)
 
     return jsonify({
         "tickers": ticker_data,
@@ -967,7 +727,6 @@ def exchange_analytics():
         }
     })
 
-
 # ── LIQUIDITY LAB ─────────────────────────────────────────────────────────────
 @app.route("/api/liquidity/<ticker>")
 def liquidity_lab(ticker):
@@ -975,7 +734,7 @@ def liquidity_lab(ticker):
     ob = get_ticker_orderbook(ticker)
     if ob is None:
         return jsonify({"detail": "Orderbook unavailable"}), 503
-    s_sec, secs_data = atlas_get("/securities", ttl=60)
+    s_sec, secs_data = cached_get("/securities", ttl=60)
     sec = next((s for s in (secs_data if isinstance(secs_data, list) else []) if s["ticker"]==ticker), {})
     total_shares = sec.get("total_shares", 1) or 1
     s_ob = 200  # we got data from bulk cache
@@ -1050,28 +809,34 @@ def liquidity_lab(ticker):
 # ── HOLDER INTELLIGENCE ───────────────────────────────────────────────────────
 @app.route("/api/holder_intel")
 def holder_intel():
-    """Exchange-wide shareholder intelligence — parallel fetches with semaphore throttle."""
-    s_secs, secs = atlas_get("/securities", ttl=120)
+    """Exchange-wide shareholder intelligence."""
+    s_secs, secs = cached_get("/securities", ttl=60)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
-    # Semaphore limits concurrency to 4 simultaneous shareholder calls (avoids 429)
-    sem = threading.Semaphore(4)
-
-    def fetch_one(sec):
+    all_data = []
+    for sec in secs:
         t = sec["ticker"]
-        with sem:
-            holders = get_ticker_shareholders(t)
-        if not holders: return None
+        # Stagger cold fetches — avoid 12-call burst that triggers 429 and kills order execution
+        e = _sh_ticker_cache.get(t)
+        if not e or time.time() - e["ts"] >= _SH_TICKER_TTL:
+            time.sleep(0.25)  # 250ms between cold NER calls = max 4/s instead of 12 at once
+        holders = get_ticker_shareholders(t)
+        if not holders: continue
         total_qty = sum(h["quantity"] for h in holders)
-        if total_qty == 0: return None
+        if total_qty == 0: continue
+
+        # HHI
         shares = [h["quantity"]/total_qty for h in holders]
         hhi    = round(sum(s**2 for s in shares)*10000, 1)
+        # Concentration
         top1  = round(shares[0]*100,2) if shares else 0
         top3  = round(sum(shares[:3])*100,2) if len(shares)>=3 else round(sum(shares)*100,2)
         top5  = round(sum(shares[:5])*100,2) if len(shares)>=5 else round(sum(shares)*100,2)
         top10 = round(sum(shares[:10])*100,2)
+        # Whale (anyone >10%)
         whales = [h for h in holders if h["quantity"]/total_qty > 0.10]
-        return {
+
+        all_data.append({
             "ticker":     t,
             "name":       sec.get("full_name",""),
             "num_holders": len(holders),
@@ -1083,14 +848,7 @@ def holder_intel():
             "top10_pct":  top10,
             "whale_count": len(whales),
             "holders":    holders[:20],
-        }
-
-    all_data = []
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(fetch_one, sec): sec for sec in secs}
-        for f in as_completed(futures):
-            result = f.result()
-            if result: all_data.append(result)
+        })
 
     # Cross-exchange whale tracking
     whale_map = {}
@@ -1122,12 +880,10 @@ def holder_intel():
 
 @app.route("/api/holder_intel/<ticker>")
 def holder_intel_ticker(ticker):
-    s_atl, d_atl = atlas_get(f"/holder_intel/{ticker}", ttl=60)
-    if s_atl == 200: return jsonify(d_atl), 200
     holders = get_ticker_shareholders(ticker)
     if not isinstance(holders, list) or not holders:
         return jsonify({"detail": "No holders found for ticker"}), 404
-    _, sec_list = atlas_get("/securities", ttl=60)
+    _, sec_list = cached_get("/securities", ttl=60)
     sec = next((s for s in (sec_list if isinstance(sec_list,list) else []) if s["ticker"]==ticker), {})
     total_shares = sec.get("total_shares", 0)
     total_held   = sum(h["quantity"] for h in holders) if holders else 0
@@ -1166,192 +922,73 @@ def holder_intel_ticker(ticker):
     })
 
 # ── BACKTEST ──────────────────────────────────────────────────────────────────
-
-# ══════════════════════════════════════════════════════════════════════════════
-# BACKTEST ENGINE v2  —  clean rewrite
-# Core invariant: buy_hold equity curve MUST track price * (10000/price[0])
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _bt_run(closes, dates, signals, sl_pct=0.0, tp_pct=0.0):
-    """
-    Pure simulation. Returns (equity_curve, trades).
-    signals[i] in {-1, 0, 1}  (1=buy, -1=sell/short-exit)
-    No fractional shares, commission = 0.5% per side, deducted from proceeds/cost.
-    Key fix: qty = floor((cash * 0.995) / price)  so commission never exceeds residual cash.
-    """
-    COMMISSION = 0.005          # 0.5 % per trade
-    cash   = 10_000.0
-    shares = 0
-    pos    = False
-    entry  = 0.0
-    equity = []
-    trades = []
-
-    for i, price in enumerate(closes):
-        if price is None or price <= 0:
-            equity.append(round(cash + shares * (closes[i-1] if i else 0), 4))
-            continue
-
-        sig = signals[i]
-
-        # ── Stop-loss / take-profit ──────────────────────────────────────────
-        if pos and entry > 0:
-            hit_sl = sl_pct > 0 and price <= entry * (1 - sl_pct)
-            hit_tp = tp_pct > 0 and price >= entry * (1 + tp_pct)
-            if hit_sl or hit_tp:
-                proceeds     = shares * price * (1 - COMMISSION)
-                cash        += proceeds
-                action       = "STOP" if hit_sl else "TP"
-                trades.append({"date": dates[i], "action": action,
-                                "price": round(price, 4), "qty": shares,
-                                "value": round(proceeds, 2)})
-                shares = 0; pos = False; entry = 0.0
-
-        # ── Entry ────────────────────────────────────────────────────────────
-        if sig == 1 and not pos:
-            # Buy as many shares as cash allows AFTER commission
-            qty = int(cash / (price * (1 + COMMISSION)))
-            if qty > 0:
-                cost    = qty * price * (1 + COMMISSION)
-                cash   -= cost
-                shares  = qty
-                pos     = True
-                entry   = price
-                trades.append({"date": dates[i], "action": "BUY",
-                                "price": round(price, 4), "qty": qty,
-                                "value": round(cost, 2)})
-
-        # ── Exit ─────────────────────────────────────────────────────────────
-        elif sig == -1 and pos and shares > 0:
-            proceeds     = shares * price * (1 - COMMISSION)
-            cash        += proceeds
-            trades.append({"date": dates[i], "action": "SELL",
-                            "price": round(price, 4), "qty": shares,
-                            "value": round(proceeds, 2)})
-            shares = 0; pos = False; entry = 0.0
-
-        equity.append(round(cash + shares * price, 4))
-
-    return equity, trades
-
-
-def _bt_metrics(equity, closes, trades):
-    start_eq = equity[0] if equity else 10_000
-    end_eq   = equity[-1] if equity else 10_000
-    total_ret  = round((end_eq - 10_000) / 10_000 * 100, 2)
-    bh_ret     = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if len(closes) >= 2 and closes[0] else 0
-    max_dd     = _max_drawdown(equity)
-    sharpe_val = _sharpe(equity)
-    calmar     = round(abs(total_ret / max_dd), 3) if max_dd > 0 else 0
-
-    # Win rate: pair BUY→SELL/STOP/TP
-    buys   = [t for t in trades if t["action"] == "BUY"]
-    exits  = [t for t in trades if t["action"] in ("SELL", "STOP", "TP")]
-    pairs  = list(zip(buys, exits))
-    wins   = sum(1 for b, e in pairs if e["price"] > b["price"])
-    win_rt = round(wins / len(pairs) * 100, 1) if pairs else 0.0
-
-    return {
-        "total_return_pct":    total_ret,
-        "benchmark_return_pct": bh_ret,
-        "alpha_pct":           round(total_ret - bh_ret, 2),
-        "max_drawdown_pct":    max_dd,
-        "sharpe_ratio":        sharpe_val,
-        "calmar_ratio":        calmar,
-        "num_trades":          len(trades),
-        "win_rate":            win_rt,
-        "final_equity":        round(end_eq, 2),
-    }
-
-
 @app.route("/api/backtest", methods=["POST"])
 def backtest():
-    body     = request.json or {}
-    ticker   = body.get("ticker", "").upper()
-    days     = min(int(body.get("days", 90)), 365)
-    strategy = body.get("strategy", "buy_hold")
-    params   = body.get("params", {})
+    body=request.json or {}
+    ticker=body.get("ticker",""); days=min(int(body.get("days",90)),365)
+    strategy=body.get("strategy","buy_hold"); params=body.get("params",{})
+    status,raw=cached_get(f"/analytics/ohlcv/{ticker}",params={"days":days},ttl=60)
+    if status!=200: return jsonify(raw),status
+    candles=raw.get("candles",[])
+    if len(candles)<3: return jsonify({"detail":"Not enough data"}),400
+    closes=[c["close"] for c in candles]; dates=[c["date"] for c in candles]
+    highs=[c["high"] for c in candles]; lows=[c["low"] for c in candles]
 
-    if not ticker:
-        return jsonify({"detail": "ticker required"}), 400
-
-    status, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
-    if status != 200:
-        return jsonify(raw), status
-
-    candles = _norm_candles(raw.get("candles", []), days=days)
-    if len(candles) < 3:
-        return jsonify({"detail": f"Not enough data ({len(candles)} candles)"}), 400
-
-    closes = [float(c["close"]) for c in candles]
-    dates  = [c["date"]         for c in candles]
-    highs  = [float(c.get("high",  c["close"])) for c in candles]
-    lows   = [float(c.get("low",   c["close"])) for c in candles]
-
-    # ── Signal generation ────────────────────────────────────────────────────
-    signals = [0] * len(closes)
-
-    if strategy == "buy_hold":
-        # One buy on day 0, never sell — equity tracks price exactly
-        signals[0] = 1
-
-    elif strategy == "sma_cross":
-        fast = int(params.get("fast", 5))
-        slow = int(params.get("slow", 20))
-        f_ma = _sma(closes, fast)
-        s_ma = _sma(closes, slow)
-        for i in range(1, len(closes)):
-            if f_ma[i] and s_ma[i] and f_ma[i-1] and s_ma[i-1]:
-                if f_ma[i] > s_ma[i] and f_ma[i-1] <= s_ma[i-1]:  signals[i] =  1
-                elif f_ma[i] < s_ma[i] and f_ma[i-1] >= s_ma[i-1]: signals[i] = -1
-
-    elif strategy == "rsi":
-        p   = int(params.get("rsi_period", 14))
-        ob  = float(params.get("overbought", 70))
-        os_ = float(params.get("oversold",   30))
-        rsi = _rsi(closes, p)
-        for i in range(1, len(closes)):
+    signals=[0]*len(closes)
+    if strategy=="sma_cross":
+        f2=_sma(closes,int(params.get("fast",5))); sl=_sma(closes,int(params.get("slow",20)))
+        for i in range(1,len(closes)):
+            if f2[i] and sl[i] and f2[i-1] and sl[i-1]:
+                if f2[i]>sl[i] and f2[i-1]<=sl[i-1]: signals[i]=1
+                elif f2[i]<sl[i] and f2[i-1]>=sl[i-1]: signals[i]=-1
+    elif strategy=="rsi":
+        p=int(params.get("rsi_period",14)); ob=float(params.get("overbought",70)); os_=float(params.get("oversold",30))
+        rsi=_rsi(closes,p)
+        for i in range(1,len(closes)):
             if rsi[i] and rsi[i-1]:
-                if   rsi[i] < os_ and rsi[i-1] >= os_: signals[i] =  1
-                elif rsi[i] > ob  and rsi[i-1] <= ob:  signals[i] = -1
+                if rsi[i]<os_ and rsi[i-1]>=os_: signals[i]=1
+                elif rsi[i]>ob and rsi[i-1]<=ob: signals[i]=-1
+    elif strategy=="macd":
+        ml,sl2,_=_macd(closes,int(params.get("fast",12)),int(params.get("slow",26)),int(params.get("signal",9)))
+        for i in range(1,len(closes)):
+            if ml[i]>sl2[i] and ml[i-1]<=sl2[i-1]: signals[i]=1
+            elif ml[i]<sl2[i] and ml[i-1]>=sl2[i-1]: signals[i]=-1
+    elif strategy=="bb_reversal":
+        bb_u,bb_m,bb_l=_bollinger(closes)
+        for i in range(1,len(closes)):
+            if bb_l[i] and closes[i]<bb_l[i] and closes[i-1]>=bb_l[i-1]: signals[i]=1
+            elif bb_u[i] and closes[i]>bb_u[i] and closes[i-1]<=bb_u[i-1]: signals[i]=-1
+    elif strategy=="buy_hold": signals[0]=1
 
-    elif strategy == "macd":
-        ml, sl2, _ = _macd(closes,
-                            int(params.get("fast", 12)),
-                            int(params.get("slow", 26)),
-                            int(params.get("signal", 9)))
-        for i in range(1, len(closes)):
-            if ml[i] and sl2[i] and ml[i-1] and sl2[i-1]:
-                if   ml[i] > sl2[i] and ml[i-1] <= sl2[i-1]: signals[i] =  1
-                elif ml[i] < sl2[i] and ml[i-1] >= sl2[i-1]: signals[i] = -1
+    sl_pct  = float(params.get("stop_loss_pct",  0)) / 100
+    tp_pct  = float(params.get("take_profit_pct",0)) / 100
+    cash=10000.0; shares=0; equity=[]; trades=[]; pos=False; entry_px=0
+    for i,(sig,price) in enumerate(zip(signals,closes)):
+        # Stop loss / take profit
+        if pos and entry_px > 0:
+            if sl_pct > 0 and price <= entry_px*(1-sl_pct):
+                cash+=shares*price*0.995; trades.append({"date":dates[i],"action":"STOP","price":price,"qty":shares}); shares=0; pos=False
+            elif tp_pct > 0 and price >= entry_px*(1+tp_pct):
+                cash+=shares*price*0.995; trades.append({"date":dates[i],"action":"TP","price":price,"qty":shares}); shares=0; pos=False
+        if sig==1 and not pos and cash>price:
+            qty=int(cash/price); cost=qty*price*1.005
+            if cost<=cash: cash-=cost; shares=qty; pos=True; entry_px=price; trades.append({"date":dates[i],"action":"BUY","price":price,"qty":qty})
+        elif sig==-1 and pos and shares>0:
+            cash+=shares*price*0.995; trades.append({"date":dates[i],"action":"SELL","price":price,"qty":shares}); shares=0; pos=False; entry_px=0
+        equity.append(round(cash+shares*price,4))
 
-    elif strategy == "bb_reversal":
-        bb_u, _, bb_l = _bollinger(closes)
-        for i in range(1, len(closes)):
-            if bb_l[i] and closes[i] < bb_l[i] and closes[i-1] >= bb_l[i-1]:  signals[i] =  1
-            elif bb_u[i] and closes[i] > bb_u[i] and closes[i-1] <= bb_u[i-1]: signals[i] = -1
+    end_eq=equity[-1] if equity else 10000
+    total_ret=(end_eq-10000)/10000*100; bh_ret=(closes[-1]-closes[0])/closes[0]*100 if closes else 0
+    max_dd=_max_drawdown(equity); sharpe_val=_sharpe(equity)
+    win_trades=[t for t in zip(trades[::2],trades[1::2]) if t[1]["price"]>t[0]["price"]]
+    calmar = round(abs(total_ret/max_dd),2) if max_dd > 0 else 0
 
-    # ── Simulate ─────────────────────────────────────────────────────────────
-    sl_pct = float(params.get("stop_loss_pct",   0)) / 100
-    tp_pct = float(params.get("take_profit_pct", 0)) / 100
-    equity, trades = _bt_run(closes, dates, signals, sl_pct=sl_pct, tp_pct=tp_pct)
-    metrics        = _bt_metrics(equity, closes, trades)
-
-    # Buy-and-hold reference curve (always correct regardless of strategy)
-    bh_curve = [round(10_000 * p / closes[0], 2) for p in closes]
-
-    return jsonify({
-        "ticker":      ticker,
-        "strategy":    strategy,
-        "days":        days,
-        "dates":       dates,
-        "closes":      closes,
-        "equity_curve": equity,
-        "bh_curve":    bh_curve,
-        "signals":     signals,
-        "trades":      trades,
-        "metrics":     metrics,
-    })
+    return jsonify({"ticker":ticker,"strategy":strategy,"days":days,"candles":candles,
+        "signals":signals,"equity_curve":equity,"dates":dates,"trades":trades,
+        "metrics":{"total_return_pct":round(total_ret,2),"benchmark_return_pct":round(bh_ret,2),
+            "max_drawdown_pct":max_dd,"sharpe_ratio":sharpe_val,"calmar_ratio":calmar,
+            "num_trades":len(trades),"win_rate":round(len(win_trades)/max(len(trades)//2,1)*100,1),
+            "final_equity":round(end_eq,2)}})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1505,19 +1142,12 @@ def sse_state():
 
 
 # ── PAGES ─────────────────────────────────────────────────────────────────────
-@app.route("/api/atlas-proxy")
-def atlas_proxy():
-    path   = request.args.get("path", "/status")
-    params = {k: v for k, v in request.args.items() if k != "path"}
-    s, d   = atlas_get(path, params=params or None, ttl=10)
-    return jsonify(d), s
-
 @app.route("/")
 def index():           return render_template("terminal.html")
 @app.route("/page/<n>")
 def page(n):
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug"]
     name = n
+    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news"]
     if name not in allowed: return "Not found", 404
     return render_template(f"pages/{name}.html")
 
@@ -1529,9 +1159,9 @@ def page(n):
 # ── FUNDAMENTALS (uses /securities/{ticker}/stats) ────────────────────────────
 @app.route("/api/fundamentals/<ticker>")
 def fundamentals(ticker):
-    s, d = atlas_get(f"/analytics/ticker_stats/{ticker}", ttl=600)
+    s, d = cached_get(f"/securities/{ticker}/stats", ttl=180)
     if s != 200: return jsonify({"detail": d.get("detail","Not found")}), s
-    s2, sec = atlas_get(f"/securities/{ticker}", ttl=60)
+    s2, sec = cached_get(f"/securities/{ticker}", ttl=60)
     sec = sec if s2 == 200 else {}
     return jsonify({
         "ticker":       ticker,
@@ -1550,14 +1180,9 @@ def fundamentals(ticker):
 # ── TRANSACTION HISTORY ────────────────────────────────────────────────────────
 @app.route("/api/transactions")
 def transactions():
-    limit  = request.args.get("limit", 50)
-    ticker = request.args.get("ticker")
+    limit  = request.args.get("limit", 500)
     offset = request.args.get("offset", 0)
     ttype  = request.args.get("type", "")
-    atl_params = {"limit": limit}
-    if ticker: atl_params["ticker"] = ticker
-    s_atl, d_atl = atlas_get("/transactions", params=atl_params, ttl=10)
-    if s_atl == 200: return jsonify(d_atl), 200
     params = {"limit": limit, "offset": offset}
     if ttype: params["type"] = ttype
     s, d = cached_get("/transactions", params=params, auth=True, ttl=10)  # short cache
@@ -1966,3 +1591,68 @@ if __name__ == "__main__":
     print(f"  http://localhost:{port}\n")
 
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+
+@app.route("/api/orders/buy_limit",   methods=["POST"])
+def buy_limit():
+    p = request.json or {}
+    if _is_tse(p):
+        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "buy", "limit"))
+    else:
+        s,d = ner_post("/orders/buy_limit", p)
+    return jsonify(d), s
+
+@app.route("/api/orders/sell_limit",  methods=["POST"])
+def sell_limit():
+    p = request.json or {}
+    if _is_tse(p):
+        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "sell", "limit"))
+    else:
+        s,d = ner_post("/orders/sell_limit", p)
+    return jsonify(d), s
+
+@app.route("/api/orders/buy_market",  methods=["POST"])
+def buy_market():
+    p = request.json or {}
+    if _is_tse(p):
+        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "buy", "market"))
+    else:
+        s,d = ner_post("/orders/buy_market", p)
+    return jsonify(d), s
+
+@app.route("/api/orders/sell_market", methods=["POST"])
+def sell_market():
+    p = request.json or {}
+    if _is_tse(p):
+        s,d = tse_post("/api/v1/orders", _build_tse_order(p, "sell", "market"))
+    else:
+        s,d = ner_post("/orders/sell_market", p)
+    return jsonify(d), s
+def tse_post(path, payload):
+    """POST to TSE exchange API."""
+    try:
+        r = _session.post(f"{TSE_BASE}{path}", headers=TSE_H, json=payload, timeout=(4, 10))
+        try:
+            d = r.json()
+        except Exception:
+            d = {}
+        return r.status_code, d
+    except Exception as e:
+        return 503, {"detail": str(e)}
+
+def _build_tse_order(payload, side, order_type):
+    """Translate terminal NER-style payload to TSE OrderCreate schema."""
+    import uuid as _uuid
+    ticker = str(payload.get("ticker", ""))
+    symbol = ticker.split(":", 1)[-1] if ":" in ticker else ticker
+    tse_payload = {
+        "instrument_type": "stock",
+        "symbol":          symbol,
+        "side":            side,
+        "order_type":      order_type,
+        "quantity":        payload.get("quantity"),
+        "idempotency_key": str(_uuid.uuid4()),
+        "time_in_force":   "GTC",
+    }
+    if order_type == "limit":
+        tse_payload["limit_price"] = payload.get("limit_price")
+    return tse_payload
