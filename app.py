@@ -123,6 +123,7 @@ def cached_get(path, params=None, auth=False, ttl=15):
 
 # ── Atlas helper ──────────────────────────────────────────────────────────────
 _atlas_cache: dict = {}
+_atlas_cache_lock = threading.Lock()
 
 _ATLAS_ONLY_PREFIXES = (
     "/market/", "/analytics/", "/history/", "/ohlcv/",
@@ -132,9 +133,11 @@ _ATLAS_ONLY_PREFIXES = (
 
 def atlas_get(path, params=None, ttl=30):
     key = path + str(params or {})
-    e = _atlas_cache.get(key)
-    if e and time.time() - e["ts"] < ttl:
-        return e["s"], e["d"]
+    with _atlas_cache_lock:
+        e = _atlas_cache.get(key)
+        if e and time.time() - e["ts"] < ttl:
+            return e["s"], e["d"]
+        stale = e
     try:
         r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=10)
         try:
@@ -142,11 +145,12 @@ def atlas_get(path, params=None, ttl=30):
         except Exception:
             d = {}
         if r.status_code == 200:
-            _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
+            with _atlas_cache_lock:
+                _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
             return 200, d
         print(f"[atlas] {path} → HTTP {r.status_code}")
         # Stale cache is better than error
-        if e: return e["s"], e["d"]
+        if stale: return stale["s"], stale["d"]
         # Only fall back to NER for paths it handles; never fall back for Atlas-only routes
         atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
         if atlas_only:
