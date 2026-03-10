@@ -264,38 +264,6 @@ def ner_post(path, payload, _retries=2):
             return 503, {"detail": str(e)}
     return 429, {"detail": "Order rate limited by NER — please wait and retry."}
 
-def atlas_post(path, payload):
-    """POST to Atlas — used for TSE order placement."""
-    try:
-        r = _session.post(f"{ATLAS_BASE}{path}", headers=ATLAS_H, json=payload, timeout=(4, 10))
-        try:
-            d = r.json()
-        except Exception:
-            d = {}
-        return r.status_code, d
-    except Exception as e:
-        return 503, {"detail": str(e)}
-
-# ── Pass-through proxies ──────────────────────────────────────────────────────
-# Tickers that exist on both exchanges — user can pick via ?exchange= param
-_DUAL_LISTED = {"GCC"}
-
-@app.route("/api/securities")
-def securities():
-    """Merged NER + TSE securities list from Atlas (single source of truth).
-    Atlas already contains TSE tickers with source='tse' and ticker='TSE:XXX'.
-    We just tag exchange field from source to avoid duplicates."""
-    s, secs = atlas_get("/securities", ttl=60)
-    if s != 200:
-        return jsonify(secs), s
-
-    # Tag exchange from source field — Atlas is the single source of truth
-    for sec in secs:
-        src_field = sec.get("source", "ner")
-        sec["exchange"] = "TSE" if src_field == "tse" else "NER"
-
-    return jsonify(secs), 200
-
 def _tse_stock_to_sec(stk):
     """Normalize TSE StockResponse to NER securities format."""
     px = stk.get("current_price")
@@ -412,33 +380,63 @@ def portfolio():
     s, d = cached_get("/portfolio", auth=True, ttl=0); return jsonify(d), s  # always live
 
 # ── Trading ───────────────────────────────────────────────────────────────────
+def tse_post(path, payload):
+    """POST to TSE exchange API."""
+    try:
+        r = _session.post(f"{TSE_BASE}{path}", headers=TSE_H, json=payload, timeout=(4, 10))
+        try:
+            d = r.json()
+        except Exception:
+            d = {}
+        return r.status_code, d
+    except Exception as e:
+        return 503, {"detail": str(e)}
+
+def _build_tse_order(payload, side, order_type):
+    """Translate terminal payload to TSE OrderCreate schema."""
+    import uuid as _uuid
+    ticker = str(payload.get("ticker", ""))
+    symbol = ticker.split(":", 1)[-1] if ":" in ticker else ticker
+    tse_payload = {
+        "instrument_type": "stock",
+        "symbol":          symbol,
+        "side":            side,
+        "order_type":      order_type,
+        "quantity":        payload.get("quantity"),
+        "idempotency_key": str(_uuid.uuid4()),
+        "time_in_force":   "GTC",
+    }
+    if order_type == "limit":
+        tse_payload["limit_price"] = payload.get("limit_price")
+    return tse_payload
+
 def _is_tse(payload):
     return str(payload.get("ticker","")).startswith("TSE:")
 
-def _route_order(ner_path, atlas_path, payload):
-    """Route to Atlas for TSE tickers, NER for everything else."""
+def _route_order(ner_path, side, order_type, payload):
+    """Route to TSE exchange for TSE tickers, NER for everything else."""
     if _is_tse(payload):
-        return atlas_post(atlas_path, payload)
+        return tse_post("/api/v1/orders", _build_tse_order(payload, side, order_type))
     return ner_post(ner_path, payload)
 
 @app.route("/api/orders/buy_limit",   methods=["POST"])
 def buy_limit():
-    s,d=_route_order("/orders/buy_limit",  "/orders/buy_limit",  request.json)
+    s,d=_route_order("/orders/buy_limit",  "buy",  "limit",  request.json)
     return jsonify(d),s
 
 @app.route("/api/orders/sell_limit",  methods=["POST"])
 def sell_limit():
-    s,d=_route_order("/orders/sell_limit", "/orders/sell_limit", request.json)
+    s,d=_route_order("/orders/sell_limit", "sell", "limit",  request.json)
     return jsonify(d),s
 
 @app.route("/api/orders/buy_market",  methods=["POST"])
 def buy_market():
-    s,d=_route_order("/orders/buy_market", "/orders/buy_market", request.json)
+    s,d=_route_order("/orders/buy_market", "buy",  "market", request.json)
     return jsonify(d),s
 
 @app.route("/api/orders/sell_market", methods=["POST"])
 def sell_market():
-    s,d=_route_order("/orders/sell_market","/orders/sell_market",request.json)
+    s,d=_route_order("/orders/sell_market","sell", "market", request.json)
     return jsonify(d),s
 
 # ── Analytics math helpers ────────────────────────────────────────────────────
@@ -1482,8 +1480,9 @@ def atlas_proxy():
 
 @app.route("/")
 def index():           return render_template("terminal.html")
-@app.route("/page/<name>")
-def page(name):
+@app.route("/page/<n>")
+def page(n):
+    name = n
     allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug"]
     if name not in allowed: return "Not found", 404
     return render_template(f"pages/{name}.html")
