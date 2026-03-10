@@ -5,6 +5,7 @@ Architecture: Flask proxy backend + split HTML page files
 Run: python app.py → http://localhost:5000
 """
 import os, time, math, statistics, json, queue, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from flask import Flask, jsonify, request, render_template, Response, stream_with_context
 
@@ -598,168 +599,174 @@ def compare():
     return jsonify(result)
 
 # ── MARKET BREADTH ────────────────────────────────────────────────────────────
+
+def _parallel_ohlcv(tickers, days, ttl=600):
+    """Fetch /analytics/ohlcv for multiple tickers in parallel. Returns {ticker: raw_dict}."""
+    results = {}
+    def fetch(t):
+        s, d = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=ttl)
+        return t, (d if s == 200 and isinstance(d, dict) else None)
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        futures = {ex.submit(fetch, t): t for t in tickers}
+        for f in as_completed(futures):
+            t, d = f.result()
+            results[t] = d
+    return results
+
 @app.route("/api/market_breadth")
 def market_breadth():
-    """Merge Atlas /market/breadth (stats) + /securities (meta) into enriched response."""
+    """Parallel-fetch version — all OHLCV fired concurrently, no serial loops."""
     days = int(request.args.get("days", 7))
 
-    # Fetch securities meta for names, exchange, market_price, total_shares
-    _, secs_raw = atlas_get("/securities", ttl=60)
+    # Fetch securities meta + breadth + orderbook in parallel
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_secs  = ex.submit(atlas_get, "/securities",     None,           120)
+        f_bread = ex.submit(atlas_get, "/market/breadth", {"days": days}, 30)
+        f_ob    = ex.submit(atlas_get, "/orderbook",      None,           10)
+        _, secs_raw = f_secs.result()
+        s_br, d_br  = f_bread.result()
+        _, ob_all   = f_ob.result()
+
     sec_meta = {}
     if isinstance(secs_raw, list):
         for s in secs_raw:
             sec_meta[s["ticker"]] = s
 
-    # Fetch breadth stats — Atlas /market/breadth is real and returns chg_pct, volatility etc.
-    s_br, d_br = atlas_get("/market/breadth", params={"days": days}, ttl=30)
-    if s_br == 200 and isinstance(d_br, dict) and d_br.get("securities"):
-        raw_secs = d_br["securities"]
-        if not isinstance(raw_secs, list): raw_secs = []
-        enriched = []
-        for item in raw_secs:
-            ticker = item.get("ticker", "")
-            if not ticker: continue
-            meta    = sec_meta.get(ticker, {})
-            derived = meta.get("derived", {}) or {}
-            lp      = meta.get("market_price") or item.get("last_price") or 0
-            # Atlas breadth often returns null sharpe/volatility — fall back to
-            # derived.volatility_7d from the securities payload when available
-            vol  = item.get("volatility")
-            if vol is None: vol = derived.get("volatility_7d")
-            shrp = item.get("sharpe")
-            # If still no sharpe, try fetching ohlcv for this ticker (cached)
-            if shrp is None or vol is None:
-                s_o, o_raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": 30}, ttl=300)
-                if s_o == 200 and isinstance(o_raw, dict):
-                    cs = _norm_candles(o_raw.get("candles", []), days=30)
-                    if len(cs) >= 2:
-                        closes = [c["close"] for c in cs]
-                        if vol is None:  vol  = _ann_vol(closes)
-                        if shrp is None: shrp = _sharpe(closes)
-            # chg_pct: use Atlas breadth value, but compute from ohlcv if missing
-            chg_pct = item.get("chg_pct")
-            prd_hi  = item.get("hi52")
-            prd_lo  = item.get("lo52")
-            vol_spike = item.get("vol_spike")
-            # If we already fetched ohlcv for vol/sharpe, reuse it for chg_pct/hi/lo
-            if chg_pct is None or prd_hi is None:
-                s_o2, o_raw2 = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=300)
-                if s_o2 == 200 and isinstance(o_raw2, dict):
-                    cs2 = _norm_candles(o_raw2.get("candles", []), days=days)
-                    if len(cs2) >= 2:
-                        cl2 = [c["close"] for c in cs2]
-                        vl2 = [c["volume"] for c in cs2]
-                        if chg_pct is None:
-                            chg_pct = round((cl2[-1] - cl2[0]) / cl2[0] * 100, 2) if cl2[0] else 0
-                        if prd_hi is None: prd_hi = round(max(cl2), 4)
-                        if prd_lo is None: prd_lo = round(min(cl2), 4)
-                        if vol_spike is None and len(vl2) > 1:
-                            avg_v = sum(vl2[:-1]) / max(len(vl2)-1, 1)
-                            vol_spike = round(vl2[-1] / avg_v, 2) if avg_v > 0 else None
-            enriched.append({
-                "ticker":      ticker,
-                "name":        meta.get("full_name", ticker),
-                "exchange":    "TSE" if ticker.startswith("TSE:") else "NER",
-                "last_price":  lp,
-                "chg_pct":     chg_pct if chg_pct is not None else 0,
-                "volatility":  vol,
-                "sharpe":      shrp,
-                "market_cap":  item.get("market_cap") or round(lp * (meta.get("total_shares") or 0), 2),
-                "volume":      sum(vl2) if 'vl2' in dir() else 0,
-                "hi52":        prd_hi,
-                "lo52":        prd_lo,
-                "vol_spike":   vol_spike,
-                "frozen":      bool(meta.get("frozen", False)),
-            })
-        # Use Atlas summary but recompute from enriched list for consistency
-        chgs = [e["chg_pct"] for e in enriched]
-        ups  = [e for e in enriched if e["chg_pct"] > 0]
-        dns  = [e for e in enriched if e["chg_pct"] < 0]
-        flt  = [e for e in enriched if e["chg_pct"] == 0]
-        vols = [e["volatility"] for e in enriched
-                if e.get("volatility") is not None and isinstance(e["volatility"], (int,float)) and e["volatility"] > 0]
-        # Pull orderbook imbalance from derived for global imbalance
-        _, ob_all = atlas_get("/orderbook", ttl=10)
-        global_bid = 0; global_ask = 0
-        if isinstance(ob_all, list):
-            for ob in ob_all:
-                global_bid += ob.get("bid_depth", 0) or 0
-                global_ask += ob.get("ask_depth", 0) or 0
-        total_depth = global_bid + global_ask
-        global_imbal = round((global_bid - global_ask) / max(total_depth, 1) * 100, 2)
-        return jsonify({
-            "securities": enriched,
-            "summary": {
-                "total":           len(enriched),
-                "advancing":       len(ups),
-                "declining":       len(dns),
-                "unchanged":       len(flt),
-                "adv_dec_ratio":   round(len(ups) / max(len(dns), 1), 2),
-                "avg_return":      round(sum(chgs) / len(chgs), 2) if chgs else 0,
-                "ew_index_return": round(sum(chgs) / len(chgs), 4) if chgs else 0,
-                "vol_dispersion":  round(statistics.stdev(vols), 2) if len(vols) > 1 else 0,
-                "global_imbalance": global_imbal,
-                "total_depth":     total_depth,
-            }
-        }), 200
+    all_tickers = list(sec_meta.keys())
 
-    # Fallback: build from securities + ohlcv if /market/breadth failed
-    if not sec_meta:
-        return jsonify({"detail": "No securities data available"}), 503
-    results = []
-    for ticker, sec in sec_meta.items():
-        s2, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
-        candles = _norm_candles(raw.get("candles", []) if isinstance(raw, dict) else [])
-        lp = sec.get("market_price") or 0
-        if len(candles) < 2:
-            results.append({
-                "ticker": ticker, "name": sec.get("full_name", ticker),
-                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
-                "last_price": lp, "chg_pct": 0, "volatility": 0, "sharpe": 0,
-                "market_cap": round(lp * (sec.get("total_shares") or 0), 2),
-                "volume": 0, "hi52": None, "lo52": None, "vol_spike": None,
-                "frozen": bool(sec.get("frozen", False)),
-            })
-            continue
-        closes  = [c["close"]  for c in candles]
-        volumes = [c["volume"] for c in candles]
-        chg     = round((closes[-1] - closes[0]) / closes[0] * 100, 2) if closes[0] else 0
-        avg_vol = sum(volumes[:-1]) / max(len(volumes) - 1, 1) if len(volumes) > 1 else (volumes[0] or 1)
-        results.append({
+    # Fire all OHLCV calls in parallel (cache hits after first load = ~0ms)
+    ohlcv_30  = _parallel_ohlcv(all_tickers, 30,   ttl=600)
+    ohlcv_day = _parallel_ohlcv(all_tickers, days, ttl=600) if days != 30 else ohlcv_30
+
+    raw_secs = []
+    if s_br == 200 and isinstance(d_br, dict) and d_br.get("securities"):
+        raw_secs = d_br["securities"] if isinstance(d_br["securities"], list) else []
+
+    enriched = []
+    tickers_seen = set()
+
+    for item in raw_secs:
+        ticker = item.get("ticker", "")
+        if not ticker: continue
+        tickers_seen.add(ticker)
+        meta    = sec_meta.get(ticker, {})
+        derived = meta.get("derived", {}) or {}
+        lp      = meta.get("market_price") or item.get("last_price") or 0
+
+        vol       = item.get("volatility") or derived.get("volatility_7d")
+        shrp      = item.get("sharpe")
+        chg_pct   = item.get("chg_pct")
+        prd_hi    = item.get("hi52")
+        prd_lo    = item.get("lo52")
+        vol_spike = item.get("vol_spike")
+        vlday     = []
+
+        o30 = ohlcv_30.get(ticker)
+        if o30 and isinstance(o30, dict):
+            cs30 = _norm_candles(o30.get("candles", []), days=30)
+            if len(cs30) >= 2:
+                cl30 = [c["close"] for c in cs30]
+                if vol  is None: vol  = _ann_vol(cl30)
+                if shrp is None: shrp = _sharpe(cl30)
+
+        oday = ohlcv_day.get(ticker)
+        if oday and isinstance(oday, dict):
+            csday = _norm_candles(oday.get("candles", []), days=days)
+            if len(csday) >= 2:
+                clday = [c["close"]  for c in csday]
+                vlday = [c["volume"] for c in csday]
+                if chg_pct is None:
+                    chg_pct = round((clday[-1]-clday[0])/clday[0]*100, 2) if clday[0] else 0
+                if prd_hi    is None: prd_hi    = round(max(clday), 4)
+                if prd_lo    is None: prd_lo    = round(min(clday), 4)
+                if vol_spike is None and len(vlday) > 1:
+                    avg_v     = sum(vlday[:-1])/max(len(vlday)-1, 1)
+                    vol_spike = round(vlday[-1]/avg_v, 2) if avg_v > 0 else None
+
+        enriched.append({
             "ticker":     ticker,
-            "name":       sec.get("full_name", ticker),
+            "name":       meta.get("full_name", ticker),
             "exchange":   "TSE" if ticker.startswith("TSE:") else "NER",
             "last_price": lp,
-            "chg_pct":    chg,
-            "volatility": _ann_vol(closes),
-            "sharpe":     _sharpe(closes),
-            "market_cap": round(lp * (sec.get("total_shares") or 0), 2),
-            "volume":     sum(volumes),
-            "hi52":       max(closes),
-            "lo52":       min(closes),
-            "vol_spike":  round(volumes[-1] / avg_vol, 2) if avg_vol > 0 else None,
-            "frozen":     bool(sec.get("frozen", False)),
+            "chg_pct":    chg_pct if chg_pct is not None else 0,
+            "volatility": vol,
+            "sharpe":     shrp,
+            "market_cap": item.get("market_cap") or round(lp*(meta.get("total_shares") or 0), 2),
+            "volume":     sum(vlday) if vlday else 0,
+            "hi52":       prd_hi,
+            "lo52":       prd_lo,
+            "vol_spike":  vol_spike,
+            "frozen":     bool(meta.get("frozen", False)),
         })
-    if not results:
+
+    # Any tickers in sec_meta not returned by breadth
+    for ticker, meta in sec_meta.items():
+        if ticker in tickers_seen: continue
+        lp   = meta.get("market_price") or 0
+        oday = ohlcv_day.get(ticker)
+        csday, clday, vlday = [], [], []
+        if oday and isinstance(oday, dict):
+            csday = _norm_candles(oday.get("candles", []), days=days)
+        if len(csday) >= 2:
+            clday     = [c["close"]  for c in csday]
+            vlday     = [c["volume"] for c in csday]
+            chg_pct   = round((clday[-1]-clday[0])/clday[0]*100, 2) if clday[0] else 0
+            avg_v     = sum(vlday[:-1])/max(len(vlday)-1,1) if len(vlday)>1 else (vlday[0] or 1)
+            enriched.append({
+                "ticker": ticker, "name": meta.get("full_name", ticker),
+                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
+                "last_price": lp, "chg_pct": chg_pct,
+                "volatility": _ann_vol(clday), "sharpe": _sharpe(clday),
+                "market_cap": round(lp*(meta.get("total_shares") or 0), 2),
+                "volume": sum(vlday), "hi52": max(clday), "lo52": min(clday),
+                "vol_spike": round(vlday[-1]/avg_v,2) if avg_v>0 else None,
+                "frozen": bool(meta.get("frozen", False)),
+            })
+        else:
+            enriched.append({
+                "ticker": ticker, "name": meta.get("full_name", ticker),
+                "exchange": "TSE" if ticker.startswith("TSE:") else "NER",
+                "last_price": lp, "chg_pct": 0, "volatility": None, "sharpe": None,
+                "market_cap": round(lp*(meta.get("total_shares") or 0), 2),
+                "volume": 0, "hi52": None, "lo52": None, "vol_spike": None,
+                "frozen": bool(meta.get("frozen", False)),
+            })
+
+    if not enriched:
         return jsonify({"detail": "No market data available"}), 503
-    chgs = [r["chg_pct"] for r in results]
-    ups  = [r for r in results if r["chg_pct"] > 0]
-    dns  = [r for r in results if r["chg_pct"] < 0]
-    flt  = [r for r in results if r["chg_pct"] == 0]
-    vols = [r["volatility"] for r in results if isinstance(r.get("volatility"), (int,float)) and r["volatility"] > 0]
+
+    # Global orderbook imbalance
+    global_bid = 0; global_ask = 0
+    if isinstance(ob_all, list):
+        for ob in ob_all:
+            global_bid += ob.get("bid_depth", 0) or 0
+            global_ask += ob.get("ask_depth", 0) or 0
+    total_depth  = global_bid + global_ask
+    global_imbal = round((global_bid-global_ask)/max(total_depth,1)*100, 2)
+
+    chgs = [e["chg_pct"] for e in enriched]
+    ups  = [e for e in enriched if e["chg_pct"] > 0]
+    dns  = [e for e in enriched if e["chg_pct"] < 0]
+    flt  = [e for e in enriched if e["chg_pct"] == 0]
+    vols = [e["volatility"] for e in enriched
+            if isinstance(e.get("volatility"), (int,float)) and e["volatility"] > 0]
+
     return jsonify({
-        "securities": results,
+        "securities": enriched,
         "summary": {
-            "total":           len(results),
-            "advancing":       len(ups),
-            "declining":       len(dns),
-            "unchanged":       len(flt),
-            "adv_dec_ratio":   round(len(ups) / max(len(dns), 1), 2),
-            "avg_return":      round(sum(chgs) / len(chgs), 2) if chgs else 0,
-            "ew_index_return": round(sum(chgs) / len(chgs), 4) if chgs else 0,
-            "vol_dispersion":  round(statistics.stdev(vols), 2) if len(vols) > 1 else 0,
+            "total":            len(enriched),
+            "advancing":        len(ups),
+            "declining":        len(dns),
+            "unchanged":        len(flt),
+            "adv_dec_ratio":    round(len(ups)/max(len(dns),1), 2),
+            "avg_return":       round(sum(chgs)/len(chgs), 2) if chgs else 0,
+            "ew_index_return":  round(sum(chgs)/len(chgs), 4) if chgs else 0,
+            "vol_dispersion":   round(statistics.stdev(vols), 2) if len(vols)>1 else 0,
+            "global_imbalance": global_imbal,
+            "total_depth":      total_depth,
         }
     }), 200
+
 
 # ── GLOBAL ORDERBOOK AGGREGATOR ───────────────────────────────────────────────
 @app.route("/api/market_orderbook")
@@ -819,19 +826,25 @@ def market_orderbook():
 # ── EXCHANGE ANALYTICS ────────────────────────────────────────────────────────
 @app.route("/api/exchange_analytics")
 def exchange_analytics():
+    """Exchange analytics — all OHLCV fetched in parallel."""
     days = int(request.args.get("days", 7))
-    s_secs, secs = atlas_get("/securities", ttl=60)
+    s_secs, secs = atlas_get("/securities", ttl=120)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
-    ticker_data = []
-    total_mcap = 0
-    all_vols = []; all_sharpes = []; all_chgs = []
+    ner_secs = [s for s in secs if not s["ticker"].startswith("TSE:")]
+    tickers  = [s["ticker"] for s in ner_secs]
 
-    for sec in secs:
-        t = sec["ticker"]
-        if t.startswith("TSE:"): continue  # NER-only analytics
-        os2, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=180)
-        if os2 != 200 or not raw.get("candles"): continue
+    # Parallel OHLCV fetch
+    ohlcv = _parallel_ohlcv(tickers, days, ttl=600)
+
+    ticker_data = []
+    total_mcap  = 0
+    all_vols, all_sharpes, all_chgs = [], [], []
+
+    for sec in ner_secs:
+        t   = sec["ticker"]
+        raw = ohlcv.get(t)
+        if not raw or not raw.get("candles"): continue
         cs = raw["candles"]
         closes  = [c["close"]  for c in cs]
         volumes = [c["volume"] for c in cs]
@@ -845,7 +858,7 @@ def exchange_analytics():
         all_vols.append(vol); all_sharpes.append(sh); all_chgs.append(chg)
 
         ticker_data.append({
-            "ticker":  t, "name": sec.get("full_name",""),
+            "ticker":  t, "name": sec.get("full_name", ""),
             "mcap":    round(mcap, 2),
             "volume":  sum(volumes),
             "chg_pct": round(chg, 2),
@@ -856,20 +869,24 @@ def exchange_analytics():
         })
 
     ticker_data.sort(key=lambda x: x["mcap"], reverse=True)
-
-    # Capital flow: volume-weighted
     total_vol = sum(t["volume"] for t in ticker_data) or 1
     for t in ticker_data:
-        t["vol_share_pct"] = round(t["volume"]/total_vol*100, 2)
+        t["vol_share_pct"]  = round(t["volume"]/total_vol*100, 2)
         t["mcap_share_pct"] = round(t["mcap"]/max(total_mcap,1)*100, 2)
 
-    # Exchange-level indices
-    vix_proxy = round(sum(all_vols)/len(all_vols), 2) if all_vols else 0
-    avg_sharpe = round(sum(all_sharpes)/len(all_sharpes), 3) if all_sharpes else 0
-
-    # HHI of market cap concentration
+    vix_proxy  = round(sum(all_vols)/len(all_vols), 2)     if all_vols    else 0
+    avg_sharpe = round(sum(all_sharpes)/len(all_sharpes),3) if all_sharpes else 0
     mcap_shares = [t["mcap"]/max(total_mcap,1)*100 for t in ticker_data]
-    hhi = round(sum(s**2 for s in mcap_shares), 1)
+    hhi         = round(sum(s**2 for s in mcap_shares), 1)
+
+    # Correlation matrix (fast — already have closes in memory)
+    corr_matrix = {}
+    closes_map  = {}
+    for sec in ner_secs:
+        t   = sec["ticker"]
+        raw = ohlcv.get(t)
+        if raw and raw.get("candles"):
+            closes_map[t] = [c["close"] for c in raw["candles"]]
 
     return jsonify({
         "tickers": ticker_data,
@@ -885,6 +902,7 @@ def exchange_analytics():
             "top_by_volume":     [t["ticker"] for t in sorted(ticker_data, key=lambda x: x["volume"], reverse=True)[:5]],
         }
     })
+
 
 # ── LIQUIDITY LAB ─────────────────────────────────────────────────────────────
 @app.route("/api/liquidity/<ticker>")
@@ -1445,7 +1463,7 @@ def page(name):
 # ── FUNDAMENTALS (uses /securities/{ticker}/stats) ────────────────────────────
 @app.route("/api/fundamentals/<ticker>")
 def fundamentals(ticker):
-    s, d = atlas_get(f"/analytics/ticker_stats/{ticker}", ttl=180)
+    s, d = atlas_get(f"/analytics/ticker_stats/{ticker}", ttl=600)
     if s != 200: return jsonify({"detail": d.get("detail","Not found")}), s
     s2, sec = atlas_get(f"/securities/{ticker}", ttl=60)
     sec = sec if s2 == 200 else {}
@@ -1560,7 +1578,7 @@ def correlation_matrix():
     # Fetch closes for all
     closes_map = {}
     for t in tickers:
-        _, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=180)
+        _, raw = atlas_get(f"/analytics/ohlcv/{t}", params={"days":days}, ttl=600)
         cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
         if len(cs) >= 5: closes_map[t] = cs
     valid = list(closes_map.keys())
@@ -1652,7 +1670,7 @@ def param_sensitivity():
     days     = int(body.get("days", 90))
     strategy = body.get("strategy", "sma_cross")
 
-    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=180)
+    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=600)
     cs = [c["close"] for c in _norm_candles(raw.get("candles", []), days=days)]
     n  = len(cs)
     if n < 8:
@@ -1738,7 +1756,7 @@ def portfolio_analytics():
     # Fetch price histories
     hist_data = {}
     for h in holdings:
-        _, raw = atlas_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=180)
+        _, raw = atlas_get(f"/analytics/ohlcv/{h['ticker']}", params={"days":days}, ttl=600)
         cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
         if cs: hist_data[h["ticker"]] = cs
     if not hist_data: return jsonify({"detail":"No price data"}), 200
@@ -1840,4 +1858,27 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"\n  Bloomberg Terminal — NER Exchange")
     print(f"  http://localhost:{port}\n")
+
+# ── CACHE WARMER ─────────────────────────────────────────────────────────────
+def _warm_cache():
+    """Pre-fetch all heavy data on startup so first user request is near-instant."""
+    import time as _t
+    _t.sleep(3)  # let Flask finish binding
+    try:
+        print("[warm] Starting cache warm-up...")
+        t0 = _t.time()
+        _, secs = atlas_get("/securities", ttl=120)
+        tickers = [s["ticker"] for s in secs] if isinstance(secs, list) else []
+        print(f"[warm] {len(tickers)} tickers — firing parallel OHLCV...")
+        atlas_get("/market/breadth", params={"days": 7},  ttl=30)
+        atlas_get("/market/breadth", params={"days": 30}, ttl=30)
+        for d in [7, 30, 60, 90]:
+            _parallel_ohlcv(tickers, d, ttl=600)
+        atlas_get("/orderbook", ttl=10)
+        print(f"[warm] Done in {_t.time()-t0:.1f}s — all pages will load instantly")
+    except Exception as e:
+        print(f"[warm] Non-fatal warm-up error: {e}")
+
+    threading.Thread(target=_warm_cache, daemon=True).start()
+
     app.run(host="0.0.0.0", port=port, debug=True)
