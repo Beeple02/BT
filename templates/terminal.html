@@ -196,16 +196,6 @@ async function loadPage(id) {
 
 // ── Tab switch ────────────────────────────────────────────────────────────────
 async function sw(id) {
-  // Clear resize handles and inline sizes ONLY on the panel we're leaving.
-  // This prevents dragged sizes from persisting when you return to that page,
-  // without touching the incoming panel's intended layout widths.
-  const leaving = document.querySelector('.panel.active');
-  if (leaving) {
-    leaving.querySelectorAll('.bb-handle').forEach(h => h.remove());
-    leaving.querySelectorAll('.win, .wcol').forEach(el => {
-      el.style.width = ''; el.style.height = ''; el.style.flex = '';
-    });
-  }
   document.querySelectorAll('.fk').forEach(f=>f.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelector(`[data-p="${id}"]`).classList.add('active');
@@ -213,7 +203,6 @@ async function sw(id) {
   BB.activePanel = id;
   await loadPage(id);
   if(window[`PAGE_${id}_onShow`]) window[`PAGE_${id}_onShow`]();
-  setTimeout(()=>{ if(window.initResize) initResize(); }, 120);
 }
 
 // ── Wire FK clicks ────────────────────────────────────────────────────────────
@@ -534,6 +523,8 @@ setInterval(updateSessionStats, 120000);
 setInterval(updateTradeFeed, 30000);
 
 init();
+// Clear any old resize localStorage keys
+try { Object.keys(localStorage).filter(k=>k.startsWith('bb_')).forEach(k=>localStorage.removeItem(k)); } catch(e) {}
 </script>
 </body>
 </html>
