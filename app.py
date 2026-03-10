@@ -223,11 +223,7 @@ def get_ticker_shareholders(ticker):
     e = _sh_ticker_cache.get(ticker)
     if e and time.time() - e["ts"] < _SH_TICKER_TTL:
         return e["data"]
-    # Throttle: never hit NER shareholders faster than once per 200ms globally
-    gap = time.time() - _sh_last_fetch
-    if gap < 0.2:
-        time.sleep(0.2 - gap)
-    _sh_last_fetch = time.time()
+    # Throttling now handled by semaphore in caller — no sleep here
     try:
         # Try with X-API-Key for better compatibility
         s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
@@ -990,34 +986,28 @@ def liquidity_lab(ticker):
 # ── HOLDER INTELLIGENCE ───────────────────────────────────────────────────────
 @app.route("/api/holder_intel")
 def holder_intel():
-    """Exchange-wide shareholder intelligence."""
-    s_secs, secs = atlas_get("/securities", ttl=60)
+    """Exchange-wide shareholder intelligence — parallel fetches with semaphore throttle."""
+    s_secs, secs = atlas_get("/securities", ttl=120)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
-    all_data = []
-    for sec in secs:
-        t = sec["ticker"]
-        # Stagger cold fetches — avoid 12-call burst that triggers 429 and kills order execution
-        e = _sh_ticker_cache.get(t)
-        if not e or time.time() - e["ts"] >= _SH_TICKER_TTL:
-            time.sleep(0.25)  # 250ms between cold NER calls = max 4/s instead of 12 at once
-        holders = get_ticker_shareholders(t)
-        if not holders: continue
-        total_qty = sum(h["quantity"] for h in holders)
-        if total_qty == 0: continue
+    # Semaphore limits concurrency to 4 simultaneous shareholder calls (avoids 429)
+    sem = threading.Semaphore(4)
 
-        # HHI
+    def fetch_one(sec):
+        t = sec["ticker"]
+        with sem:
+            holders = get_ticker_shareholders(t)
+        if not holders: return None
+        total_qty = sum(h["quantity"] for h in holders)
+        if total_qty == 0: return None
         shares = [h["quantity"]/total_qty for h in holders]
         hhi    = round(sum(s**2 for s in shares)*10000, 1)
-        # Concentration
         top1  = round(shares[0]*100,2) if shares else 0
         top3  = round(sum(shares[:3])*100,2) if len(shares)>=3 else round(sum(shares)*100,2)
         top5  = round(sum(shares[:5])*100,2) if len(shares)>=5 else round(sum(shares)*100,2)
         top10 = round(sum(shares[:10])*100,2)
-        # Whale (anyone >10%)
         whales = [h for h in holders if h["quantity"]/total_qty > 0.10]
-
-        all_data.append({
+        return {
             "ticker":     t,
             "name":       sec.get("full_name",""),
             "num_holders": len(holders),
@@ -1029,7 +1019,14 @@ def holder_intel():
             "top10_pct":  top10,
             "whale_count": len(whales),
             "holders":    holders[:20],
-        })
+        }
+
+    all_data = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(fetch_one, sec): sec for sec in secs}
+        for f in as_completed(futures):
+            result = f.result()
+            if result: all_data.append(result)
 
     # Cross-exchange whale tracking
     whale_map = {}
