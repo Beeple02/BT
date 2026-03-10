@@ -264,6 +264,18 @@ def ner_post(path, payload, _retries=2):
             return 503, {"detail": str(e)}
     return 429, {"detail": "Order rate limited by NER — please wait and retry."}
 
+def atlas_post(path, payload):
+    """POST to Atlas — used for TSE order placement."""
+    try:
+        r = _session.post(f"{ATLAS_BASE}{path}", headers=ATLAS_H, json=payload, timeout=(4, 10))
+        try:
+            d = r.json()
+        except Exception:
+            d = {}
+        return r.status_code, d
+    except Exception as e:
+        return 503, {"detail": str(e)}
+
 # ── Pass-through proxies ──────────────────────────────────────────────────────
 # Tickers that exist on both exchanges — user can pick via ?exchange= param
 _DUAL_LISTED = {"GCC"}
@@ -400,14 +412,34 @@ def portfolio():
     s, d = cached_get("/portfolio", auth=True, ttl=0); return jsonify(d), s  # always live
 
 # ── Trading ───────────────────────────────────────────────────────────────────
+def _is_tse(payload):
+    return str(payload.get("ticker","")).startswith("TSE:")
+
+def _route_order(ner_path, atlas_path, payload):
+    """Route to Atlas for TSE tickers, NER for everything else."""
+    if _is_tse(payload):
+        return atlas_post(atlas_path, payload)
+    return ner_post(ner_path, payload)
+
 @app.route("/api/orders/buy_limit",   methods=["POST"])
-def buy_limit():   s,d=ner_post("/orders/buy_limit",   request.json); return jsonify(d),s
+def buy_limit():
+    s,d=_route_order("/orders/buy_limit",  "/orders/buy_limit",  request.json)
+    return jsonify(d),s
+
 @app.route("/api/orders/sell_limit",  methods=["POST"])
-def sell_limit():  s,d=ner_post("/orders/sell_limit",  request.json); return jsonify(d),s
+def sell_limit():
+    s,d=_route_order("/orders/sell_limit", "/orders/sell_limit", request.json)
+    return jsonify(d),s
+
 @app.route("/api/orders/buy_market",  methods=["POST"])
-def buy_market():  s,d=ner_post("/orders/buy_market",  request.json); return jsonify(d),s
+def buy_market():
+    s,d=_route_order("/orders/buy_market", "/orders/buy_market", request.json)
+    return jsonify(d),s
+
 @app.route("/api/orders/sell_market", methods=["POST"])
-def sell_market(): s,d=ner_post("/orders/sell_market", request.json); return jsonify(d),s
+def sell_market():
+    s,d=_route_order("/orders/sell_market","/orders/sell_market",request.json)
+    return jsonify(d),s
 
 # ── Analytics math helpers ────────────────────────────────────────────────────
 def _sma(s, n):
