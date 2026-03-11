@@ -341,9 +341,14 @@
 
   <div class="op-view" id="bv-fills"><div class="scroll">
     <table class="dt"><thead><tr>
-      <th>TIME</th><th>TICKER</th><th>SIDE</th>
+      <th>TIME</th><th>EXCH</th><th>TICKER</th><th>SIDE</th>
       <th class="r">QTY</th><th class="r">PRICE</th><th class="r">VALUE</th><th class="r">COMM</th>
-    </tr></thead><tbody id="op-fills-body"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody></table>
+    </tr></thead><tbody id="op-fills-body"><tr><td colspan="8" class="loading">Loading…</td></tr></tbody></table>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg3);border-top:1px solid var(--bdr);flex-shrink:0">
+    <span style="font-size:9px;color:var(--txt3);letter-spacing:1px">EXPORT:</span>
+    <button class="wbtn" onclick="exportFills('csv')">CSV</button>
+    <button class="wbtn" onclick="exportFills('tsv')">TSV</button>
   </div></div>
 
   <div class="op-view" id="bv-execq"><div class="scroll" id="op-execq-body">
@@ -352,9 +357,14 @@
 
   <div class="op-view" id="bv-audit"><div class="scroll">
     <table class="dt"><thead><tr>
-      <th>TIME</th><th>EVENT</th><th>TICKER</th><th>SIDE</th>
+      <th>TIME</th><th>EVENT</th><th>EXCH</th><th>TICKER</th><th>SIDE</th>
       <th class="r">QTY</th><th class="r">PRICE</th><th>ORDER ID</th><th>DETAIL</th>
-    </tr></thead><tbody id="op-audit-body"><tr><td colspan="8" class="loading">Select tab to load audit trail.</td></tr></tbody></table>
+    </tr></thead><tbody id="op-audit-body"><tr><td colspan="9" class="loading">Select tab to load audit trail.</td></tr></tbody></table>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg3);border-top:1px solid var(--bdr);flex-shrink:0">
+    <span style="font-size:9px;color:var(--txt3);letter-spacing:1px">EXPORT:</span>
+    <button class="wbtn" onclick="exportAudit('csv')">CSV</button>
+    <button class="wbtn" onclick="exportAudit('tsv')">TSV</button>
   </div></div>
 
   <div class="op-view" id="bv-log">
@@ -909,15 +919,17 @@ window.opExec=async function(){
   const _tsePayload = _isTSE ? {symbol:tk} : {ticker:tk};
 
   if(t==='limit'){
-    lg(`[${_exch}] Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info');
+    lg(`[${_exch}] Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info',{tk,side:_side,qty,px:lp,exch:_exch,event:'PLACING'});
     const r=await apiPost(`${_base}/${_side}_limit`,{..._tsePayload,quantity:qty,limit_price:px4(lp),...(_isTSE?{}:{expiry_hours:exp})});
-    r.ok?lg(`✓ [${_exch}] LMT placed · ${(r.d.order_id||r.d.id||'').toString().slice(0,10)}…`,'ok'):lg(`✗ ${r.d.detail||r.d.error||'Order failed'}`,'err');
+    const oid=(r.d.order_id||r.d.id||'').toString();
+    r.ok?lg(`✓ [${_exch}] LMT placed · ${oid.slice(0,10)}…`,'ok',{tk,side:_side,qty,px:lp,oid,exch:_exch,event:'PLACED'}):lg(`✗ ${r.d.detail||r.d.error||'Order failed'}`,'err',{tk,side:_side,qty,px:lp,exch:_exch,event:'REJECTED'});
     doRefresh();return;
   }
   if(t==='market'){
-    lg(`[${_exch}] Placing ${_side.toUpperCase()} MKT ${qty}×${tk}…`,'info');
+    lg(`[${_exch}] Placing ${_side.toUpperCase()} MKT ${qty}×${tk}…`,'info',{tk,side:_side,qty,exch:_exch,event:'PLACING'});
     const r=await apiPost(`${_base}/${_side}_market`,{..._tsePayload,quantity:qty,...(_isTSE?{}:{expiry_hours:exp})});
-    r.ok?lg(`✓ [${_exch}] MKT filled`,'ok'):lg(`✗ ${r.d.detail||r.d.error||'Order failed'}`,'err');
+    const oid=(r.d.order_id||r.d.id||'').toString();
+    r.ok?lg(`✓ [${_exch}] MKT filled`,'ok',{tk,side:_side,qty,oid,exch:_exch,event:'FILLED'}):lg(`✗ ${r.d.detail||r.d.error||'Order failed'}`,'err',{tk,side:_side,qty,exch:_exch,event:'REJECTED'});
     doRefresh();return;
   }
   if(t==='fok'){
@@ -1377,7 +1389,7 @@ async function loadOpenOrders(){
 window.opCx=async function(id, exch='NER'){
   const url = exch==='TSE' ? `/api/tse/orders/${id}` : `/api/orders_open/${id}`;
   const r=await fetch(url,{method:'DELETE'}),d=await r.json().catch(()=>({}));
-  r.ok?lg(`[${exch}] Order ${id.toString().slice(0,10)}… cancelled`,'warn'):lg(`Cancel failed: ${d.detail||d.error||r.status}`,'err');
+  r.ok?lg(`[${exch}] Order ${id.toString().slice(0,10)}… cancelled`,'warn',{oid:id,exch,event:'CANCELLED'}):lg(`Cancel failed: ${d.detail||d.error||r.status}`,'err',{oid:id,exch,event:'CANCEL_FAIL'});
   setTimeout(loadOpenOrders,700);
 };
 window.opCancelAll=async function(){
@@ -1393,27 +1405,100 @@ window.opCancelAll=async function(){
 };
 
 // ── fills ──────────────────────────────────────────────────────
+// ── fills ──────────────────────────────────────────────────────
 async function loadFills(){
-  const r=await apiLive('/api/transactions?type=Trade&limit=60'),tb=g('op-fills-body');
-  const data=r.ok&&Array.isArray(r.d)?r.d:[];
-  if(!data.length){tb.innerHTML='<tr><td colspan="7" class="loading">No recent fills</td></tr>';return;}
-  tb.innerHTML=data.slice(0,50).map(tx=>`<tr>
-    <td class="dim" style="font-size:9px">${tx.timestamp?new Date(tx.timestamp).toLocaleTimeString('en-GB',{hour12:false}):'—'}</td>
-    <td class="wht" style="font-weight:700">${tx.ticker||'—'}</td>
-    <td style="color:${(tx.amount||0)>0?'var(--up)':'var(--dn)'};font-weight:700">${(tx.amount||0)>0?'BUY':'SELL'}</td>
-    <td class="r">${tx.quantity!=null?tx.quantity.toLocaleString():'—'}</td>
-    <td class="r yel">${tx.price!=null?'$'+f(tx.price,4):'—'}</td>
-    <td class="r wht">${tx.amount!=null?'$'+f(Math.abs(tx.amount),2):'—'}</td>
-    <td class="r dn">${tx.commission!=null?'$'+f(tx.commission,2):'—'}</td>
-  </tr>`).join('');
+  const tb=g('op-fills-body');
+  tb.innerHTML='<tr><td colspan="8" class="loading">Loading…</td></tr>';
+
+  // NER fills: /api/transactions returns only the authenticated user's own trades
+  const [nerR, tseR] = await Promise.all([
+    apiLive('/api/transactions?type=Trade&limit=100'),
+    apiLive('/api/tse/orders/history')
+  ]);
+
+  const rows=[];
+
+  // NER fills
+  if(nerR.ok && Array.isArray(nerR.d)){
+    nerR.d.forEach(tx=>{
+      rows.push({
+        ts: tx.timestamp||'',
+        exch:'NER',
+        tk: tx.ticker||tx.symbol||'—',
+        side: tx.amount!=null?(tx.amount>0?'buy':'sell'):(tx.side||''),
+        qty: tx.quantity!=null?tx.quantity:null,
+        px: tx.price!=null?tx.price:null,
+        value: tx.amount!=null?Math.abs(tx.amount):null,
+        comm: tx.commission!=null?tx.commission:null
+      });
+    });
+  }
+
+  // TSE fills: filter to filled/partial orders only
+  const tseData = tseR.ok ? (tseR.d?.orders||tseR.d?.history||(Array.isArray(tseR.d)?tseR.d:[])) : [];
+  tseData.forEach(o=>{
+    const st=(o.status||'').toLowerCase();
+    if(st!=='filled'&&st!=='partial'&&st!=='partially_filled') return;
+    const filledQty = o.filled_qty||o.filled_quantity||o.quantity||null;
+    const px = o.avg_fill_price||o.fill_price||o.limit_price||o.price||null;
+    const val = (filledQty&&px) ? filledQty*px : null;
+    rows.push({
+      ts: o.updated_at||o.filled_at||o.created_at||'',
+      exch:'TSE',
+      tk: 'TSE:'+(o.symbol||o.ticker||'?'),
+      side: (o.side||'').toLowerCase(),
+      qty: filledQty,
+      px,
+      value: val,
+      comm: null
+    });
+  });
+
+  // Sort newest first
+  rows.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+
+  // Store for export
+  g('op-fills-body').closest('.op-view')._fillsData = rows;
+
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="8" class="loading">No recent fills</td></tr>';
+    return;
+  }
+  tb.innerHTML=rows.slice(0,100).map(r=>{
+    const sideCol=r.side==='buy'?'var(--up)':r.side==='sell'?'var(--dn)':'var(--txt3)';
+    const exchCol=r.exch==='TSE'?'var(--cyn)':'var(--org)';
+    const tStr=r.ts?(r.ts.includes('T')?new Date(r.ts).toLocaleTimeString('en-GB',{hour12:false}):r.ts.slice(0,8)):'—';
+    return`<tr>
+      <td class="dim" style="font-size:9px">${tStr}</td>
+      <td><span style="font-size:9px;font-weight:700;color:${exchCol}">${r.exch}</span></td>
+      <td class="wht" style="font-weight:700">${r.tk}</td>
+      <td style="color:${sideCol};font-weight:700">${r.side?r.side.toUpperCase():'—'}</td>
+      <td class="r">${r.qty!=null?r.qty.toLocaleString():'—'}</td>
+      <td class="r yel">${r.px!=null?'$'+f2(r.px,4):'—'}</td>
+      <td class="r wht">${r.value!=null?'$'+f2(r.value,2):'—'}</td>
+      <td class="r dn">${r.comm!=null?'$'+f2(r.comm,2):'—'}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── log ────────────────────────────────────────────────────────
-function lg(msg,type='info'){
+// meta: {tk, side, qty, px, oid, exch, event} — optional structured data for audit trail
+function lg(msg,type='info',meta=null){
   const el=g('op-log');if(!el)return;
   const c={info:'var(--txt3)',ok:'var(--up)',warn:'var(--yel)',err:'var(--dn)'}[type];
   const d=document.createElement('div');
   d.style.cssText=`padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.3);color:${c}`;
+  d.dataset.ts=new Date().toISOString();
+  d.dataset.type=type;
+  if(meta){
+    if(meta.tk)   d.dataset.tk=meta.tk;
+    if(meta.side) d.dataset.side=meta.side;
+    if(meta.qty)  d.dataset.qty=meta.qty;
+    if(meta.px)   d.dataset.px=meta.px;
+    if(meta.oid)  d.dataset.oid=meta.oid;
+    if(meta.exch) d.dataset.exch=meta.exch;
+    if(meta.event)d.dataset.event=meta.event;
+  }
   d.innerHTML=`<span class="dim">${new Date().toLocaleTimeString('en-GB',{hour12:false})}</span>  ${msg}`;
   el.prepend(d);while(el.children.length>200)el.removeChild(el.lastChild);
 }
@@ -1422,39 +1507,81 @@ function lg(msg,type='info'){
 async function loadExecQuality(){
   const el=g('op-execq-body');
   el.innerHTML='<div class="loading" style="padding:14px">Computing…</div>';
-  // Pull fills and open orders to compute slippage, fill rate, timing stats
-  const [fr,or]=await Promise.all([api('/api/orders/fills'),api('/api/orders/open')]);
-  const fills=fr.ok&&Array.isArray(fr.d)?fr.d:[];
-  const opens=or.ok&&Array.isArray(or.d)?or.d:[];
-  if(!fills.length){el.innerHTML='<div style="padding:14px;color:var(--txt3)">No fills in session to analyse.</div>';return;}
 
-  // Group fills by ticker
+  // Pull fills from NER (own trades) + TSE order history + open orders
+  const [nerR, tseR, openR] = await Promise.all([
+    apiLive('/api/transactions?type=Trade&limit=200'),
+    apiLive('/api/tse/orders/history'),
+    apiLive('/api/orders_open')
+  ]);
+
+  const fills=[];
+
+  // NER fills
+  if(nerR.ok && Array.isArray(nerR.d)){
+    nerR.d.forEach(tx=>{
+      fills.push({
+        ticker: tx.ticker||tx.symbol||'?',
+        exch:'NER',
+        qty: tx.quantity||0,
+        px: tx.price||0,
+        side: tx.amount!=null?(tx.amount>0?'buy':'sell'):(tx.side||''),
+        ts: tx.timestamp||''
+      });
+    });
+  }
+
+  // TSE fills
+  const tseData = tseR.ok ? (tseR.d?.orders||tseR.d?.history||(Array.isArray(tseR.d)?tseR.d:[])) : [];
+  tseData.forEach(o=>{
+    const st=(o.status||'').toLowerCase();
+    if(st!=='filled'&&st!=='partial'&&st!=='partially_filled') return;
+    const qty=o.filled_qty||o.filled_quantity||o.quantity||0;
+    const px=+(o.avg_fill_price||o.fill_price||o.limit_price||o.price||0);
+    if(!qty||!px) return;
+    fills.push({
+      ticker:'TSE:'+(o.symbol||o.ticker||'?'),
+      exch:'TSE',
+      qty, px,
+      side:(o.side||'').toLowerCase(),
+      ts: o.updated_at||o.filled_at||o.created_at||''
+    });
+  });
+
+  const opens = openR.ok&&Array.isArray(openR.d)?openR.d:[];
+
+  if(!fills.length){
+    el.innerHTML='<div style="padding:14px;color:var(--txt3)">No fills found on NER or TSE.</div>';
+    return;
+  }
+
+  // Group by ticker
   const byTk={};
   fills.forEach(f=>{
-    const tk=f.ticker||f.symbol||'?';
-    if(!byTk[tk])byTk[tk]={fills:[],totalQty:0,totalValue:0,count:0};
+    const tk=f.ticker;
+    if(!byTk[tk])byTk[tk]={fills:[],totalQty:0,totalValue:0,count:0,exch:f.exch};
     byTk[tk].fills.push(f);
-    byTk[tk].totalQty+=(f.quantity||0);
-    byTk[tk].totalValue+=(f.quantity||0)*(f.price||0);
+    byTk[tk].totalQty+=f.qty;
+    byTk[tk].totalValue+=f.qty*f.px;
     byTk[tk].count++;
   });
 
-  // Compute session-level stats
   const totalFills=fills.length;
-  const totalQty=fills.reduce((s,f)=>s+(f.quantity||0),0);
-  const totalValue=fills.reduce((s,f)=>s+(f.quantity||0)*(f.price||0),0);
+  const totalQty=fills.reduce((s,f)=>s+f.qty,0);
+  const totalValue=fills.reduce((s,f)=>s+f.qty*f.px,0);
   const avgPx=totalQty?totalValue/totalQty:0;
   const pendingCount=opens.length;
 
-  // Build summary header
-  let html=`<div style="display:flex;gap:0;border-bottom:1px solid var(--bdr);background:var(--bg3)">`;
+  let html=`<div style="display:flex;gap:0;border-bottom:1px solid var(--bdr);background:var(--bg3);flex-shrink:0">`;
   const stats=[
     ['TOTAL FILLS',totalFills],
     ['TOTAL QTY',totalQty.toLocaleString()+' sh'],
     ['TOTAL VALUE','$'+f2(totalValue,0)],
     ['AVG FILL PX','$'+f2(avgPx,4)],
     ['OPEN ORDERS',pendingCount],
-    ['FILL RATE', pendingCount+totalFills>0 ? ((totalFills/(totalFills+pendingCount))*100).toFixed(1)+'%' : '—'],
+    ['FILL RATE', pendingCount+totalFills>0?((totalFills/(totalFills+pendingCount))*100).toFixed(1)+'%':'—'],
+    ['NER FILLS', fills.filter(x=>x.exch==='NER').length],
+    ['TSE FILLS', fills.filter(x=>x.exch==='TSE').length],
   ];
   stats.forEach(([l,v])=>{html+=`<div style="padding:7px 14px;border-right:1px solid var(--bdr)">
     <div style="font-size:8px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:2px">${l}</div>
@@ -1462,21 +1589,22 @@ async function loadExecQuality(){
   </div>`;});
   html+=`</div>`;
 
-  // Per-ticker breakdown table
   html+=`<div class="scroll" style="flex:1"><table class="dt"><thead><tr>
-    <th>TICKER</th><th class="r">FILLS</th><th class="r">TOTAL QTY</th>
+    <th>TICKER</th><th>EXCH</th><th class="r">FILLS</th><th class="r">TOTAL QTY</th>
     <th class="r">AVG FILL PX</th><th class="r">TOTAL VALUE</th><th class="r">COMM EST.</th>
   </tr></thead><tbody>`;
   Object.entries(byTk).sort((a,b)=>b[1].totalValue-a[1].totalValue).forEach(([tk,d])=>{
     const ap=d.totalQty?d.totalValue/d.totalQty:0;
-    const comm=d.totalValue*CR;
+    const comm=d.exch==='NER'?d.totalValue*CR:0;
+    const exchCol=d.exch==='TSE'?'var(--cyn)':'var(--org)';
     html+=`<tr>
       <td><span class="org" style="font-weight:700">${tk}</span></td>
+      <td><span style="font-size:9px;font-weight:700;color:${exchCol}">${d.exch}</span></td>
       <td class="r">${d.count}</td>
       <td class="r">${d.totalQty.toLocaleString()}</td>
       <td class="r">$${f2(ap,4)}</td>
       <td class="r">$${f2(d.totalValue,2)}</td>
-      <td class="r" style="color:var(--txt3)">$${f2(comm,2)}</td>
+      <td class="r" style="color:var(--txt3)">${d.exch==='NER'?'$'+f2(comm,2):'—'}</td>
     </tr>`;
   });
   html+=`</tbody></table></div>`;
@@ -1489,44 +1617,152 @@ async function loadExecQuality(){
 // ── audit trail ────────────────────────────────────────────────
 async function loadAuditTrail(){
   const tb=g('op-audit-body');
-  tb.innerHTML='<tr><td colspan="8" class="loading">Loading…</td></tr>';
-  // Combine fills + open orders into a unified timestamped audit log
-  const [fr,or]=await Promise.all([api('/api/orders/fills'),api('/api/orders/open')]);
+  tb.innerHTML='<tr><td colspan="9" class="loading">Loading…</td></tr>';
+
+  // Fetch NER filled trades, NER open orders, TSE history
+  const [nerFillsR, nerOpenR, tseFillsR] = await Promise.all([
+    apiLive('/api/transactions?type=Trade&limit=200'),
+    apiLive('/api/orders_open'),
+    apiLive('/api/tse/orders/history')
+  ]);
+
   const rows=[];
-  if(fr.ok&&Array.isArray(fr.d)) fr.d.forEach(f=>{
-    rows.push({ts:f.timestamp||f.time||'',event:'FILL',tk:f.ticker||f.symbol||'?',
-      side:f.side||'',qty:f.quantity||0,px:f.price||0,oid:f.order_id||f.id||'—',detail:f.algo||f.type||'MARKET'});
+
+  // NER fills
+  if(nerFillsR.ok && Array.isArray(nerFillsR.d)){
+    nerFillsR.d.forEach(tx=>{
+      rows.push({
+        ts: tx.timestamp||'',
+        event:'FILL', exch:'NER',
+        tk: tx.ticker||tx.symbol||'—',
+        side: tx.amount!=null?(tx.amount>0?'buy':'sell'):(tx.side||''),
+        qty: tx.quantity!=null?tx.quantity:0,
+        px: tx.price!=null?tx.price:0,
+        oid: tx.order_id||tx.trade_id||'—',
+        detail: tx.type||'NER FILL'
+      });
+    });
+  }
+
+  // NER open orders
+  if(nerOpenR.ok && Array.isArray(nerOpenR.d)){
+    nerOpenR.d.forEach(o=>{
+      rows.push({
+        ts: o.placed||o.timestamp||o.created_at||'',
+        event:'OPEN', exch:'NER',
+        tk: o.ticker||o.symbol||'—',
+        side: o.side||'',
+        qty: o.quantity||o.original_qty||0,
+        px: o.limit_price||o.price||0,
+        oid: o.order_id||o.id||'—',
+        detail: (o.type||o.order_type||'LMT').toUpperCase()
+      });
+    });
+  }
+
+  // TSE order history — all statuses
+  const tseData = tseFillsR.ok ? (tseFillsR.d?.orders||tseFillsR.d?.history||(Array.isArray(tseFillsR.d)?tseFillsR.d:[])) : [];
+  tseData.forEach(o=>{
+    const st=(o.status||'').toLowerCase();
+    const evMap={filled:'FILL',partially_filled:'PARTIAL',partial:'PARTIAL',cancelled:'CANCELLED',rejected:'REJECTED',open:'OPEN',pending:'OPEN'};
+    const event=evMap[st]||st.toUpperCase()||'TSE';
+    const qty=o.filled_qty||o.filled_quantity||o.quantity||0;
+    const px=+(o.avg_fill_price||o.fill_price||o.limit_price||o.price||0);
+    rows.push({
+      ts: o.updated_at||o.filled_at||o.created_at||'',
+      event, exch:'TSE',
+      tk:'TSE:'+(o.symbol||o.ticker||'?'),
+      side:(o.side||'').toLowerCase(),
+      qty, px,
+      oid: o.order_id||o.id||'—',
+      detail:(o.order_type||o.type||'LMT').toUpperCase()+' · '+st.toUpperCase()
+    });
   });
-  if(or.ok&&Array.isArray(or.d)) or.d.forEach(o=>{
-    rows.push({ts:o.placed||o.timestamp||'',event:'PLACED',tk:o.ticker||o.symbol||'?',
-      side:o.side||'',qty:o.quantity||0,px:o.price||o.limit_price||0,oid:o.id||'—',detail:o.type||'—'});
-  });
-  // Also append activity log lines from DOM as synthetic events
+
+  // Session log lines — read structured metadata attached by lg()
   const logLines=g('op-log')?.querySelectorAll('div')||[];
   logLines.forEach(d=>{
     const txt=d.textContent||'';
-    if(txt&&txt!=='Session started.')
-      rows.push({ts:'',event:'LOG',tk:'—',side:'',qty:0,px:0,oid:'',detail:txt.slice(0,80)});
+    if(!txt||txt==='Session started.') return;
+    rows.push({
+      ts: d.dataset.ts||'',
+      event: d.dataset.event||'LOG',
+      exch: d.dataset.exch||'—',
+      tk: d.dataset.tk||'—',
+      side: d.dataset.side||'',
+      qty: d.dataset.qty?+d.dataset.qty:0,
+      px: d.dataset.px?+d.dataset.px:0,
+      oid: d.dataset.oid||'—',
+      detail: txt.replace(/^\d{2}:\d{2}:\d{2}\s+/,'').slice(0,90)
+    });
   });
 
   rows.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
-  if(!rows.length){tb.innerHTML='<tr><td colspan="8" style="padding:12px;color:var(--txt3)">No audit events in session.</td></tr>';return;}
+
+  // Store for export
+  tb.closest('.op-view')._auditData = rows;
+
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="9" style="padding:12px;color:var(--txt3)">No audit events found.</td></tr>';
+    return;
+  }
 
   tb.innerHTML=rows.map(r=>{
     const sideCol=r.side==='buy'?'var(--up)':r.side==='sell'?'var(--dn)':'var(--txt3)';
-    const evCol=r.event==='FILL'?'var(--up)':r.event==='PLACED'?'var(--org)':'var(--txt3)';
+    const evColMap={FILL:'var(--up)',PARTIAL:'var(--teal)',PLACED:'var(--org)',OPEN:'var(--org)',CANCELLED:'var(--txt3)',REJECTED:'var(--dn)',LOG:'var(--txt3)'};
+    const evCol=evColMap[r.event]||'var(--yel)';
+    const exchCol=r.exch==='TSE'?'var(--cyn)':r.exch==='NER'?'var(--org)':'var(--txt3)';
     const tsShort=r.ts?(r.ts.includes('T')?r.ts.replace('T',' ').slice(0,19):r.ts.slice(0,19)):'—';
+    const oidShort=r.oid&&r.oid!=='—'?r.oid.toString().slice(0,12)+'…':r.oid;
     return`<tr>
-      <td style="font-variant-numeric:tabular-nums;color:var(--txt3)">${tsShort}</td>
+      <td style="font-variant-numeric:tabular-nums;color:var(--txt3);white-space:nowrap">${tsShort}</td>
       <td><span style="font-weight:700;color:${evCol}">${r.event}</span></td>
+      <td><span style="font-size:9px;font-weight:700;color:${exchCol}">${r.exch}</span></td>
       <td><span class="org" style="font-weight:700">${r.tk}</span></td>
-      <td><span style="color:${sideCol};font-weight:700">${r.side.toUpperCase()||'—'}</span></td>
+      <td><span style="color:${sideCol};font-weight:700">${r.side?r.side.toUpperCase():'—'}</span></td>
       <td class="r">${r.qty?r.qty.toLocaleString():'—'}</td>
       <td class="r">${r.px?'$'+f2(r.px,4):'—'}</td>
-      <td style="color:var(--txt3);font-size:9px">${r.oid}</td>
-      <td style="color:var(--txt3);font-size:9px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.detail}</td>
+      <td style="color:var(--txt3);font-size:9px">${oidShort}</td>
+      <td style="color:var(--txt3);font-size:9px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.detail}</td>
     </tr>`;
   }).join('');
+}
+
+// ── export helpers ─────────────────────────────────────────────
+function dlCSV(filename, headers, rows, sep=','){
+  const esc=v=>{const s=String(v==null?'':v);return s.includes(sep)||s.includes('"')||s.includes('\n')?`"${s.replace(/"/g,'""')}"`  :s;};
+  const lines=[headers.map(esc).join(sep),...rows.map(r=>r.map(esc).join(sep))];
+  const blob=new Blob([lines.join('\r\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+}
+function exportFills(fmt){
+  const view=g('bv-fills');
+  const data=view?._fillsData||[];
+  if(!data.length){lg('No fills data to export','warn');return;}
+  const sep=fmt==='tsv'?'\t':',';
+  const headers=['TIME','EXCH','TICKER','SIDE','QTY','PRICE','VALUE','COMMISSION'];
+  const rows=data.map(r=>[
+    r.ts?new Date(r.ts).toISOString().replace('T',' ').slice(0,19):'',
+    r.exch, r.tk, r.side?r.side.toUpperCase():'',
+    r.qty!=null?r.qty:'', r.px!=null?r.px:'',
+    r.value!=null?r.value:'', r.comm!=null?r.comm:''
+  ]);
+  dlCSV(`fills_${new Date().toISOString().slice(0,10)}.${fmt==='tsv'?'tsv':'csv'}`,headers,rows,sep);
+  lg(`Exported ${rows.length} fills as ${fmt.toUpperCase()}`,'ok');
+}
+function exportAudit(fmt){
+  const view=g('bv-audit');
+  const data=view?._auditData||[];
+  if(!data.length){lg('No audit data to export','warn');return;}
+  const sep=fmt==='tsv'?'\t':',';
+  const headers=['TIME','EVENT','EXCH','TICKER','SIDE','QTY','PRICE','ORDER_ID','DETAIL'];
+  const rows=data.map(r=>[
+    r.ts?new Date(r.ts).toISOString().replace('T',' ').slice(0,19):'',
+    r.event, r.exch, r.tk, r.side?r.side.toUpperCase():'',
+    r.qty||'', r.px||'', r.oid||'', r.detail||''
+  ]);
+  dlCSV(`audit_${new Date().toISOString().slice(0,10)}.${fmt==='tsv'?'tsv':'csv'}`,headers,rows,sep);
+  lg(`Exported ${rows.length} audit rows as ${fmt.toUpperCase()}`,'ok');
 }
 
 // helper used by exec quality
