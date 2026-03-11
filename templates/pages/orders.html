@@ -1405,65 +1405,62 @@ window.opCancelAll=async function(){
 };
 
 // ── fills ──────────────────────────────────────────────────────
-// ── fills ──────────────────────────────────────────────────────
 async function loadFills(){
   const tb=g('op-fills-body');
   tb.innerHTML='<tr><td colspan="8" class="loading">Loading…</td></tr>';
 
-  // NER fills: /api/transactions returns only the authenticated user's own trades
-  const [nerR, tseR] = await Promise.all([
-    apiLive('/api/transactions?type=Trade&limit=100'),
+  // NER: use /api/portfolio.transactions — authenticated user's own trades only
+  // /api/transactions hits Atlas public tape and returns all users' trades
+  // TSE: /api/tse/orders/history — authenticated user's orders from TSE
+  const [pfR, tseR] = await Promise.all([
+    apiLive('/api/portfolio'),
     apiLive('/api/tse/orders/history')
   ]);
 
   const rows=[];
 
-  // NER fills
-  if(nerR.ok && Array.isArray(nerR.d)){
-    nerR.d.forEach(tx=>{
+  // NER fills — portfolio.transactions only contains the auth user's trades
+  if(pfR.ok && pfR.d?.transactions){
+    pfR.d.transactions.forEach(tx=>{
+      const tk=tx.ticker||tx.symbol||tx.asset||'—';
+      if(tk.startsWith('TSE:')) return; // should not happen but guard anyway
+      const isTrade=!tx.type||tx.type==='Trade'||tx.type==='trade';
+      if(!isTrade) return;
       rows.push({
-        ts: tx.timestamp||'',
-        exch:'NER',
-        tk: tx.ticker||tx.symbol||'—',
-        side: tx.amount!=null?(tx.amount>0?'buy':'sell'):(tx.side||''),
-        qty: tx.quantity!=null?tx.quantity:null,
-        px: tx.price!=null?tx.price:null,
-        value: tx.amount!=null?Math.abs(tx.amount):null,
-        comm: tx.commission!=null?tx.commission:null
+        ts:   tx.timestamp||tx.time||'',
+        exch: 'NER',
+        tk,
+        side: tx.amount!=null?(+tx.amount>0?'buy':'sell'):(tx.side||''),
+        qty:  tx.quantity!=null?tx.quantity:null,
+        px:   tx.price!=null?tx.price:null,
+        value:tx.amount!=null?Math.abs(tx.amount):(tx.cash_total!=null?Math.abs(tx.cash_total):null),
+        comm: tx.commission!=null?tx.commission:(tx.fee!=null?tx.fee:null)
       });
     });
   }
 
-  // TSE fills: filter to filled/partial orders only
-  const tseData = tseR.ok ? (tseR.d?.orders||tseR.d?.history||(Array.isArray(tseR.d)?tseR.d:[])) : [];
-  tseData.forEach(o=>{
+  // TSE fills — filter to filled/partial only
+  const tseOrders=tseR.ok?(tseR.d?.orders||(Array.isArray(tseR.d)?tseR.d:[])):[];
+  tseOrders.forEach(o=>{
     const st=(o.status||'').toLowerCase();
     if(st!=='filled'&&st!=='partial'&&st!=='partially_filled') return;
-    const filledQty = o.filled_qty||o.filled_quantity||o.quantity||null;
-    const px = o.avg_fill_price||o.fill_price||o.limit_price||o.price||null;
-    const val = (filledQty&&px) ? filledQty*px : null;
+    const qty=o.filled_qty||o.filled_quantity||o.original_qty||o.quantity||null;
+    const px=+(o.avg_fill_price||o.fill_price||o.limit_price||o.price||0)||null;
     rows.push({
-      ts: o.updated_at||o.filled_at||o.created_at||'',
-      exch:'TSE',
-      tk: 'TSE:'+(o.symbol||o.ticker||'?'),
+      ts:   o.updated_at||o.filled_at||o.created_at||'',
+      exch: 'TSE',
+      tk:   'TSE:'+(o.symbol||o.ticker||'?'),
       side: (o.side||'').toLowerCase(),
-      qty: filledQty,
-      px,
-      value: val,
+      qty, px,
+      value: qty&&px?qty*px:null,
       comm: null
     });
   });
 
-  // Sort newest first
   rows.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  g('op-fills-body').closest('.op-view')._fillsData=rows;
 
-  // Store for export
-  g('op-fills-body').closest('.op-view')._fillsData = rows;
-
-  if(!rows.length){
-    tb.innerHTML='<tr><td colspan="8" class="loading">No recent fills</td></tr>';
-    return;
-  }
+  if(!rows.length){tb.innerHTML='<tr><td colspan="8" class="loading">No recent fills</td></tr>';return;}
   tb.innerHTML=rows.slice(0,100).map(r=>{
     const sideCol=r.side==='buy'?'var(--up)':r.side==='sell'?'var(--dn)':'var(--txt3)';
     const exchCol=r.exch==='TSE'?'var(--cyn)':'var(--org)';
@@ -1508,47 +1505,50 @@ async function loadExecQuality(){
   const el=g('op-execq-body');
   el.innerHTML='<div class="loading" style="padding:14px">Computing…</div>';
 
-  // Pull fills from NER (own trades) + TSE order history + open orders
-  const [nerR, tseR, openR] = await Promise.all([
-    apiLive('/api/transactions?type=Trade&limit=200'),
+  const [pfR, tseR, openR] = await Promise.all([
+    apiLive('/api/portfolio'),
     apiLive('/api/tse/orders/history'),
     apiLive('/api/orders_open')
   ]);
 
   const fills=[];
 
-  // NER fills
-  if(nerR.ok && Array.isArray(nerR.d)){
-    nerR.d.forEach(tx=>{
+  // NER — user's own trades from portfolio (NOT /api/transactions which is public tape)
+  if(pfR.ok && pfR.d?.transactions){
+    pfR.d.transactions.forEach(tx=>{
+      const tk=tx.ticker||tx.symbol||tx.asset||'?';
+      if(tk.startsWith('TSE:')) return;
+      const isTrade=!tx.type||tx.type==='Trade'||tx.type==='trade';
+      if(!isTrade) return;
       fills.push({
-        ticker: tx.ticker||tx.symbol||'?',
-        exch:'NER',
-        qty: tx.quantity||0,
-        px: tx.price||0,
-        side: tx.amount!=null?(tx.amount>0?'buy':'sell'):(tx.side||''),
-        ts: tx.timestamp||''
+        ticker: tk,
+        exch:  'NER',
+        qty:    tx.quantity||0,
+        px:     tx.price||0,
+        side:   tx.amount!=null?(+tx.amount>0?'buy':'sell'):(tx.side||''),
+        ts:     tx.timestamp||''
       });
     });
   }
 
-  // TSE fills
-  const tseData = tseR.ok ? (tseR.d?.orders||tseR.d?.history||(Array.isArray(tseR.d)?tseR.d:[])) : [];
-  tseData.forEach(o=>{
+  // TSE — authenticated user's filled orders
+  const tseOrders=tseR.ok?(tseR.d?.orders||(Array.isArray(tseR.d)?tseR.d:[])):[];
+  tseOrders.forEach(o=>{
     const st=(o.status||'').toLowerCase();
     if(st!=='filled'&&st!=='partial'&&st!=='partially_filled') return;
-    const qty=o.filled_qty||o.filled_quantity||o.quantity||0;
+    const qty=+(o.filled_qty||o.filled_quantity||o.original_qty||o.quantity||0);
     const px=+(o.avg_fill_price||o.fill_price||o.limit_price||o.price||0);
     if(!qty||!px) return;
     fills.push({
-      ticker:'TSE:'+(o.symbol||o.ticker||'?'),
-      exch:'TSE',
+      ticker: 'TSE:'+(o.symbol||o.ticker||'?'),
+      exch:  'TSE',
       qty, px,
-      side:(o.side||'').toLowerCase(),
-      ts: o.updated_at||o.filled_at||o.created_at||''
+      side:  (o.side||'').toLowerCase(),
+      ts:    o.updated_at||o.filled_at||o.created_at||''
     });
   });
 
-  const opens = openR.ok&&Array.isArray(openR.d)?openR.d:[];
+  const opens=openR.ok&&Array.isArray(openR.d)?openR.d:[];
 
   if(!fills.length){
     el.innerHTML='<div style="padding:14px;color:var(--txt3)">No fills found on NER or TSE.</div>';
@@ -1619,27 +1619,31 @@ async function loadAuditTrail(){
   const tb=g('op-audit-body');
   tb.innerHTML='<tr><td colspan="9" class="loading">Loading…</td></tr>';
 
-  // Fetch NER filled trades, NER open orders, TSE history
-  const [nerFillsR, nerOpenR, tseFillsR] = await Promise.all([
-    apiLive('/api/transactions?type=Trade&limit=200'),
+  // Fetch NER filled trades (via portfolio — user-specific), NER open orders, TSE history
+  const [pfR, nerOpenR, tseFillsR] = await Promise.all([
+    apiLive('/api/portfolio'),
     apiLive('/api/orders_open'),
     apiLive('/api/tse/orders/history')
   ]);
 
   const rows=[];
 
-  // NER fills
-  if(nerFillsR.ok && Array.isArray(nerFillsR.d)){
-    nerFillsR.d.forEach(tx=>{
+  // NER fills — from portfolio.transactions (user-specific, not public tape)
+  if(pfR.ok && pfR.d?.transactions){
+    pfR.d.transactions.forEach(tx=>{
+      const tk=tx.ticker||tx.symbol||tx.asset||'—';
+      if(tk.startsWith('TSE:')) return;
+      const isTrade=!tx.type||tx.type==='Trade'||tx.type==='trade';
+      if(!isTrade) return;
       rows.push({
-        ts: tx.timestamp||'',
-        event:'FILL', exch:'NER',
-        tk: tx.ticker||tx.symbol||'—',
-        side: tx.amount!=null?(tx.amount>0?'buy':'sell'):(tx.side||''),
-        qty: tx.quantity!=null?tx.quantity:0,
-        px: tx.price!=null?tx.price:0,
-        oid: tx.order_id||tx.trade_id||'—',
-        detail: tx.type||'NER FILL'
+        ts:     tx.timestamp||tx.time||'',
+        event:  'FILL', exch:'NER',
+        tk,
+        side:   tx.amount!=null?(+tx.amount>0?'buy':'sell'):(tx.side||''),
+        qty:    tx.quantity!=null?tx.quantity:0,
+        px:     tx.price!=null?tx.price:0,
+        oid:    tx.order_id||tx.trade_id||'—',
+        detail: 'NER FILL'
       });
     });
   }
