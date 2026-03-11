@@ -16,7 +16,7 @@
   </div>
   <div class="ff"><label>PERIOD</label>
     <select id="cmp-days" onchange="loadCompare()">
-      <option value="7">7D</option><option value="14">14D</option><option value="30" selected>30D</option><option value="60">60D</option><option value="90">90D</option>
+      <option value="7">7D</option><option value="14">14D</option><option value="30">30D</option><option value="60">60D</option><option value="90" selected>90D</option>
     </select>
   </div>
   <div class="ff"><label>CORR WINDOW</label>
@@ -98,13 +98,14 @@
 (function(){
 const COLORS=['#ffd600','#00e5ff','#00c853','#e040fb','#ff8c00','#f44336'];
 let _tickers=[], _cNorm=null, _cCorr=null, _cSpread=null, _statsData=[];
+let _filledMaps=[], _useDates=[];
 
 window.PAGE_cmp_onShow=function(){
   populateSel('cmp-add-sel');
   if(_tickers.length>=2){ loadCompare(); return; }
-  // Auto-seed with all available tickers so page is never blank
+  // Default tickers
   if(BB.secs && BB.secs.length>=2 && _tickers.length===0){
-    BB.secs.slice(0,6).forEach(s=>{ if(!_tickers.includes(s.ticker)) _tickers.push(s.ticker); });
+    ['BB','NTR','RTG'].forEach(t=>{ if(BB.secs.find(s=>s.ticker===t) && !_tickers.includes(t)) _tickers.push(t); });
     renderChips();
     loadCompare();
   }
@@ -134,6 +135,7 @@ function renderChips(){
 window.rebuildNormChart=function(){
   if(!_statsData.length) return;
   buildPriceChart(document.getElementById('cmp-mode').value);
+  if(_tickers.length===2) buildCorrAndSpread(+document.getElementById('cmp-win').value);
 };
 
 function buildPriceChart(mode){
@@ -204,6 +206,9 @@ function buildPriceChart(mode){
     return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2,spanGaps:true};
   });
 
+  _filledMaps=filledMaps;
+  _useDates=useDates;
+
   _cNorm=new Chart(document.getElementById('cmp-norm-c'),{type:'line',
     data:{labels:useDates,datasets},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
@@ -237,68 +242,9 @@ window.loadCompare=async function(){
   document.getElementById('cmp-spread-sub').textContent='';
 
   if(_tickers.length===2){
-    const r=await api(`/api/rolling_correlation?t1=${_tickers[0]}&t2=${_tickers[1]}&days=${days}&window=${win}`);
-    if(r.ok && r.d.dates && r.d.dates.length>0){
-      const d=r.d;
-      const corrVals=d.corr||[];
-      const corrBg=corrVals.map(v=>v==null?'rgba(80,80,80,.15)':v>0.7?'rgba(244,67,54,.75)':v>0.3?'rgba(255,214,0,.7)':v<-0.3?'rgba(0,229,255,.7)':'rgba(100,100,100,.4)');
-      _cCorr=new Chart(document.getElementById('cmp-corr-c'),{type:'bar',
-        data:{labels:d.dates,datasets:[{data:corrVals,backgroundColor:corrBg,borderWidth:0}]},
-        options:{responsive:true,maintainAspectRatio:false,animation:false,
-          interaction:{mode:'index',intersect:false},
-          plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>c.parsed.y!=null?` Corr: ${c.parsed.y.toFixed(3)}`:' —'}}},
-          scales:{x:{display:false},y:{min:-1,max:1,grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:5}}}}});
-      document.getElementById('cmp-corr-sub').textContent=d.full_corr!=null?` — Full period: ${d.full_corr.toFixed(3)}`:'';
-
-      const zData=d.spread_z||[];
-      _cSpread=new Chart(document.getElementById('cmp-spread-c'),{type:'line',
-        data:{labels:d.dates,datasets:[
-          {label:'Z',data:zData,borderColor:COLORS[0],borderWidth:1.5,pointRadius:0,fill:false,tension:.2},
-          {label:'+2σ',data:zData.map(()=>2),borderColor:'rgba(244,67,54,.4)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false},
-          {label:'-2σ',data:zData.map(()=>-2),borderColor:'rgba(0,200,83,.4)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false}]},
-        options:{responsive:true,maintainAspectRatio:false,animation:false,
-          interaction:{mode:'index',intersect:false},
-          plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>c.datasetIndex===0?` Z: ${c.parsed.y?.toFixed(3)}`:null}}},
-          scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:5}}}}});
-
-      const cz=d.current_spread_z;
-      const sig=cz!=null?(cz>2?`LONG ${_tickers[1]} / SHORT ${_tickers[0]}`:cz<-2?`LONG ${_tickers[0]} / SHORT ${_tickers[1]}`:Math.abs(cz)<0.5?'SPREAD AT MEAN':'WATCH — WIDENING'):'—';
-      const sigColor=cz!=null?(Math.abs(cz)>2?'var(--org)':Math.abs(cz)<0.5?'var(--up)':'var(--yel)'):'var(--txt3)';
-      document.getElementById('cmp-spread-sub').textContent=cz!=null?` Z=${cz.toFixed(2)}`:'';
-      document.getElementById('cmp-pairs-detail').style.display='grid';
-      document.getElementById('cmp-perf-rank').style.display='none';
-      document.getElementById('cmp-p6-title').textContent='PAIRS SIGNAL';
-      document.getElementById('cmp-pairs-detail').innerHTML=`
-        <span style="color:var(--txt3);font-size:9px">FULL CORR</span><span class="wht">${d.full_corr!=null?d.full_corr.toFixed(3):'—'}</span>
-        <span style="color:var(--txt3);font-size:9px">CURR Z</span><span style="color:${sigColor};font-weight:700">${cz!=null?cz.toFixed(3):'—'}</span>
-        <span style="color:var(--txt3);font-size:9px">SPREAD μ</span><span class="dim">${d.sp_mean!=null?d.sp_mean.toFixed(4):'—'}</span>
-        <span style="color:var(--txt3);font-size:9px">SPREAD σ</span><span class="dim">${d.sp_std!=null?d.sp_std.toFixed(4):'—'}</span>
-        <span style="color:var(--txt3);font-size:9px;grid-column:span 2">SIGNAL</span>
-        <span style="color:${sigColor};font-weight:700;font-size:11px;grid-column:span 2">${sig}</span>
-        <span style="color:var(--txt3);font-size:8px;grid-column:span 2">±2σ entry · ±0.5σ exit</span>`;
-    } else {
-      // Not enough data — show info in chart areas instead of blank charts
-      const win2=+document.getElementById('cmp-win').value;
-      const minNeeded=win2+2;
-      document.getElementById('cmp-corr-sub').textContent=` — Need ≥${minNeeded} candles for ${win2}D window`;
-      // Draw placeholder text in chart canvases
-      ['cmp-corr-c','cmp-spread-c'].forEach(id=>{
-        const canvas=document.getElementById(id); if(!canvas) return;
-        const ctx=canvas.getContext('2d');
-        ctx.clearRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle='#333'; ctx.font='11px monospace'; ctx.textAlign='center';
-        ctx.fillText(`Need ≥${minNeeded} candles (${win2}D window)`,canvas.width/2,canvas.height/2-8);
-        ctx.fillStyle='#555'; ctx.font='9px monospace';
-        ctx.fillText('Increase history period or reduce correlation window',canvas.width/2,canvas.height/2+10);
-      });
-      document.getElementById('cmp-pairs-detail').style.display='grid';
-      document.getElementById('cmp-perf-rank').style.display='none';
-      document.getElementById('cmp-p6-title').textContent='PAIRS SIGNAL';
-      document.getElementById('cmp-pairs-detail').innerHTML=`
-        <span style="color:var(--txt3);font-size:9px;grid-column:span 2">⚠ Insufficient data for ${win2}D rolling window</span>
-        <span style="color:var(--txt3);font-size:9px">REQUIRED</span><span class="yel">≥${minNeeded} candles</span>
-        <span style="color:var(--txt3);font-size:9px">TIP</span><span class="dim">Increase period or reduce window</span>`;
-    }
+    // Compute rolling correlation + spread Z-score client-side using forward-filled data
+    // This always works regardless of how sparse the raw candles are
+    buildCorrAndSpread(win);
   } else {
     // Multi-ticker mode: show performance rank
     document.getElementById('cmp-pairs-detail').style.display='none';
@@ -356,6 +302,114 @@ window.loadCompare=async function(){
   });
   document.getElementById('cmp-status').textContent=`${_tickers.length} tickers · ${days}D`;
 };
+
+// ── Client-side rolling correlation + spread Z using forward-filled prices ──
+function buildCorrAndSpread(win){
+  _cCorr=dc(_cCorr); _cSpread=dc(_cSpread);
+  if(_filledMaps.length<2||_useDates.length<2) return;
+
+  const fm0=_filledMaps[0], fm1=_filledMaps[1];
+  const dates=_useDates;
+  const p0=dates.map(d=>fm0[d]??null);
+  const p1=dates.map(d=>fm1[d]??null);
+
+  // Rolling window Pearson correlation
+  function rollingCorr(a,b,w){
+    const out=[];
+    for(let i=0;i<a.length;i++){
+      if(i<w-1){out.push(null);continue;}
+      const sa=a.slice(i-w+1,i+1), sb=b.slice(i-w+1,i+1);
+      const va=sa.filter(v=>v!=null), vb=sb.filter(v=>v!=null);
+      if(va.length<3){out.push(null);continue;}
+      const ma=va.reduce((s,v)=>s+v,0)/va.length;
+      const mb=vb.reduce((s,v)=>s+v,0)/vb.length;
+      let num=0,da2=0,db2=0;
+      for(let j=0;j<sa.length;j++){
+        if(sa[j]==null||sb[j]==null) continue;
+        num+=(sa[j]-ma)*(sb[j]-mb);
+        da2+=(sa[j]-ma)**2;
+        db2+=(sb[j]-mb)**2;
+      }
+      const denom=Math.sqrt(da2*db2);
+      out.push(denom>0?+(num/denom).toFixed(4):null);
+    }
+    return out;
+  }
+
+  // Log-price spread and rolling Z-score
+  function spreadZ(a,b,w){
+    const sp=a.map((v,i)=>v&&b[i]?Math.log(v/b[i]):null);
+    const zout=[];
+    for(let i=0;i<sp.length;i++){
+      if(i<w-1){zout.push(null);continue;}
+      const window=sp.slice(i-w+1,i+1).filter(v=>v!=null);
+      if(window.length<3){zout.push(null);continue;}
+      const mu=window.reduce((s,v)=>s+v,0)/window.length;
+      const sigma=Math.sqrt(window.reduce((s,v)=>s+(v-mu)**2,0)/window.length)||0.0001;
+      zout.push(sp[i]!=null?+((sp[i]-mu)/sigma).toFixed(4):null);
+    }
+    return{sp,zout};
+  }
+
+  const corrVals=rollingCorr(p0,p1,win);
+  const {sp,zout}=spreadZ(p0,p1,win);
+
+  // Full-period correlation
+  const validPairs=dates.map((_,i)=>[p0[i],p1[i]]).filter(([a,b])=>a!=null&&b!=null);
+  let fullCorr=null;
+  if(validPairs.length>=3){
+    const ma=validPairs.reduce((s,[a])=>s+a,0)/validPairs.length;
+    const mb=validPairs.reduce((s,[,b])=>s+b,0)/validPairs.length;
+    let num=0,da2=0,db2=0;
+    validPairs.forEach(([a,b])=>{num+=(a-ma)*(b-mb);da2+=(a-ma)**2;db2+=(b-mb)**2;});
+    const denom=Math.sqrt(da2*db2);
+    fullCorr=denom>0?+(num/denom).toFixed(4):null;
+  }
+
+  // Spread stats for pairs signal
+  const validZ=zout.filter(v=>v!=null);
+  const spValid=sp.filter(v=>v!=null);
+  const spMean=spValid.length?spValid.reduce((s,v)=>s+v,0)/spValid.length:null;
+  const spStd=spValid.length>1?Math.sqrt(spValid.reduce((s,v)=>s+(v-spMean)**2,0)/spValid.length):null;
+  const cz=validZ.length?validZ[validZ.length-1]:null;
+
+  // Render rolling corr chart
+  const corrBg=corrVals.map(v=>v==null?'rgba(80,80,80,.15)':v>0.7?'rgba(244,67,54,.75)':v>0.3?'rgba(255,214,0,.7)':v<-0.3?'rgba(0,229,255,.7)':'rgba(100,100,100,.4)');
+  _cCorr=new Chart(document.getElementById('cmp-corr-c'),{type:'bar',
+    data:{labels:dates,datasets:[{data:corrVals,backgroundColor:corrBg,borderWidth:0}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>c.parsed.y!=null?` Corr: ${c.parsed.y.toFixed(3)}`:' —'}}},
+      scales:{x:{display:false},y:{min:-1,max:1,grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:5}}}}});
+  document.getElementById('cmp-corr-sub').textContent=fullCorr!=null?` — Full period: ${fullCorr.toFixed(3)}`:'';
+
+  // Render spread Z chart
+  _cSpread=new Chart(document.getElementById('cmp-spread-c'),{type:'line',
+    data:{labels:dates,datasets:[
+      {label:'Z',data:zout,borderColor:COLORS[0],borderWidth:1.5,pointRadius:0,fill:false,tension:.2,spanGaps:true},
+      {label:'+2σ',data:dates.map(()=>2),borderColor:'rgba(244,67,54,.4)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false},
+      {label:'-2σ',data:dates.map(()=>-2),borderColor:'rgba(0,200,83,.4)',borderWidth:1,borderDash:[4,4],pointRadius:0,fill:false}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>c.datasetIndex===0?` Z: ${c.parsed.y?.toFixed(3)}`:null}}},
+      scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:5}}}}});
+
+  // Pairs signal panel
+  const sig=cz!=null?(cz>2?`LONG ${_tickers[1]} / SHORT ${_tickers[0]}`:cz<-2?`LONG ${_tickers[0]} / SHORT ${_tickers[1]}`:Math.abs(cz)<0.5?'SPREAD AT MEAN':'WATCH — WIDENING'):'—';
+  const sigColor=cz!=null?(Math.abs(cz)>2?'var(--org)':Math.abs(cz)<0.5?'var(--up)':'var(--yel)'):'var(--txt3)';
+  document.getElementById('cmp-spread-sub').textContent=cz!=null?` Z=${cz.toFixed(2)}`:'';
+  document.getElementById('cmp-pairs-detail').style.display='grid';
+  document.getElementById('cmp-perf-rank').style.display='none';
+  document.getElementById('cmp-p6-title').textContent='PAIRS SIGNAL';
+  document.getElementById('cmp-pairs-detail').innerHTML=`
+    <span style="color:var(--txt3);font-size:9px">FULL CORR</span><span class="wht">${fullCorr!=null?fullCorr.toFixed(3):'—'}</span>
+    <span style="color:var(--txt3);font-size:9px">CURR Z</span><span style="color:${sigColor};font-weight:700">${cz!=null?cz.toFixed(3):'—'}</span>
+    <span style="color:var(--txt3);font-size:9px">SPREAD μ</span><span class="dim">${spMean!=null?spMean.toFixed(4):'—'}</span>
+    <span style="color:var(--txt3);font-size:9px">SPREAD σ</span><span class="dim">${spStd!=null?spStd.toFixed(4):'—'}</span>
+    <span style="color:var(--txt3);font-size:9px;grid-column:span 2">SIGNAL</span>
+    <span style="color:${sigColor};font-weight:700;font-size:11px;grid-column:span 2">${sig}</span>
+    <span style="color:var(--txt3);font-size:8px;grid-column:span 2">±2σ entry · ±0.5σ exit</span>`;
+}
 
 function renderPerfRank() {
   if(!_statsData.length) return;
