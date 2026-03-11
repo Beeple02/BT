@@ -139,16 +139,50 @@ window.rebuildNormChart=function(){
 function buildPriceChart(mode){
   _cNorm=dc(_cNorm);
   if(!_statsData.length) return;
-  // Align all tickers to a common date set (intersection) so lines are same length
-  const datesets=_statsData.map(sd=>new Set(sd.candles.map(c=>c.date)));
-  const commonDates=_statsData[0].candles.map(c=>c.date)
-    .filter(d=>datesets.every(s=>s.has(d)));
-  // If intersection is too small, fall back to union with nulls
-  const useDates = commonDates.length >= 2 ? commonDates
-    : [...new Set(_statsData.flatMap(sd=>sd.candles.map(c=>c.date)))].sort();
-  // Auto-switch raw→norm when price scales differ >3x (e.g. BB=42 vs GCC=1.1)
-  let effectiveMode = mode;
-  if(mode==='raw' && _statsData.length>=2){
+
+  // Today's date string YYYY-MM-DD
+  const todayStr=new Date().toISOString().slice(0,10);
+
+  // Build per-ticker byDate maps, then forward-fill each series to today
+  // Forward-fill: if a date has no candle, carry the last known close forward
+  // This handles illiquid securities that go days/weeks without a trade
+  const filledMaps=_statsData.map(sd=>{
+    // Get all candle dates for this ticker, sorted
+    const sorted=[...sd.candles].sort((a,b)=>a.date.localeCompare(b.date));
+    if(!sorted.length) return {};
+    // Build date→close from actual candles
+    const byDate=Object.fromEntries(sorted.map(c=>[c.date,c.close]));
+    // Extend: generate every calendar date from first candle to today
+    const filled={};
+    const start=sorted[0].date;
+    const cur=new Date(start+'T12:00:00Z');
+    const end=new Date(todayStr+'T12:00:00Z');
+    let lastClose=sorted[0].close;
+    while(cur<=end){
+      const ds=cur.toISOString().slice(0,10);
+      if(byDate[ds]!=null) lastClose=byDate[ds];
+      // Only include the date if it's within the ticker's actual data range OR it's today
+      // (don't pad dates before the first candle)
+      if(ds>=start) filled[ds]=lastClose;
+      cur.setUTCDate(cur.getUTCDate()+1);
+    }
+    return filled;
+  });
+
+  // Build union of all dates across all filled maps, sorted
+  const allDatesSet=new Set();
+  filledMaps.forEach(m=>Object.keys(m).forEach(d=>allDatesSet.add(d)));
+  const allDatesSorted=[...allDatesSet].sort();
+
+  // Intersection: dates where every ticker has data (after forward-fill, this is almost always all dates)
+  const commonDates=allDatesSorted.filter(d=>filledMaps.every(m=>m[d]!=null));
+
+  // Use intersection if large enough, else union (forward-fill means union is nearly always fine)
+  const useDates=commonDates.length>=2?commonDates:allDatesSorted;
+
+  // Auto-switch raw→norm when price scales differ >3x
+  let effectiveMode=mode;
+  if(mode==='raw'&&_statsData.length>=2){
     const firstPrices=_statsData.map(sd=>{const c=sd.candles.find(c=>c.close>0);return c?c.close:null;}).filter(Boolean);
     if(firstPrices.length>=2){
       const ratio=Math.max(...firstPrices)/Math.min(...firstPrices);
@@ -156,20 +190,22 @@ function buildPriceChart(mode){
     }
   }
   const titles={raw:'RAW PRICE',norm:'NORMALISED (rebased 100)',pct:'% RETURN FROM START'};
-  const autoNote = effectiveMode!==mode ? ' (auto-normalised — prices differ >3x)' : '';
+  const autoNote=effectiveMode!==mode?' (auto-normalised — prices differ >3x)':'';
   document.getElementById('cmp-chart1-title').textContent=(titles[effectiveMode]||'PRICE CHART')+autoNote;
+
   const datasets=_statsData.map((sd,i)=>{
-    const byDate=Object.fromEntries(sd.candles.map(c=>[c.date,c.close]));
-    const cs=useDates.map(d=>byDate[d]??null);
+    const fm=filledMaps[i];
+    const cs=useDates.map(d=>fm[d]??null);
     const firstVal=cs.find(v=>v!=null)||1;
     let data=cs;
     if(effectiveMode==='norm'){ data=cs.map(v=>v!=null?+(v/firstVal*100).toFixed(4):null); }
     else if(effectiveMode==='pct'){ data=cs.map(v=>v!=null?+((v/firstVal-1)*100).toFixed(4):null); }
-    return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2,spanGaps:false};
+    // spanGaps:true because forward-fill means there are no meaningful gaps anymore
+    return{label:sd.ticker,data,borderColor:COLORS[i],borderWidth:1.5,pointRadius:0,fill:false,tension:.2,spanGaps:true};
   });
-  const allDates=useDates;
+
   _cNorm=new Chart(document.getElementById('cmp-norm-c'),{type:'line',
-    data:{labels:allDates,datasets},
+    data:{labels:useDates,datasets},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
       interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:true,position:'top',labels:{color:'#888',font:{size:9},boxWidth:10,padding:6}},
@@ -324,10 +360,15 @@ window.loadCompare=async function(){
 function renderPerfRank() {
   if(!_statsData.length) return;
   const el = document.getElementById('cmp-perf-rank'); if(!el) return;
+  const todayStr=new Date().toISOString().slice(0,10);
   const ranked = _statsData.map((sd,i) => {
-    const cs = sd.candles.map(c=>c.close);
-    if(!cs.length) return null;
-    const ret = (cs[cs.length-1]-cs[0])/cs[0]*100;
+    const sorted=[...sd.candles].sort((a,b)=>a.date.localeCompare(b.date));
+    if(!sorted.length) return null;
+    // Use forward-filled last close (same as chart — last known price = current price)
+    const firstClose=sorted[0].close;
+    const lastClose=sorted[sorted.length-1].close;
+    const ret = (lastClose-firstClose)/firstClose*100;
+    const cs = sorted.map(c=>c.close);
     const rets = cs.map((c,j)=>j?(c-cs[j-1])/cs[j-1]:0).slice(1);
     const avg = rets.reduce((s,v)=>s+v,0)/(rets.length||1);
     const std = Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/(rets.length||1))||0.0001;
