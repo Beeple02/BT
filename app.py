@@ -29,6 +29,16 @@ ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
 TSE_KEY  = os.environ.get("TSE_API_KEY") or ""
 TSE_H    = {"X-API-Key": TSE_KEY}
 
+# ── Delisted securities — hidden from all terminal pages ──────────────────────
+# These tickers are no longer traded. Filter them out at the API layer so no
+# HTML pages need individual changes.
+_DELISTED = {"RNHC", "CGF", "RNC-B", "RDS"}
+
+def _is_active(ticker: str) -> bool:
+    """Return False if the ticker (or its bare symbol) is delisted."""
+    bare = ticker[4:] if ticker.startswith("TSE:") else ticker
+    return bare not in _DELISTED and ticker not in _DELISTED
+
 # TSE cache — separate from NER cache
 _tse_cache: dict = {}
 
@@ -689,8 +699,9 @@ def securities():
     """List of all securities with metadata. Used by terminal init, market page, and many others."""
     s, d = atlas_get("/securities", ttl=60)
     if s != 200:
-        # Fallback to NER directly
         s, d = cached_get("/securities", ttl=60)
+    if isinstance(d, list):
+        d = [sec for sec in d if _is_active(sec.get("ticker",""))]
     return jsonify(d), s
 
 @app.route("/api/securities/<path:ticker>")
@@ -718,7 +729,8 @@ def market_breadth():
     sec_meta = {}
     if isinstance(secs_raw, list):
         for s in secs_raw:
-            sec_meta[s["ticker"]] = s
+            if _is_active(s["ticker"]):
+                sec_meta[s["ticker"]] = s
 
     all_tickers = list(sec_meta.keys())
 
@@ -919,7 +931,7 @@ def exchange_analytics():
     s_secs, secs = atlas_get("/securities", ttl=120)
     if s_secs != 200: return jsonify({"detail": "Cannot fetch securities"}), s_secs
 
-    ner_secs = [s for s in secs if not s["ticker"].startswith("TSE:")]
+    ner_secs = [s for s in secs if not s["ticker"].startswith("TSE:") and _is_active(s["ticker"])]
     tickers  = [s["ticker"] for s in ner_secs]
 
     # Parallel OHLCV fetch
@@ -1457,6 +1469,9 @@ def webhook_ner():
         ticker = data.get("ticker")
         if not ticker:
             return jsonify({"ok": False, "detail": "No ticker"}), 400
+        # Silently drop updates for delisted securities
+        if not _is_active(ticker):
+            return jsonify({"ok": True, "detail": "delisted — ignored"}), 200
 
         # Update SSE state cache
         _sse_state[ticker] = {
