@@ -135,6 +135,59 @@
 (function(){
 let _d=null, _ovs=new Set(['vwap']), _ch={};
 
+// ── Forward-fill candle array to today ────────────────────────────────────
+// For illiquid tickers that go days/weeks without a trade, this generates
+// a synthetic candle for every calendar day up to today, carrying the last
+// known OHLCV forward (volume=0 for synthetic days).
+// Also forward-fills any indicator arrays (sma20, rsi14, etc.) to match.
+function forwardFillCandles(candles, indicatorArrays) {
+  if(!candles || candles.length < 2) return { candles, indicators: indicatorArrays };
+  const todayStr = new Date().toISOString().slice(0,10);
+  // Build date→index map from real candles
+  const byDate = {};
+  candles.forEach((c,i) => { if(c.date) byDate[c.date] = i; });
+  const firstDate = candles[0].date;
+  if(!firstDate || firstDate >= todayStr) return { candles, indicators: indicatorArrays };
+
+  // Walk every calendar day from first candle to today
+  const filled = [];
+  const filledIndicators = Object.fromEntries(
+    Object.keys(indicatorArrays).map(k => [k, []])
+  );
+  const cur = new Date(firstDate + 'T12:00:00Z');
+  const end = new Date(todayStr  + 'T12:00:00Z');
+  let lastCandle = candles[0];
+  let lastIndicatorVals = Object.fromEntries(
+    Object.keys(indicatorArrays).map(k => [k, null])
+  );
+
+  while(cur <= end) {
+    const ds = cur.toISOString().slice(0,10);
+    if(byDate[ds] !== undefined) {
+      // Real candle — use it
+      lastCandle = candles[byDate[ds]];
+      Object.keys(indicatorArrays).forEach(k => {
+        const v = indicatorArrays[k]?.[byDate[ds]];
+        if(v != null) lastIndicatorVals[k] = v;
+      });
+    }
+    // Push forward-filled (or real) candle
+    filled.push({
+      ...lastCandle,
+      date: ds,
+      // synthetic days get 0 volume so bars don't lie about activity
+      volume: byDate[ds] !== undefined ? lastCandle.volume : 0,
+      _synthetic: byDate[ds] === undefined,
+    });
+    Object.keys(indicatorArrays).forEach(k => {
+      filledIndicators[k].push(lastIndicatorVals[k]);
+    });
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+
+  return { candles: filled, indicators: filledIndicators };
+}
+
 window.PAGE_tkr_onShow = function(ticker, exchange){
   populateSel('tkr-sel');
   const sel=document.getElementById('tkr-sel');
@@ -194,6 +247,21 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     return;
   }
   _d = sR.d;
+  // Forward-fill candles + all indicator series to today
+  const _ff = forwardFillCandles(_d.candles, {
+    sma20:   _d.sma20,   sma50:  _d.sma50,  sma100: _d.sma100,
+    vwap:    _d.vwap,    bb_upper: _d.bb_upper, bb_lower: _d.bb_lower,
+    macd_line: _d.macd_line, macd_signal: _d.macd_signal, macd_hist: _d.macd_hist,
+    rsi14:   _d.rsi14,   vol_ma20: _d.vol_ma20, atr14: _d.atr14,
+  });
+  _d.candles    = _ff.candles;
+  _d.sma20      = _ff.indicators.sma20;    _d.sma50    = _ff.indicators.sma50;
+  _d.sma100     = _ff.indicators.sma100;   _d.vwap     = _ff.indicators.vwap;
+  _d.bb_upper   = _ff.indicators.bb_upper; _d.bb_lower = _ff.indicators.bb_lower;
+  _d.macd_line  = _ff.indicators.macd_line; _d.macd_signal = _ff.indicators.macd_signal;
+  _d.macd_hist  = _ff.indicators.macd_hist; _d.rsi14   = _ff.indicators.rsi14;
+  _d.vol_ma20   = _ff.indicators.vol_ma20;  _d.atr14   = _ff.indicators.atr14;
+
   const cs=_d.candles, cl=cs.map(c=>c.close), hi=cs.map(c=>c.high), lo=cs.map(c=>c.low);
   const vols=cs.map(c=>c.volume), dates=cs.map(c=>c.date), last=cl[cl.length-1];
   const sec = (BB.secs||[]).find(s=>s.ticker===ticker) || {};
@@ -280,7 +348,7 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   // ── Volume ─────────────────────────────────────────────────────────────────
   _ch.vol = new Chart(document.getElementById('tkr-vc'),{type:'bar',
     data:{labels:dates,datasets:[
-      {data:vols,backgroundColor:cs.map(c=>c.close>=c.open?'rgba(0,200,83,.5)':'rgba(244,67,54,.5)'),borderWidth:0},
+      {data:vols,backgroundColor:cs.map(c=>c._synthetic?'rgba(0,0,0,0)':c.close>=c.open?'rgba(0,200,83,.5)':'rgba(244,67,54,.5)'),borderWidth:0},
       {type:'line',data:_d.vol_ma20,borderColor:'#ff8c00',borderWidth:1,pointRadius:0,fill:false,spanGaps:true}
     ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
@@ -479,7 +547,9 @@ async function _loadTSETicker(ticker, days, ctype) {
   // ── Header KPIs ──────────────────────────────────────────────────────────
   if(sR.ok && sR.d) {
     const d  = sR.d;
-    const cs = d.candles || [];
+    // Forward-fill TSE candles to today (illiquid — may have large gaps)
+    const _ff = forwardFillCandles(d.candles || [], {});
+    const cs = _ff.candles;
     const cl = cs.map(c=>c.close);
     const px = cl.length ? cl[cl.length-1] : 0;
 
