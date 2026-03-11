@@ -747,7 +747,7 @@ def market_breadth():
 
     for item in raw_secs:
         ticker = item.get("ticker", "")
-        if not ticker: continue
+        if not ticker or not _is_active(ticker): continue
         tickers_seen.add(ticker)
         meta    = sec_meta.get(ticker, {})
         derived = meta.get("derived", {}) or {}
