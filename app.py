@@ -382,6 +382,15 @@ def orderbook():
         return jsonify(ob), 200
     return jsonify(all_ob), 200
 
+@app.route("/api/orderbook/<path:ticker>")
+def orderbook_ticker(ticker):
+    """Single-ticker orderbook — proxies to Atlas /orderbook/{ticker}.
+    Handles both NER tickers (BB) and TSE tickers (TSE:ECO) since Atlas aggregates both."""
+    s, d = atlas_get(f"/orderbook/{ticker}", ttl=5)
+    if s != 200:
+        return jsonify({"detail": "Orderbook unavailable", "status": s}), s
+    return jsonify(d), 200
+
 @app.route("/api/analytics/price_history/<ticker>")
 def price_history(ticker):
     s, d = atlas_get(f"/history/{ticker}",
