@@ -677,13 +677,78 @@ function renderAttribution() {
     }
   }, 0);
 
-  // Waterfall chart
+  // Waterfall chart — floating bars [base, top] so each bar starts where the last ended
   _attrC = dc(_attrC);
-  const labels = [...items.map(it=>it.ticker), 'TOTAL'];
-  const values = [...items.map(it=>it.pnl), totalPnl];
-  const colors = values.map(v => v>=0 ? 'rgba(0,200,83,.75)' : 'rgba(244,67,54,.75)');
-  colors[colors.length-1] = totalPnl>=0 ? 'rgba(255,214,0,.85)' : 'rgba(244,67,54,.85)';
-  _attrC = mkBar(document.getElementById('pf-attr-c'), labels, values, colors);
+  const wfLabels = [...items.map(it=>it.ticker), 'TOTAL'];
+  const wfPnls   = items.map(it=>it.pnl);
+
+  // Build floating [from, to] pairs for each segment
+  const wfData = [];
+  let running = 0;
+  for (let i = 0; i < wfPnls.length; i++) {
+    const v = wfPnls[i];
+    wfData.push([running, running + v]);
+    running += v;
+  }
+  // TOTAL bar always starts from 0
+  wfData.push([0, totalPnl]);
+
+  const wfColors = wfData.map(([a,b], i) => {
+    if (i === wfData.length - 1) return totalPnl >= 0 ? 'rgba(255,214,0,.85)' : 'rgba(244,67,54,.85)';
+    return (b - a) >= 0 ? 'rgba(0,200,83,.75)' : 'rgba(244,67,54,.75)';
+  });
+  const wfBorders = wfColors.map(c => c.replace(/[\d.]+\)$/, '1)'));
+
+  _attrC = new Chart(document.getElementById('pf-attr-c'), {
+    type: 'bar',
+    data: {
+      labels: wfLabels,
+      datasets: [{
+        data: wfData,
+        backgroundColor: wfColors,
+        borderColor: wfBorders,
+        borderWidth: 1,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const [a, b] = ctx.raw;
+              const v = b - a;
+              return ` ${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+            }
+          },
+          backgroundColor: '#1a1a1a',
+          borderColor: '#333',
+          borderWidth: 1,
+          titleColor: '#fff',
+          bodyColor: '#ccc',
+          titleFont: { family: 'inherit', size: 10 },
+          bodyFont:  { family: 'inherit', size: 10 },
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,.04)' },
+          ticks: { color: '#737373', font: { family: 'inherit', size: 9 } },
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,.06)' },
+          ticks: {
+            color: '#737373',
+            font: { family: 'inherit', size: 9 },
+            callback: v => (v >= 0 ? '+' : '') + v.toFixed(0),
+          }
+        }
+      }
+    }
+  });
 
   // Summary
   const winners = items.filter(it=>it.pnl>0), losers = items.filter(it=>it.pnl<0);
