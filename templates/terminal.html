@@ -248,39 +248,239 @@ function buildTape(newList){
 }
 
 // ── Command line ──────────────────────────────────────────────────────────────
-document.getElementById('cmd-in').addEventListener('keydown', e=>{
-  if(e.key!=='Enter')return;
-  const raw=e.target.value.trim().toUpperCase();e.target.value='';if(!raw)return;
-  const parts=raw.split(/\s+/);
-  const fk={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf'};
-  const st=id=>document.getElementById('cmd-st').textContent=id;
-  if(fk[parts[0]]){sw(fk[parts[0]]);return;}
-  if(parts[0]==='HELP'){st('F1-F14 | TICKER | WATCH TICKER | LIQ TICKER | SCR | FEED | HELP | CLEAR');return;}
-  if(parts[0]==='SCR'){sw('scr');return;}
-  if(parts[0]==='FEED'||parts[0]==='NEWS'){sw('nf');return;}
-  if(parts[0]==='CLEAR'){st('—');return;}
-  if(parts[0]==='WATCH'&&parts[1]){
-    if(!BB.watchlist.find(w=>w.ticker===parts[1]))
-      BB.watchlist.push({ticker:parts[1],price:null,prev:null,hi:null,lo:null});
-      fetch('/api/session/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(BB.watchlist)}).catch(()=>{});
-    sw('wl');st('Added '+parts[1]+' to watchlist');return;
-  }
-  if(parts[0]==='LIQ'&&parts[1]){
-    sw('liq');
-    // Give page time to mount then call load
-    const check=setInterval(()=>{if(window.PAGE_liq_load){clearInterval(check);PAGE_liq_load(parts[1]);}},50);
-    return;
-  }
-  const sec=BB.secs.find(s=>s.ticker===parts[0]);
-  if(sec){
+// ── Command Line Engine ───────────────────────────────────────────────────────
+(function(){
+  const inp = document.getElementById('cmd-in');
+  const bar = document.getElementById('cmd-st');
+  let _hist=[], _histIdx=-1; // command history
+
+  const st  = (msg, cls='') => { bar.textContent=msg; bar.style.color=cls==='err'?'var(--dn)':cls==='ok'?'var(--up)':cls==='warn'?'var(--yel)':'var(--txt3)'; };
+  const stOk  = msg => st(msg,'ok');
+  const stErr = msg => st(msg,'err');
+  const stWrn = msg => st(msg,'warn');
+
+  // Wait for a page function to become available then call it
+  const whenReady = (fn, cb, ms=50) => { const t=setInterval(()=>{ if(window[fn]){clearInterval(t);cb();} },ms); };
+
+  // Page alias map
+  const PAGE = {F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf',
+    MKT:'mkt',TKR:'tkr',PF:'pf',PORT:'pf',ORD:'ord',ORDER:'ord',ORDERS:'ord',BT:'bt',BACKTEST:'bt',
+    CMP:'cmp',COMPARE:'cmp',WL:'wl',WATCH:'wl',HM:'hm',HEATMAP:'hm',EXCH:'exch',LIQ:'liq',
+    HOLD:'hold',HOLDERS:'hold',SCR:'scr',SCREENER:'scr',AL:'al',ALERTS:'al',NF:'nf',NEWS:'nf',FEED:'nf'};
+
+  // Quick-navigate to ticker page
+  const goTicker = (ticker, exchange) => {
     sw('tkr');
-    // Ticker page mounts synchronously via loadPage, so PAGE_tkr_load is available
-    const check=setInterval(()=>{if(window.PAGE_tkr_load){clearInterval(check);PAGE_tkr_load(parts[0]);}},50);
-    st(parts[0]+' — '+sec.full_name);
-  } else {
-    st('UNKNOWN: '+parts[0]);
-  }
-});
+    whenReady('PAGE_tkr_load', ()=>PAGE_tkr_load(ticker, exchange||null));
+    const sec=BB.secs.find(s=>s.ticker===ticker);
+    stOk(ticker + (sec?' — '+sec.full_name:''));
+  };
+
+  // Quick-navigate to liquidation analysis
+  const goLiq = ticker => {
+    sw('liq');
+    whenReady('PAGE_liq_load', ()=>PAGE_liq_load(ticker));
+    stOk('LIQ — '+ticker);
+  };
+
+  // Quick-navigate to compare with pre-loaded tickers
+  const goCompare = tickers => {
+    sw('cmp');
+    whenReady('PAGE_cmp_load', ()=>PAGE_cmp_load(tickers));
+    stOk('CMP — '+tickers.join(' vs '));
+  };
+
+  // Place an order via the orders page
+  const goOrder = (side, ticker, qty, price) => {
+    sw('ord');
+    const setup = () => {
+      const tkSel=document.getElementById('op-tk');
+      if(tkSel){ tkSel.value=ticker; if(window.opTickerChg) opTickerChg(); }
+      if(window.opSide) opSide(side.toLowerCase());
+      if(qty){
+        const qtyEl=document.getElementById('op-qty');
+        if(qtyEl){ qtyEl.value=qty; }
+      }
+      if(price){
+        const prEl=document.getElementById('op-px');
+        if(prEl){ prEl.value=price; }
+        const ltEl=document.getElementById('op-type');
+        if(ltEl) ltEl.value='limit';
+      }
+      stOk((side==='BUY'?'BUY ':'SELL ')+qty+' '+ticker+(price?' @ $'+price:''));
+    };
+    whenReady('opSide', setup);
+  };
+
+  // Add to watchlist
+  const addWatch = ticker => {
+    const sec=BB.secs.find(s=>s.ticker===ticker);
+    if(!sec){ stErr('UNKNOWN TICKER: '+ticker); return; }
+    if(BB.watchlist.find(w=>w.ticker===ticker)){ stWrn(ticker+' already on watchlist'); return; }
+    BB.watchlist.push({ticker,price:null,prev:null,hi:null,lo:null});
+    fetch('/api/session/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(BB.watchlist)}).catch(()=>{});
+    stOk('+ '+ticker+' → watchlist');
+  };
+
+  // Remove from watchlist
+  const rmWatch = ticker => {
+    const before=BB.watchlist.length;
+    BB.watchlist=BB.watchlist.filter(w=>w.ticker!==ticker);
+    if(BB.watchlist.length===before){ stErr(ticker+' not on watchlist'); return; }
+    fetch('/api/session/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(BB.watchlist)}).catch(()=>{});
+    stOk('− '+ticker+' removed from watchlist');
+  };
+
+  // Fetch + display live price in status bar
+  const quoteTicker = async ticker => {
+    const sec=BB.secs.find(s=>s.ticker===ticker);
+    if(!sec){ stErr('UNKNOWN: '+ticker); return; }
+    const px=sec.market_price;
+    const chg=sec.change_pct;
+    if(px==null){ st(ticker+' — no price data'); return; }
+    const chgStr=chg!=null?(chg>=0?'+':'')+chg.toFixed(2)+'%':'';
+    stOk(`${ticker}  $${px.toFixed(4)}  ${chgStr}  ${sec.frozen?'[FROZEN]':''}`);
+  };
+
+  // HELP text rows
+  const HELP_ROWS = [
+    ['NAVIGATION',''],
+    ['  <TICKER>','Go to ticker page  (e.g. BB · NTR · TSE:ECO)'],
+    ['  <F1–F14>','Jump to function key page'],
+    ['  MKT / TKR / ORD / PF / HM / SCR …','Page aliases'],
+    ['ORDER ENTRY',''],
+    ['  B <TICKER> <QTY>','Quick market buy  (e.g. B BB 500)'],
+    ['  S <TICKER> <QTY>','Quick market sell  (e.g. S NTR 200)'],
+    ['  B <TICKER> <QTY> <PRICE>','Limit buy  (e.g. B BB 500 12.50)'],
+    ['  S <TICKER> <QTY> <PRICE>','Limit sell'],
+    ['WATCHLIST',''],
+    ['  WATCH <TICKER>  /  W+ <TICKER>','Add to watchlist'],
+    ['  UNWATCH <TICKER>  /  W- <TICKER>','Remove from watchlist'],
+    ['  WL','Open watchlist page'],
+    ['ANALYSIS',''],
+    ['  Q <TICKER>','Quick quote — price + chg% in status bar'],
+    ['  CMP <T1> <T2> [T3…]','Open compare with those tickers'],
+    ['  LIQ <TICKER>','Liquidation analysis for ticker'],
+    ['  HOLD','Holder intelligence page'],
+    ['  SCR','Screener'],
+    ['UTILITY',''],
+    ['  CLEAR','Clear status bar'],
+    ['  HELP','Show this reference'],
+  ];
+
+  const showHelp = () => {
+    // Print to status bar cycling through rows, or open a tooltip overlay
+    const existing=document.getElementById('cmd-help-overlay');
+    if(existing){ existing.remove(); return; }
+    const ov=document.createElement('div');
+    ov.id='cmd-help-overlay';
+    ov.style.cssText='position:fixed;bottom:22px;left:0;right:0;background:#0a0a0a;border-top:1px solid var(--org);padding:10px 14px;font-family:var(--font);font-size:10px;z-index:9999;max-height:260px;overflow-y:auto;display:grid;grid-template-columns:220px 1fr;gap:2px 12px';
+    ov.innerHTML=HELP_ROWS.map(([cmd,desc])=>
+      cmd.startsWith(' ')
+        ? `<span style="color:var(--cyn);padding-left:8px">${cmd.trim()}</span><span style="color:var(--txt2)">${desc}</span>`
+        : `<span style="color:var(--org);font-weight:700;grid-column:1/-1;margin-top:6px;letter-spacing:1px">${cmd}</span><span></span>`
+    ).join('');
+    // Click anywhere to close
+    ov.addEventListener('click',()=>ov.remove());
+    document.getElementById('app').appendChild(ov);
+    inp.focus();
+    st('HELP — click overlay to close');
+  };
+
+  // ── Main dispatcher ─────────────────────────────────────────────────────────
+  const dispatch = raw => {
+    if(!raw) return;
+    const parts = raw.trim().toUpperCase().split(/\s+/);
+    const cmd = parts[0];
+
+    // Close help overlay on any command
+    const ov=document.getElementById('cmd-help-overlay'); if(ov) ov.remove();
+
+    // Page navigation — F-keys and aliases
+    if(PAGE[cmd]){ sw(PAGE[cmd]); st(cmd); return; }
+
+    // HELP
+    if(cmd==='HELP'||cmd==='?'){ showHelp(); return; }
+
+    // CLEAR
+    if(cmd==='CLEAR'){ st('—'); return; }
+
+    // QUOTE  Q <TICKER>
+    if(cmd==='Q'&&parts[1]){ quoteTicker(parts[1]); return; }
+    // bare ticker alone → quote in status bar if already on ticker page, else navigate
+    const sec=BB.secs.find(s=>s.ticker===cmd);
+    if(sec){ goTicker(cmd); return; }
+
+    // BUY / B  and  SELL / S
+    if((cmd==='B'||cmd==='BUY')&&parts[1]){
+      goOrder('BUY', parts[1], parts[2]||'', parts[3]||null); return;
+    }
+    if((cmd==='S'||cmd==='SELL')&&parts[1]){
+      goOrder('SELL', parts[1], parts[2]||'', parts[3]||null); return;
+    }
+
+    // WATCH  /  W+
+    if((cmd==='WATCH'||cmd==='W+')&&parts[1]){ addWatch(parts[1]); return; }
+    // UNWATCH  /  W-
+    if((cmd==='UNWATCH'||cmd==='W-')&&parts[1]){ rmWatch(parts[1]); return; }
+
+    // LIQ <TICKER>
+    if(cmd==='LIQ'&&parts[1]){ goLiq(parts[1]); return; }
+
+    // CMP <T1> <T2> [T3…]
+    if(cmd==='CMP'||cmd==='COMPARE'){
+      const tickers=parts.slice(1).filter(Boolean);
+      if(tickers.length>=2){ goCompare(tickers); return; }
+      sw('cmp'); st('CMP'); return;
+    }
+
+    stErr('UNKNOWN: '+cmd+' — type HELP or ?');
+  };
+
+  // Enter → dispatch
+  inp.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      const raw=inp.value.trim(); inp.value='';
+      if(!raw) return;
+      _hist.unshift(raw); if(_hist.length>50) _hist.pop();
+      _histIdx=-1;
+      dispatch(raw);
+      return;
+    }
+    // ↑↓ history navigation
+    if(e.key==='ArrowUp'){
+      e.preventDefault();
+      if(_histIdx<_hist.length-1){ _histIdx++; inp.value=_hist[_histIdx]; }
+      return;
+    }
+    if(e.key==='ArrowDown'){
+      e.preventDefault();
+      if(_histIdx>0){ _histIdx--; inp.value=_hist[_histIdx]; }
+      else{ _histIdx=-1; inp.value=''; }
+      return;
+    }
+    // Tab autocomplete — try ticker match
+    if(e.key==='Tab'){
+      e.preventDefault();
+      const v=inp.value.trim().toUpperCase();
+      if(!v) return;
+      const parts=v.split(/\s+/);
+      const last=parts[parts.length-1];
+      const match=BB.secs.find(s=>s.ticker.startsWith(last));
+      if(match){
+        parts[parts.length-1]=match.ticker;
+        inp.value=parts.join(' ');
+        st('TAB → '+match.ticker+' — '+match.full_name);
+      }
+      return;
+    }
+    // Esc → clear input
+    if(e.key==='Escape'){ inp.value=''; st('—'); return; }
+  });
+
+  // Update placeholder to hint at new commands
+  inp.placeholder='TICKER · B/S TICKER QTY [PRICE] · Q TICKER · CMP T1 T2 · W+/W- TICKER · HELP · F1–F14';
+})();
 
 // ── SSE — Real-time market updates ───────────────────────────────────────────
 // Connects to /api/stream (Server-Sent Events).
