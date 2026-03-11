@@ -254,7 +254,8 @@ async function loadMktChart(ticker) {
   const r=await api(`/api/analytics/price_history/${ticker}?days=30`);
   _chart=dc(_chart);
   if(r.ok&&r.d.length){
-    const pts=r.d,chg=(pts[pts.length-1].price-pts[0].price)/pts[0].price*100;
+    const pts=[...r.d].sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
+    const chg=(pts[pts.length-1].price-pts[0].price)/pts[0].price*100;
     document.getElementById('mkt-cmeta').innerHTML=`
       <span style="color:${gcI(chg)};font-weight:${gcIW(chg)}">${fp(chg)} 30D</span>
       <span class="wbtn on" id="mkt-line-btn" onclick="mktSetChart('line')">LINE</span>
