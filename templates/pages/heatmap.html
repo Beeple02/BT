@@ -90,67 +90,106 @@ let _cache={}, _obCache={}, _holderCache={};
 
 window.PAGE_hm_onShow=function(){ loadHM(); };
 
-// ── Squarified treemap (Bruls et al.) — pixel-perfect ──────────────────────
+// ── Golden-ratio treemap — TradingView-style ───────────────────────────────
+// The largest item always claims the φ-proportioned slice of the longer axis.
+// The remainder recurse into the leftover rectangle, creating the organic
+// nested / spiral look that TradingView uses.
+//
+// φ ≈ 0.618  (1/golden-ratio) — largest cell takes this fraction of the axis.
+// When only 2 items remain we use their exact weight ratio instead.
+
+const PHI = 0.6180339887; // 1/φ
+
 function squarify(items, x, y, w, h) {
-  const totalV = items.reduce((s, i) => s + i.v, 0) || 1;
-  const scale  = (w * h) / totalV;
-  const norm   = items.map(i => ({...i, v: i.v * scale}));
+  if (!items.length) return [];
+  const total = items.reduce((s, i) => s + i.v, 0) || 1;
+  // Normalise so weights sum to 1
+  const norm  = items.map(i => ({...i, v: i.v / total}));
+  // Must be sorted descending — caller already does this but enforce here
+  norm.sort((a, b) => b.v - a.v);
   const result = [];
-  _sqLayout(norm, x, y, w, h, result);
+  _goldenLayout(norm, x, y, w, h, result);
   return result;
 }
 
-function _sqLayout(items, x, y, w, h, out) {
+function _goldenLayout(items, x, y, w, h, out) {
+  if (!items.length) return;
+
+  // Snap dimensions to integer pixels to stop drift accumulating
+  x = Math.round(x); y = Math.round(y);
+  w = Math.round(w); h = Math.round(h);
+  if (w < 1 || h < 1) return;
+
+  if (items.length === 1) {
+    out.push({...items[0], x, y, w, h});
+    return;
+  }
+
+  const total = items.reduce((s, i) => s + i.v, 0);
+
+  if (items.length === 2) {
+    // Exact split by weight
+    const frac = items[0].v / total;
+    if (w >= h) {
+      const w0 = Math.round(w * frac);
+      out.push({...items[0], x,      y, w: w0,     h});
+      out.push({...items[1], x: x+w0, y, w: w-w0,  h});
+    } else {
+      const h0 = Math.round(h * frac);
+      out.push({...items[0], x, y,      w, h: h0   });
+      out.push({...items[1], x, y: y+h0, w, h: h-h0});
+    }
+    return;
+  }
+
+  // Find the split point: the largest item gets PHI of the long axis,
+  // then greedily add more items to that slab while their total weight
+  // doesn't exceed PHI (keeps the slab well-filled without over-crowding).
+  const slabTarget = total * PHI;
+  let slabSum = 0, splitIdx = 0;
+  for (let i = 0; i < items.length - 1; i++) {
+    slabSum += items[i].v;
+    splitIdx = i + 1;
+    if (slabSum >= slabTarget) break;
+  }
+  // Ensure at least one item in each partition
+  if (splitIdx === 0) splitIdx = 1;
+  if (splitIdx >= items.length) splitIdx = items.length - 1;
+
+  const slab = items.slice(0, splitIdx);
+  const rest = items.slice(splitIdx);
+  const slabFrac = slabSum / total;
+
+  if (w >= h) {
+    // Split vertically — slab on the left
+    const slabW = Math.round(w * slabFrac);
+    _fillSlab(slab, slabSum, x, y, slabW, h, out);
+    _goldenLayout(rest, x + slabW, y, w - slabW, h, out);
+  } else {
+    // Split horizontally — slab on top
+    const slabH = Math.round(h * slabFrac);
+    _fillSlab(slab, slabSum, x, y, w, slabH, out);
+    _goldenLayout(rest, x, y + slabH, w, h - slabH, out);
+  }
+}
+
+// Fill a slab with its items stacked along the slab's SHORT axis
+function _fillSlab(items, total, x, y, w, h, out) {
   if (!items.length) return;
   if (items.length === 1) { out.push({...items[0], x, y, w, h}); return; }
-
-  const horiz = w >= h;
-  const total = items.reduce((s, i) => s + i.v, 0);
-  let rowItems = [], rowSum = 0, bestWorst = Infinity;
-
-  for (let i = 0; i < items.length; i++) {
-    const cand    = [...rowItems, items[i]];
-    const candSum = rowSum + items[i].v;
-    const thick   = horiz ? (candSum / total) * h : (candSum / total) * w;
-    const worst   = _worstAR(cand, candSum, thick);
-
-    if (rowItems.length > 0 && worst > bestWorst) {
-      _placeStrip(rowItems, rowSum, total, x, y, w, h, horiz, out);
-      const t = horiz ? (rowSum / total) * h : (rowSum / total) * w;
-      if (horiz) _sqLayout(items.slice(i), x,     y + t, w,     h - t, out);
-      else       _sqLayout(items.slice(i), x + t, y,     w - t, h,     out);
-      return;
-    }
-    rowItems  = cand;
-    rowSum    = candSum;
-    bestWorst = worst;
-  }
-  _placeStrip(rowItems, rowSum, total, x, y, w, h, horiz, out);
-}
-
-function _worstAR(row, rowSum, thick) {
-  let worst = 0;
-  for (const item of row) {
-    const b = (item.v / rowSum) || 0.0001;
-    const ar = Math.max(thick / b, b / thick);
-    if (ar > worst) worst = ar;
-  }
-  return worst;
-}
-
-function _placeStrip(row, rowSum, total, x, y, w, h, horiz, out) {
-  const thick = horiz ? (rowSum / total) * h : (rowSum / total) * w;
+  // Stack items along the short axis of this slab
+  const stackHoriz = w < h; // stack left-right inside a tall slab, top-bottom inside a wide slab
   let pos = 0;
-  row.forEach((item, idx) => {
-    const isLast = idx === row.length - 1;
-    const frac   = item.v / rowSum;
-    if (horiz) {
-      const iw = isLast ? w - pos : frac * w;
-      out.push({...item, x: x + pos, y, w: iw, h: thick});
+  items.forEach((item, idx) => {
+    const isLast = idx === items.length - 1;
+    const frac   = item.v / total;
+    if (stackHoriz) {
+      const iw = isLast ? w - pos : Math.round(frac * w);
+      out.push({...item, x: x + pos, y, w: iw, h});
       pos += iw;
     } else {
-      const ih = isLast ? h - pos : frac * h;
-      out.push({...item, x, y: y + pos, w: thick, h: ih});
+      const ih = isLast ? h - pos : Math.round(frac * h);
+      out.push({...item, x, y: y + pos, w, h: ih});
       pos += ih;
     }
   });
