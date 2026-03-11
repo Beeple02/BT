@@ -39,6 +39,30 @@ def _is_active(ticker: str) -> bool:
     bare = ticker[4:] if ticker.startswith("TSE:") else ticker
     return bare not in _DELISTED and ticker not in _DELISTED
 
+# ── Holder display-name registry ─────────────────────────────────────────────
+# Set env vars on Railway like:
+#   HOLDER_NAME_67660296 = "Nexalin Capital"
+#   HOLDER_NAME_84775988 = "Whop Global Markets"
+# The suffix is the LAST 8 characters of the user_id (case-insensitive match).
+# Full user_id keys are also supported for exact matches.
+_HOLDER_NAMES: dict = {}
+for _k, _v in os.environ.items():
+    if _k.startswith("HOLDER_NAME_"):
+        _suffix = _k[len("HOLDER_NAME_"):].lower()
+        _HOLDER_NAMES[_suffix] = _v.strip()
+
+def _resolve_holder(user_id: str) -> str:
+    """Return display name for a user_id, or '…XXXXXXXX' fallback."""
+    if not user_id:
+        return "—"
+    uid_lower = user_id.lower()
+    # Try exact match first, then last-8-char suffix
+    return (
+        _HOLDER_NAMES.get(uid_lower)
+        or _HOLDER_NAMES.get(uid_lower[-8:])
+        or f"…{user_id[-8:]}"
+    )
+
 # TSE cache — separate from NER cache
 _tse_cache: dict = {}
 
@@ -1118,7 +1142,7 @@ def holder_intel():
             "top5_pct":   top5,
             "top10_pct":  top10,
             "whale_count": len(whales),
-            "holders":    holders[:20],
+            "holders":    [{**h, "display_name": _resolve_holder(h.get("user_id",""))} for h in holders[:20]],
         }
 
     all_data = []
@@ -1140,7 +1164,7 @@ def holder_intel():
                 if uid not in whale_map: whale_map[uid] = []
                 whale_map[uid].append({"ticker": t, "qty": h["quantity"], "pct": pct})
 
-    whales = [{"user_id": uid, "positions": pos, "num_positions": len(pos)}
+    whales = [{"user_id": uid, "display_name": _resolve_holder(uid), "positions": pos, "num_positions": len(pos)}
               for uid, pos in whale_map.items()]
     whales.sort(key=lambda x: x["num_positions"], reverse=True)
 
