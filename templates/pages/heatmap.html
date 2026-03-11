@@ -90,83 +90,68 @@ let _cache={}, _obCache={}, _holderCache={};
 
 window.PAGE_hm_onShow=function(){ loadHM(); };
 
-// ── Correct squarified treemap (Bruls et al.) ──────────────────────────────
-// items: array of {v: pixel-area, ...data}
-// returns array of {x, y, w, h, ...data}
+// ── Squarified treemap (Bruls et al.) — pixel-perfect ──────────────────────
 function squarify(items, x, y, w, h) {
+  const totalV = items.reduce((s, i) => s + i.v, 0) || 1;
+  const scale  = (w * h) / totalV;
+  const norm   = items.map(i => ({...i, v: i.v * scale}));
   const result = [];
-  _layout(items.slice(), x, y, w, h, result);
+  _sqLayout(norm, x, y, w, h, result);
   return result;
 }
 
-function _layout(items, x, y, w, h, result) {
+function _sqLayout(items, x, y, w, h, out) {
   if (!items.length) return;
-  if (items.length === 1) {
-    result.push({...items[0], x, y, w, h});
-    return;
-  }
+  if (items.length === 1) { out.push({...items[0], x, y, w, h}); return; }
 
+  const horiz = w >= h;
   const total = items.reduce((s, i) => s + i.v, 0);
-  const row = [];
-  let rowSum = 0;
-  let prev = Infinity;
+  let rowItems = [], rowSum = 0, bestWorst = Infinity;
 
   for (let i = 0; i < items.length; i++) {
-    row.push(items[i]);
-    rowSum += items[i].v;
-    const curr = _worst(row, rowSum, w, h);
-    if (curr > prev) {
-      // Adding this item makes it worse — commit previous row without last item
-      row.pop();
-      rowSum -= items[i].v;
-      _placeRow(row, rowSum, total, x, y, w, h, result);
-      // Recurse on remainder
-      const placed = _rowArea(rowSum, total, w, h);
-      if (w >= h) _layout(items.slice(i), x + placed, y, w - placed, h, result);
-      else        _layout(items.slice(i), x, y + placed, w, h - placed, result);
+    const cand    = [...rowItems, items[i]];
+    const candSum = rowSum + items[i].v;
+    const thick   = horiz ? (candSum / total) * h : (candSum / total) * w;
+    const worst   = _worstAR(cand, candSum, thick);
+
+    if (rowItems.length > 0 && worst > bestWorst) {
+      _placeStrip(rowItems, rowSum, total, x, y, w, h, horiz, out);
+      const t = horiz ? (rowSum / total) * h : (rowSum / total) * w;
+      if (horiz) _sqLayout(items.slice(i), x,     y + t, w,     h - t, out);
+      else       _sqLayout(items.slice(i), x + t, y,     w - t, h,     out);
       return;
     }
-    prev = curr;
+    rowItems  = cand;
+    rowSum    = candSum;
+    bestWorst = worst;
   }
-
-  // All items fit in one row
-  _placeRow(row, rowSum, total, x, y, w, h, result);
+  _placeStrip(rowItems, rowSum, total, x, y, w, h, horiz, out);
 }
 
-function _rowArea(rowSum, total, w, h) {
-  // Length of the strip along the SHORT side
-  return Math.min(w, h) === w ? rowSum / total * w : rowSum / total * h;
+function _worstAR(row, rowSum, thick) {
+  let worst = 0;
+  for (const item of row) {
+    const b = (item.v / rowSum) || 0.0001;
+    const ar = Math.max(thick / b, b / thick);
+    if (ar > worst) worst = ar;
+  }
+  return worst;
 }
 
-function _worst(row, rowSum, w, h) {
-  const s = Math.min(w, h);
-  const l = Math.max(w, h);
-  // Fraction of total length used by this row along the long axis
-  // Each item gets: rowSum/total * l pixels along long, item.v/rowSum * s along short
-  const max = Math.max(...row.map(i => i.v));
-  const min = Math.min(...row.map(i => i.v));
-  // Aspect ratio metric from paper
-  return Math.max(
-    (s * s * max) / (rowSum * rowSum),
-    (rowSum * rowSum) / (s * s * (min || 0.0001))
-  );
-}
-
-function _placeRow(row, rowSum, total, x, y, w, h, result) {
-  const horiz = w >= h; // strip runs along the horizontal or vertical?
-  // Strip thickness = rowSum/total * SHORT side
-  const thick = (rowSum / total) * (horiz ? h : w);
-  let pos = horiz ? y : x;
-
-  row.forEach(item => {
-    // item's share along the LONG axis
-    const span = (item.v / rowSum) * (horiz ? w : h);
+function _placeStrip(row, rowSum, total, x, y, w, h, horiz, out) {
+  const thick = horiz ? (rowSum / total) * h : (rowSum / total) * w;
+  let pos = 0;
+  row.forEach((item, idx) => {
+    const isLast = idx === row.length - 1;
+    const frac   = item.v / rowSum;
     if (horiz) {
-      result.push({...item, x, y: pos, w: thick, h: span});
-      pos += span;
+      const iw = isLast ? w - pos : frac * w;
+      out.push({...item, x: x + pos, y, w: iw, h: thick});
+      pos += iw;
     } else {
-      result.push({...item, x: pos, y, w: span, h: thick});
-      pos += span;
+      const ih = isLast ? h - pos : frac * h;
+      out.push({...item, x, y: y + pos, w: thick, h: ih});
+      pos += ih;
     }
   });
 }
@@ -275,44 +260,51 @@ window.loadHM = async function() {
   };
   document.getElementById('hm-legend').textContent = legends[mode] || '';
 
-  // Build treemap
+  // Build treemap — sorted descending by size (required for squarify quality)
   const W = el.offsetWidth || 800, H = el.offsetHeight || 400;
   const totalSz = sorted.reduce((s, v) => s + sizeOf(v), 0) || 1;
-  const items = sorted.map(v => ({...v, v: (sizeOf(v) / totalSz) * W * H}));
+  const items = sorted.map(v => ({...v, v: sizeOf(v) / totalSz}));
   const rects = squarify(items, 0, 0, W, H);
 
   el.innerHTML = '';
   rects.forEach(r => {
     const v = val(r);
     if (v == null) return;
+
+    // Clamp to container — kills any floating-point bleed beyond edges
+    const rx = Math.max(0, Math.round(r.x));
+    const ry = Math.max(0, Math.round(r.y));
+    const rw = Math.min(W - rx, Math.max(2, Math.round(r.w)));
+    const rh = Math.min(H - ry, Math.max(2, Math.round(r.h)));
+
     const intensity = Math.min(Math.abs(v) / maxAbs, 1);
-    // Rich colours matching TradingView style
+    // TradingView-style deep green/red, brightness scales with magnitude
     const bg = v > 0
-      ? `rgb(${Math.round(10 + intensity*15)}, ${Math.round(80 + intensity*100)}, ${Math.round(30 + intensity*30)})`
+      ? `rgb(${Math.round(10 + intensity*8)},${Math.round(100 + intensity*105)},${Math.round(40 + intensity*18)})`
       : v < 0
-      ? `rgb(${Math.round(120 + intensity*110)}, ${Math.round(15 + intensity*10)}, ${Math.round(20 + intensity*15)})`
-      : 'rgb(38,38,38)';
+      ? `rgb(${Math.round(140 + intensity*90)},${Math.round(20 + intensity*5)},${Math.round(22 + intensity*8)})`
+      : 'rgb(42,42,42)';
 
     const cell = document.createElement('div');
     cell.className = 'hm-cell';
-    // Use Math.round to avoid sub-pixel overlaps
-    cell.style.left   = Math.round(r.x) + 'px';
-    cell.style.top    = Math.round(r.y) + 'px';
-    cell.style.width  = Math.round(r.w) + 'px';
-    cell.style.height = Math.round(r.h) + 'px';
+    cell.style.left       = rx + 'px';
+    cell.style.top        = ry + 'px';
+    cell.style.width      = rw + 'px';
+    cell.style.height     = rh + 'px';
     cell.style.background = bg;
 
-    const minSide = Math.min(r.w, r.h);
-    const tkSz = Math.max(9, Math.min(20, minSide * 0.22));
-    const vlSz = Math.max(8, Math.min(13, minSide * 0.14));
-    const valColor = v > 0 ? '#7fffa0' : v < 0 ? '#ff9090' : '#aaa';
+    const minSide = Math.min(rw, rh);
+    const tkSz   = Math.max(9, Math.min(22, minSide * 0.25));
+    const vlSz   = Math.max(8, Math.min(14, minSide * 0.16));
+    const valColor = v > 0 ? '#a8ffbe' : v < 0 ? '#ffaaaa' : '#aaa';
 
-    if (minSide > 22) {
-      cell.innerHTML = `<span class="hm-t" style="font-size:${tkSz}px;max-width:${Math.round(r.w)-6}px">${r.ticker}</span>`
-        + (minSide > 40 ? `<span class="hm-v" style="font-size:${vlSz}px;color:${valColor}">${label(r)}</span>` : '');
-    } else {
-      // Too small — just show a colored dot
+    if (minSide > 28) {
+      cell.innerHTML = `<span class="hm-t" style="font-size:${tkSz}px;max-width:${rw-6}px">${r.ticker}</span>`
+        + (minSide > 44 ? `<span class="hm-v" style="font-size:${vlSz}px;color:${valColor}">${label(r)}</span>` : '');
+    } else if (minSide > 14) {
       cell.style.fontSize = '7px';
+      cell.style.color = '#ffffffaa';
+      cell.style.textAlign = 'center';
       cell.textContent = r.ticker;
     }
 
