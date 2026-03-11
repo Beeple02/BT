@@ -454,91 +454,129 @@ async function loadTkrPrints(ticker) {
   _tkrLastPrintIds = newIds;
 }
 
-// ── TSE Ticker loader — uses Atlas as source of truth ─────────────────────────
+// ── TSE Ticker loader — native TSE API routes ─────────────────────────────
 async function _loadTSETicker(ticker, days, ctype) {
   const set = (id, v, cls) => { const e=document.getElementById(id); if(!e) return; e.textContent=v; if(cls) e.className=e.className.replace(/up|dn|yel/g,'')+' '+cls; };
-  // TSE ticker always prefixed TSE:XXX in Atlas
-  const atlasTicker = ticker.startsWith('TSE:') ? ticker : `TSE:${ticker}`;
+
+  // Bare symbol for TSE API calls (ECO, not TSE:ECO)
+  const sym = ticker.startsWith('TSE:') ? ticker.slice(4) : ticker;
+  const displayTicker = ticker.startsWith('TSE:') ? ticker : `TSE:${ticker}`;
 
   // Destroy old charts
   if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c=>c&&c.destroy()); _ch={};
 
-  // Fetch in parallel: ticker_stats (candles+stats) + orderbook + breadth for chg_pct
-  // Note: Flask <path:ticker> handles colons natively — do NOT encodeURIComponent
-  const [sR, obR, brR] = await Promise.all([
-    api(`/api/ticker_stats/${atlasTicker}?days=${days}`),
-    api(`/api/orderbook/${atlasTicker}`),
-    api('/api/market_breadth'),
+  // Fetch in parallel — all via native TSE routes, no Atlas
+  // Candles: use 1h interval, limit scaled to days requested
+  const candleLimit = Math.min(Math.max(days * 24, 48), 720);
+  const [candleR, obR, tradesR, mktR] = await Promise.all([
+    api(`/api/tse/candles/${sym}?interval=1h&limit=${candleLimit}`),
+    api(`/api/tse/orderbook/${sym}?depth=20`),
+    api(`/api/tse/trades/${sym}?limit=50`),
+    api(`/api/tse/market/${sym}`),
   ]);
 
-  // ── Header KPIs ──────────────────────────────────────────────────────────
-  if(sR.ok && sR.d) {
-    const d = sR.d;
-    const cs = d.candles || [];
-    const cl = cs.map(c=>c.close);
-    const px = cl.length ? cl[cl.length-1] : 0;
+  // ── Build candle array from TSE response ─────────────────────────────────
+  // TSE candle fields: timestamp (unix ms), open, high, low, close, volume
+  let cs = [];
+  if(candleR.ok) {
+    const raw = Array.isArray(candleR.d) ? candleR.d
+      : (candleR.d?.candles || candleR.d?.data || []);
+    cs = [...raw]
+      .sort((a,b) => (a.timestamp||a.ts||0) - (b.timestamp||b.ts||0))
+      .map(c => ({
+        open:   parseFloat(c.open  || c.o || c.close || c.c || 0),
+        high:   parseFloat(c.high  || c.h || c.close || c.c || 0),
+        low:    parseFloat(c.low   || c.l || c.close || c.c || 0),
+        close:  parseFloat(c.close || c.c || 0),
+        volume: parseInt(c.volume  || c.v || 0),
+        date:   c.timestamp ? new Date(c.timestamp).toISOString().slice(0,10) : (c.date||'—'),
+      }))
+      .filter(c => c.close > 0);
+  }
+  const cl = cs.map(c => c.close);
 
-    // chg_pct from breadth or compute directly
-    let chgPct = null;
-    if(brR.ok && brR.d?.securities) {
-      const bsec = brR.d.securities.find(s=>s.ticker===atlasTicker);
-      chgPct = bsec?.chg_pct ?? null;
-    }
-    if(chgPct === null && cl.length >= 2 && cl[0]) {
-      chgPct = +((cl[cl.length-1] - cl[0]) / cl[0] * 100).toFixed(2);
-    }
-
-    document.getElementById('tkr-px').textContent = f(px,4);
-    document.getElementById('tkr-px').style.color = gc(chgPct??0);
-    set('tkr-chg', chgPct!=null ? fp(chgPct) : '—');
-    document.getElementById('tkr-chg').style.color = gc(chgPct??0);
-    set('tkr-vol', d.volatility_ann_pct != null ? f(d.volatility_ann_pct,1)+'%' : '—');
-    set('tkr-shrp', d.sharpe != null ? f(d.sharpe,2) : '—');
-    set('tkr-mdd', d.max_drawdown_pct != null ? f(d.max_drawdown_pct,2)+'%' : '—');
-    document.getElementById('tkr-frz').style.display = 'none';
-
-    // Stat strip
-    if(cs.length) {
-      set('ts-o', f(cs[0].open||cs[0].close,4));
-      set('ts-h', f(Math.max(...cs.map(c=>c.high||c.close)),4));
-      set('ts-l', f(Math.min(...cs.map(c=>c.low||c.close)),4));
-      set('ts-c', f(px,4));
-      const totalVol = cs.reduce((s,c)=>s+(c.volume||0),0);
-      set('ts-v', totalVol.toLocaleString());
-      set('ts-av', f(totalVol/cs.length,0));
-      set('ts-ph', f(Math.max(...cl),4));
-      set('ts-pl', f(Math.min(...cl),4));
-      set('ts-atr', d.atr14 != null ? f(d.atr14,4) : '—');
-    }
-    const sec=(BB.secs||[]).find(s=>s.ticker===atlasTicker)||{};
-    set('ts-mc', sec.total_shares ? fk(sec.total_shares * px) : (d.market_cap ? fk(d.market_cap) : '—'));
-
-    // ── Price chart ──────────────────────────────────────────────────────────
-    if(cs.length >= 2) {
-      const vols=cs.map(c=>c.volume||0);
-      const dates=cs.map(c=>c.date||'—');
-      if(ctype==='candle') {
-        _ch.price = mkCandle(document.getElementById('tkr-c'), cs.map(c=>({open:c.open||c.close,high:c.high||c.close,low:c.low||c.close,close:c.close,date:c.date||'—'})));
-      } else {
-        const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
-        _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
-      }
-      _ch.vol = mkVol(document.getElementById('tkr-v'), dates, vols);
-      if(cl.length >= 26) { const m=calcMACD(cl); if(m) _ch.macd=mkMACD(document.getElementById('tkr-macd'),dates,m); }
-      if(cl.length >= 14) { const r=calcRSI(cl,14); if(r) _ch.rsi=mkRSI(document.getElementById('tkr-rsi'),dates,r); }
-    } else {
-      document.getElementById('tkr-c').getContext('2d').clearRect(0,0,9999,9999);
-    }
-  } else {
-    document.getElementById('tkr-c').getContext('2d').clearRect(0,0,9999,9999);
+  // ── Live price from market summary (most accurate last price) ─────────────
+  let px = cl.length ? cl[cl.length-1] : 0;
+  if(mktR.ok && mktR.d) {
+    const m = mktR.d;
+    px = parseFloat(m.last_price || m.price || m.last || px) || px;
   }
 
-  // ── Order book from Atlas ─────────────────────────────────────────────────
+  // ── Header KPIs ──────────────────────────────────────────────────────────
+  const chgPct = cl.length >= 2 && cl[0]
+    ? +((px - cl[0]) / cl[0] * 100).toFixed(2)
+    : null;
+
+  document.getElementById('tkr-px').textContent = f(px,4);
+  document.getElementById('tkr-px').style.color  = gc(chgPct??0);
+  set('tkr-chg', chgPct!=null ? fp(chgPct) : '—');
+  document.getElementById('tkr-chg').style.color = gc(chgPct??0);
+  document.getElementById('tkr-frz').style.display = 'none';
+
+  // Compute stats from candles
+  if(cl.length >= 2) {
+    const rets = cl.map((c,i) => i ? (c-cl[i-1])/cl[i-1] : 0).slice(1);
+    const avg  = rets.reduce((s,v)=>s+v,0)/(rets.length||1);
+    const std  = Math.sqrt(rets.reduce((s,v)=>s+(v-avg)**2,0)/(rets.length||1))||0.0001;
+    const annVol = std * Math.sqrt(252*6.5) * 100; // hourly candles → annualised
+    const sharpe  = avg / std * Math.sqrt(252*6.5);
+    let peak = cl[0], maxDD = 0;
+    cl.forEach(c => { if(c>peak) peak=c; const dd=(peak-c)/peak; if(dd>maxDD) maxDD=dd; });
+    set('tkr-vol',  annVol.toFixed(1)+'%');
+    set('tkr-shrp', sharpe.toFixed(2));
+    set('tkr-mdd',  (maxDD*100).toFixed(2)+'%');
+  }
+
+  // Stat strip
+  if(cs.length) {
+    const highs = cs.map(c=>c.high), lows = cs.map(c=>c.low);
+    set('ts-o', f(cs[0].open||cs[0].close,4));
+    set('ts-h', f(Math.max(...highs),4));
+    set('ts-l', f(Math.min(...lows),4));
+    set('ts-c', f(px,4));
+    const totalVol = cs.reduce((s,c)=>s+(c.volume||0),0);
+    set('ts-v', totalVol.toLocaleString());
+    set('ts-av', f(totalVol/cs.length,0));
+    set('ts-ph', f(Math.max(...cl),4));
+    set('ts-pl', f(Math.min(...cl),4));
+    // ATR(14)
+    if(cs.length >= 14) {
+      const atrs = cs.slice(1).map((c,i) => Math.max(
+        c.high - c.low,
+        Math.abs(c.high - cs[i].close),
+        Math.abs(c.low  - cs[i].close)
+      ));
+      set('ts-atr', f(atrs.slice(-14).reduce((s,v)=>s+v,0)/14,4));
+    }
+    const sec=(BB.secs||[]).find(s=>s.ticker===displayTicker)||{};
+    set('ts-mc', sec.total_shares ? fk(sec.total_shares * px) : '—');
+  }
+
+  // ── Price chart ──────────────────────────────────────────────────────────
+  if(cs.length >= 2) {
+    const vols  = cs.map(c=>c.volume||0);
+    const dates = cs.map(c=>c.date||'—');
+    if(ctype==='candle') {
+      _ch.price = mkCandle(document.getElementById('tkr-c'), cs);
+    } else {
+      const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
+      _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
+    }
+    _ch.vol = mkVol(document.getElementById('tkr-v'), dates, vols);
+    if(cl.length >= 26) { const m=calcMACD(cl); if(m) _ch.macd=mkMACD(document.getElementById('tkr-macd'),dates,m); }
+    if(cl.length >= 14) { const r=calcRSI(cl,14); if(r) _ch.rsi=mkRSI(document.getElementById('tkr-rsi'),dates,r); }
+  }
+
+  // ── Order book ───────────────────────────────────────────────────────────
   if(obR.ok && obR.d) {
-    const raw=obR.d;
-    const bids=(raw.bids||raw.buy_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(b=>b.price>0);
-    const asks=(raw.asks||raw.sell_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(a=>a.price>0);
+    const raw = obR.d;
+    const bids = (raw.bids||raw.buy_orders||[])
+      .map(l=>({price:parseFloat(l.price||l[0]||0), quantity:parseInt(l.quantity||l.size||l[1]||0)}))
+      .filter(b=>b.price>0);
+    const asks = (raw.asks||raw.sell_orders||[])
+      .map(l=>({price:parseFloat(l.price||l[0]||0), quantity:parseInt(l.quantity||l.size||l[1]||0)}))
+      .filter(a=>a.price>0);
     _buildDepthChart(bids, asks);
     _fillOBTable(bids, asks);
   }
@@ -547,50 +585,31 @@ async function _loadTSETicker(ticker, days, ctype) {
   document.getElementById('tkr-hi').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">Holder data not available for TSE securities</div>';
   document.getElementById('tkr-sh').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">—</div>';
 
-  // ── Recent prints from Atlas history ──────────────────────────────────────
-  const hR = await api(`/api/history/${atlasTicker}?limit=50`);
+  // ── Recent prints ─────────────────────────────────────────────────────────
   const el = document.getElementById('tkr-prints'); if(!el) return;
-  if(hR.ok && hR.d?.data?.length) {
-    const trades = hR.d.data.slice(0,50);
+  if(tradesR.ok && Array.isArray(tradesR.d) && tradesR.d.length) {
+    const trades = tradesR.d;
     document.getElementById('tkr-print-ct').textContent = ` — ${trades.length}`;
-    el.innerHTML = trades.map(t=>{
-      const px=parseFloat(t.price||0), qty=t.volume||t.quantity||0;
-      const ts=t.timestamp||t.ts||'';
+    const tot = trades.reduce((s,t)=>s+(t.quantity||0),0);
+    const vwapVal = tot>0 ? trades.reduce((s,t)=>s+(t.price||0)*(t.quantity||0),0)/tot : 0;
+    el.innerHTML = trades.map(t => {
+      const px2=parseFloat(t.price||0), qty=t.quantity||0;
+      const ts=t.executed_ts||t.timestamp||'';
       const time=ts?new Date(ts).toLocaleTimeString('en-GB',{hour12:false}):'—';
       return `<div style="display:flex;align-items:center;gap:4px;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.3);font-size:9px">
         <span style="color:var(--txt3);width:36px;font-variant-numeric:tabular-nums">${time}</span>
-        <span style="color:var(--cyn);font-weight:700;width:68px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${atlasTicker}</span>
+        <span style="color:var(--cyn);font-weight:700;width:28px">TSE</span>
         <span style="color:var(--wht);width:40px;text-align:right;font-variant-numeric:tabular-nums">${qty.toLocaleString()}</span>
-        <span style="color:var(--yel);flex:1;text-align:right;font-variant-numeric:tabular-nums">$${f(px,4)}</span>
+        <span style="color:var(--yel);flex:1;text-align:right;font-variant-numeric:tabular-nums">$${f(px2,4)}</span>
       </div>`;
-    }).join('');
+    }).join('')
+    + `<div style="padding:4px 6px;font-size:9px;border-top:1px solid var(--bdr);display:flex;gap:12px">
+        <span>VWAP <span style="color:var(--cyn);font-weight:700">$${f(vwapVal,4)}</span></span>
+        <span style="color:var(--txt3)">${trades.length} prints · ${tot.toLocaleString()} sh</span>
+       </div>`;
   } else {
     el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>';
   }
-}
-async function _loadTSEPrints(ticker) {
-  const el=document.getElementById('tkr-prints'); if(!el) return;
-  const r=await api(`/api/tse/trades/${ticker}?limit=50`);
-  if(!r.ok||!Array.isArray(r.d)){el.innerHTML='<div class="loading">—</div>';return;}
-  const trades=r.d;
-  document.getElementById('tkr-print-ct').textContent=trades.length?` — ${trades.length}`:'';
-  if(!trades.length){el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>';return;}
-  const tot=trades.reduce((s,t)=>s+(t.quantity||0),0);
-  const vwapVal=tot>0?trades.reduce((s,t)=>s+(t.price||0)*(t.quantity||0),0)/tot:0;
-  el.innerHTML=trades.map(t=>{
-    const px=parseFloat(t.price||0), qty=t.quantity||0;
-    const ts=t.executed_ts||t.timestamp||'';
-    const timeStr=ts?new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
-    return `<div style="padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.5);display:flex;justify-content:space-between;font-size:10px">
-      <span style="color:var(--txt3)">${timeStr}</span>
-      <span style="color:var(--cyn);font-weight:700">${f(px,4)}</span>
-      <span style="color:var(--wht)">${qty.toLocaleString()}</span>
-    </div>`;
-  }).join('')
-  +`<div style="padding:4px 6px;font-size:9px;border-top:1px solid var(--bdr);display:flex;gap:12px">
-    <span>VWAP <span style="color:var(--cyn);font-weight:700">$${f(vwapVal,4)}</span></span>
-    <span style="color:var(--txt3)">${trades.length} prints · ${tot.toLocaleString()} sh</span>
-  </div>`;
 }
 
 // Helper: fill OB table rows (shared between NER and TSE)
