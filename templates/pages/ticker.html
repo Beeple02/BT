@@ -233,9 +233,8 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     return await _loadTSETicker(ticker, days, ctype);
   }
 
-  // Fetch extra candles for indicator warmup (SMA100 needs 100 bars minimum).
-  // Without warmup, short ranges (e.g. 30D) return arrays that are almost
-  // entirely leading nulls — overlays appear blank even though data exists.
+  // Fetch with warmup so server-side indicators have enough real candles.
+  // We add extra days so SMA100 (needs 100 bars) is populated even on short ranges.
   const fetchDays = parseInt(days) + 120;
 
   const [sR, obR, hiR] = await Promise.all([
@@ -252,32 +251,84 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     return;
   }
   _d = sR.d;
-  // Forward-fill candles + all indicator series to today
-  const _ff = forwardFillCandles(_d.candles, {
-    sma20:   _d.sma20,   sma50:  _d.sma50,  sma100: _d.sma100,
-    vwap:    _d.vwap,    bb_upper: _d.bb_upper, bb_lower: _d.bb_lower,
-    macd_line: _d.macd_line, macd_signal: _d.macd_signal, macd_hist: _d.macd_hist,
-    rsi14:   _d.rsi14,   vol_ma20: _d.vol_ma20, atr14: _d.atr14,
-  });
-  _d.candles    = _ff.candles;
-  _d.sma20      = _ff.indicators.sma20;    _d.sma50    = _ff.indicators.sma50;
-  _d.sma100     = _ff.indicators.sma100;   _d.vwap     = _ff.indicators.vwap;
-  _d.bb_upper   = _ff.indicators.bb_upper; _d.bb_lower = _ff.indicators.bb_lower;
-  _d.macd_line  = _ff.indicators.macd_line; _d.macd_signal = _ff.indicators.macd_signal;
-  _d.macd_hist  = _ff.indicators.macd_hist; _d.rsi14   = _ff.indicators.rsi14;
-  _d.vol_ma20   = _ff.indicators.vol_ma20;  _d.atr14   = _ff.indicators.atr14;
 
-  // Trim all arrays back to the user-selected display window.
-  // candles and ALL indicator arrays must be sliced at the same index.
-  const trimIdx = Math.max(0, _d.candles.length - parseInt(days));
-  const trimArr = arr => Array.isArray(arr) ? arr.slice(trimIdx) : arr;
-  _d.candles    = trimArr(_d.candles);
-  _d.sma20      = trimArr(_d.sma20);    _d.sma50    = trimArr(_d.sma50);
-  _d.sma100     = trimArr(_d.sma100);   _d.vwap     = trimArr(_d.vwap);
-  _d.bb_upper   = trimArr(_d.bb_upper); _d.bb_lower = trimArr(_d.bb_lower);
-  _d.macd_line  = trimArr(_d.macd_line); _d.macd_signal = trimArr(_d.macd_signal);
-  _d.macd_hist  = trimArr(_d.macd_hist); _d.rsi14   = trimArr(_d.rsi14);
-  _d.vol_ma20   = trimArr(_d.vol_ma20);  _d.atr14   = trimArr(_d.atr14);
+  // ── Step 1: forward-fill sparse candles to a dense daily calendar array ────
+  // For illiquid tickers (NTR etc.) with only a handful of real trades, server-
+  // side indicators are computed on the sparse array and come back almost
+  // entirely null. We discard the server indicators and recompute them here
+  // on the dense (forward-filled) close series so every SMA/BB/VWAP always
+  // has enough consecutive daily values to produce a result.
+  const _ff = forwardFillCandles(_d.candles, {}); // no indicators — just fill candles
+  _d.candles = _ff.candles;
+
+  // ── Step 2: trim dense array to display window before computing indicators ─
+  // Trim candles to display range first, then compute indicators on the trimmed
+  // dense series. This avoids the warmup-then-trim confusion entirely.
+  // We keep an extra 120 calendar days as warmup prefix, compute indicators on
+  // the full warm+display window, then slice off the warmup prefix at the end.
+  const denseLen   = _d.candles.length;
+  const displayLen = parseInt(days);
+  // Keep at most displayLen+120 calendar days (warmup + display)
+  const warmupStart = Math.max(0, denseLen - displayLen - 120);
+  const warmupCandles = _d.candles.slice(warmupStart); // warm+display window
+
+  // ── Step 3: compute all indicators on the dense warm+display close series ──
+  const wc = warmupCandles.map(c => c.close);
+  const wh = warmupCandles.map(c => c.high);
+  const wl = warmupCandles.map(c => c.low);
+  const wv = warmupCandles.map(c => c.volume);
+
+  const calcSMA = (arr, n) => arr.map((_,i) => i < n-1 ? null : arr.slice(i-n+1,i+1).reduce((s,v)=>s+v,0)/n);
+  const calcEMA = (arr, n) => { const k=2/(n+1); return arr.reduce((r,v,i) => { r.push(i===0?v:v*k+r[i-1]*(1-k)); return r; }, []); };
+  const calcBB  = (arr, n=20, k=2) => arr.map((_,i) => {
+    if(i < n-1) return [null,null,null];
+    const w=arr.slice(i-n+1,i+1), m=w.reduce((s,v)=>s+v,0)/n;
+    const sd=Math.sqrt(w.reduce((s,v)=>s+(v-m)**2,0)/n);
+    return [m+k*sd, m, m-k*sd];
+  });
+  const calcRSI = (arr, p=14) => arr.map((_,i) => {
+    if(i < p) return null;
+    const w=arr.slice(i-p+1,i+1);
+    let g=0,l=0; for(let j=1;j<w.length;j++){const d=w[j]-w[j-1];d>0?g+=d:l-=d;}
+    const ag=g/p,al=l/p; return al===0?100:parseFloat((100-100/(1+ag/al)).toFixed(2));
+  });
+  const calcMACD = (arr) => {
+    const e12=calcEMA(arr,12), e26=calcEMA(arr,26);
+    const line=e12.map((v,i)=>v-e26[i]);
+    const sig=calcEMA(line,9);
+    return { line, signal:sig, hist:line.map((v,i)=>v-sig[i]) };
+  };
+  const calcVWAP = (closes,highs,lows,vols,n=20) => closes.map((_,i) => {
+    if(i < n-1) return null;
+    const tps=closes.slice(i-n+1,i+1).map((_,j)=>(highs[i-n+1+j]+lows[i-n+1+j]+closes[i-n+1+j])/3);
+    const vs=vols.slice(i-n+1,i+1);
+    const cumV=vs.reduce((s,v)=>s+v,0);
+    // If all volume in window is synthetic (0), fall back to simple avg of typical prices
+    return cumV>0 ? tps.reduce((s,t,j)=>s+t*vs[j],0)/cumV : tps.reduce((s,t)=>s+t,0)/tps.length;
+  });
+
+  const wSMA20=calcSMA(wc,20), wSMA50=calcSMA(wc,50), wSMA100=calcSMA(wc,100);
+  const wBB=calcBB(wc), wRSI=calcRSI(wc,14);
+  const wMACD=calcMACD(wc), wVWAP=calcVWAP(wc,wh,wl,wv,20);
+  const wVolMA20=calcSMA(wv,20);
+
+  // ── Step 4: trim warmup prefix — keep only the display window ─────────────
+  const trimPfx = Math.max(0, warmupCandles.length - displayLen);
+  const slc = arr => arr.slice(trimPfx);
+
+  _d.candles  = slc(warmupCandles);
+  _d.sma20    = slc(wSMA20);
+  _d.sma50    = slc(wSMA50);
+  _d.sma100   = slc(wSMA100);
+  _d.vwap     = slc(wVWAP);
+  _d.bb_upper = slc(wBB.map(b=>b[0]));
+  _d.bb_mid   = slc(wBB.map(b=>b[1]));
+  _d.bb_lower = slc(wBB.map(b=>b[2]));
+  _d.rsi14    = slc(wRSI);
+  _d.macd_line   = slc(wMACD.line);
+  _d.macd_signal = slc(wMACD.signal);
+  _d.macd_hist   = slc(wMACD.hist);
+  _d.vol_ma20 = slc(wVolMA20);
 
   const cs=_d.candles, cl=cs.map(c=>c.close), hi=cs.map(c=>c.high), lo=cs.map(c=>c.low);
   const vols=cs.map(c=>c.volume), dates=cs.map(c=>c.date), last=cl[cl.length-1];
