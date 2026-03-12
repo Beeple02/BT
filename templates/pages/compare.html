@@ -103,6 +103,13 @@ let _filledMaps=[], _useDates=[];
 window.PAGE_cmp_onShow=function(){
   populateSel('cmp-add-sel');
   if(_tickers.length>=2){ loadCompare(); return; }
+  // Restore from sessionStorage if available
+  if(_tickers.length===0){
+    try{
+      const saved=sessionStorage.getItem('bb_cmp_tickers');
+      if(saved){ const ts=JSON.parse(saved); if(Array.isArray(ts)&&ts.length>=2){ _tickers=ts; renderChips(); loadCompare(); return; } }
+    }catch(e){}
+  }
   // Default tickers
   if(BB.secs && BB.secs.length>=2 && _tickers.length===0){
     ['BB','NTR','RTG'].forEach(t=>{ if(BB.secs.find(s=>s.ticker===t) && !_tickers.includes(t)) _tickers.push(t); });
@@ -213,6 +220,19 @@ function buildPriceChart(mode){
     data:{labels:useDates,datasets},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
       interaction:{mode:'index',intersect:false},
+      onHover:(evt, active)=>{
+        if(!active||!active.length) return;
+        const idx=active[0].index;
+        const date=useDates[idx]||'';
+        const bar=document.getElementById('cmd-st'); if(!bar) return;
+        const vals=datasets.map(ds=>{
+          const v=ds.data[idx];
+          if(v==null) return null;
+          return `${ds.label} ${effectiveMode==='raw'?'$'+f(v,4):v.toFixed(2)+(effectiveMode==='pct'?'%':'')}`;
+        }).filter(Boolean);
+        bar.textContent=date+'  ·  '+vals.join('  ·  ');
+        bar.style.color='var(--txt3)';
+      },
       plugins:{legend:{display:true,position:'top',labels:{color:'#888',font:{size:9},boxWidth:10,padding:6}},
         tooltip:{...TT,callbacks:{label:c=>` ${c.dataset.label}: ${mode==='raw'?f(c.parsed.y,4):c.parsed.y.toFixed(2)+(mode==='pct'?' %':'')}`}}},
       scales:{
@@ -226,6 +246,8 @@ window.loadCompare=async function(){
   const days=+document.getElementById('cmp-days').value;
   const win=+document.getElementById('cmp-win').value;
   const mode=document.getElementById('cmp-mode').value;
+  // Persist ticker set to sessionStorage
+  try{ sessionStorage.setItem('bb_cmp_tickers', JSON.stringify(_tickers)); }catch(e){}
   document.getElementById('cmp-status').textContent='Loading…';
 
   const [statsArr,liqArr]=await Promise.all([
