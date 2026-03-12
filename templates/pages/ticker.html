@@ -656,42 +656,26 @@ async function _loadTSETicker(ticker, days, ctype) {
   if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c=>c&&c.destroy()); _ch={};
 
-  // Fetch in parallel — Atlas OHLCV sometimes returns nothing for TSE tickers,
-  // so we also fire TSE native candles + live market summary as fallbacks.
-  const [sR, tseCanR, tseMktR, obR, tradesR] = await Promise.all([
-    api(`/api/ticker_stats/${atlasTicker}?days=${days}`),
-    api(`/api/tse/candles/${sym}?interval=1h&limit=720`),
-    api(`/api/tse/market/${sym}`),
+  // /api/ticker_stats does not exist for TSE tickers (404s in logs).
+  // /api/tse/candles does not exist at all (never appears in logs).
+  // /api/analytics/ohlcv/TSE:TICKER?days=N is the confirmed working endpoint —
+  // same one used by market.html momentum matrix. Returns { candles: [...] }.
+  const [ohlcvR, obR, tradesR] = await Promise.all([
+    api(`/api/analytics/ohlcv/${atlasTicker}?days=${days}`),
     api(`/api/orderbook/${atlasTicker}`),
     api(`/api/tse/trades/${sym}?limit=50`),
   ]);
 
-  // ── Build candle array — prefer Atlas, fall back to TSE native ───────────
+  // ── Build candle array from ohlcv response ────────────────────────────────
   let rawCandles = [];
   let statsD = {};
-  if(sR.ok && sR.d && Array.isArray(sR.d.candles) && sR.d.candles.length >= 2) {
-    rawCandles = sR.d.candles;
-    statsD     = sR.d;
-  } else if(tseCanR.ok) {
-    const tseCs = Array.isArray(tseCanR.d) ? tseCanR.d
-                : Array.isArray(tseCanR.d?.candles) ? tseCanR.d.candles : [];
-    // Hourly candles → aggregate to daily OHLCV
-    const byDay = {};
-    for(const c of tseCs) {
-      const dt = (c.timestamp||c.date||'').slice(0,10);
-      if(!dt || !c.close) continue;
-      const cl2 = parseFloat(c.close||0);
-      if(!byDay[dt]) byDay[dt] = {date:dt, open:parseFloat(c.open||cl2), high:cl2, low:cl2, close:cl2, volume:0};
-      byDay[dt].high   = Math.max(byDay[dt].high, parseFloat(c.high||cl2));
-      byDay[dt].low    = Math.min(byDay[dt].low,  parseFloat(c.low||cl2));
-      byDay[dt].close  = cl2;  // last hour of day wins
-      byDay[dt].volume += parseInt(c.volume||0);
-    }
-    rawCandles = Object.values(byDay).filter(c=>c.close>0).sort((a,b)=>a.date.localeCompare(b.date));
+  if(ohlcvR.ok && Array.isArray(ohlcvR.d?.candles) && ohlcvR.d.candles.length >= 2) {
+    rawCandles = ohlcvR.d.candles;
+    statsD     = ohlcvR.d; // may include volatility_ann_pct, sharpe, etc.
   }
 
-  // Live price from TSE market summary (most accurate current price)
-  const livePx = tseMktR.ok ? parseFloat(tseMktR.d?.last_price || tseMktR.d?.current_price || 0) : 0;
+  // Live price: last candle close (ohlcv is already up-to-date)
+  const livePx = rawCandles.length ? parseFloat(rawCandles[rawCandles.length-1].close || 0) : 0;
 
   // ── Header KPIs ──────────────────────────────────────────────────────────
   if(rawCandles.length) {
@@ -699,8 +683,6 @@ async function _loadTSETicker(ticker, days, ctype) {
     const _ff = forwardFillCandles(rawCandles, {});
     const cs = _ff.candles;
     const cl = cs.map(c=>c.close);
-    // Splice live price into last point so chart tip matches header
-    if(livePx > 0 && cs.length) { cs[cs.length-1].close = livePx; cl[cl.length-1] = livePx; }
     const px = livePx > 0 ? livePx : (cl.length ? cl[cl.length-1] : 0);
 
     const chgPct = cl.length >= 2 && cl[0]
