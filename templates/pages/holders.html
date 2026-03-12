@@ -27,10 +27,10 @@
     <div class="scroll" style="overflow-x:auto">
       <table class="dt" style="min-width:780px;table-layout:auto">
         <thead><tr>
-          <th style="white-space:nowrap">TICKER</th><th style="min-width:100px">NAME</th>
-          <th class="r" style="white-space:nowrap">HOLDERS</th><th class="r" style="white-space:nowrap">HHI</th>
-          <th class="r" style="white-space:nowrap">TOP 1</th><th class="r" style="white-space:nowrap">TOP 3</th><th class="r" style="white-space:nowrap">TOP 5</th><th class="r" style="white-space:nowrap">TOP 10</th>
-          <th class="r" style="white-space:nowrap">WHALES</th><th class="r" style="white-space:nowrap">GINI</th><th class="r" style="white-space:nowrap">SUBSTANTIAL</th><th style="white-space:nowrap">ACT</th>
+          <th data-col="ticker" style="white-space:nowrap">TICKER</th><th data-col="name" style="min-width:100px">NAME</th>
+          <th data-col="num_holders" class="r" style="white-space:nowrap">HOLDERS</th><th data-col="hhi" class="r" style="white-space:nowrap">HHI</th>
+          <th data-col="top1_pct" class="r" style="white-space:nowrap">TOP 1</th><th data-col="top3_pct" class="r" style="white-space:nowrap">TOP 3</th><th data-col="top5_pct" class="r" style="white-space:nowrap">TOP 5</th><th data-col="top10_pct" class="r" style="white-space:nowrap">TOP 10</th>
+          <th data-col="whale_count" class="r" style="white-space:nowrap">WHALES</th><th data-col="gini" class="r" style="white-space:nowrap">GINI</th><th data-col="substantial" class="r" style="white-space:nowrap">SUBSTANTIAL</th><th style="white-space:nowrap">ACT</th>
         </tr></thead>
         <tbody id="hi-tbody"><tr><td colspan="11" class="loading">LOADING…</td></tr></tbody>
       </table>
@@ -74,6 +74,8 @@
 <script>
 (function(){
 let _hhi_c=null;
+let _secData=[];
+let _sortCol=null, _sortDir=1;
 
 // ── Ownership snapshot tracking ──────────────────────────────
 let _holdSnaps = {};   // ticker → {ts, holders: {userId→qty}}
@@ -128,6 +130,66 @@ function renderOwnershipHistory() {
 
 window.PAGE_hold_onShow = function(){ loadHolders(); };
 
+
+// ── Sort helpers ──────────────────────────────────────────────
+function renderTable(sorted) {
+  const tb = document.getElementById('hi-tbody'); tb.innerHTML='';
+  sorted.forEach(s => {
+    const hClass = s.hhi>2500?'dn':s.hhi>1500?'yel':'up';
+    const subStr = s._substantialList&&s._substantialList.length
+      ? `<span style="color:var(--org)">\u2605${s._substantialList.length}</span>` : '\u2014';
+    const gini = s.hhi&&s.hhi>0 ? ((s.hhi/10000)**0.5).toFixed(3) : '\u2014';
+    const tr = document.createElement('tr');
+    tr.innerHTML=`
+      <td><strong class="wht">${s.ticker}</strong></td>
+      <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis">${s.name}</td>
+      <td class="r">${(s.num_holders||0).toLocaleString()}</td>
+      <td class="r ${hClass}" style="font-weight:700">${s.hhi}</td>
+      <td class="r">${s.top1_pct}%</td>
+      <td class="r">${s.top3_pct}%</td>
+      <td class="r">${s.top5_pct}%</td>
+      <td class="r">${s.top10_pct}%</td>
+      <td class="r ${s.whale_count>0?'org':''}">${s.whale_count}</td>
+      <td class="r dim">${gini}</td>
+      <td class="r">${subStr}</td>`;
+    const btnTd = document.createElement('td');
+    btnTd.style.whiteSpace = 'nowrap';
+    btnTd.innerHTML = `<button class="act-b" onclick="event.stopPropagation();holdQO('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();holdQO('${s.ticker}','sell')">S</button>`;
+    tr.appendChild(btnTd);
+    tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
+    tb.appendChild(tr);
+  });
+}
+
+function _sortAndRender() {
+  const sorted = [..._secData].sort((a,b) => {
+    let av, bv;
+    if(_sortCol === 'gini') {
+      av = a.hhi > 0 ? (a.hhi/10000)**0.5 : 0;
+      bv = b.hhi > 0 ? (b.hhi/10000)**0.5 : 0;
+    } else if(_sortCol === 'substantial') {
+      av = a._substantial || 0; bv = b._substantial || 0;
+    } else {
+      av = a[_sortCol] ?? ''; bv = b[_sortCol] ?? '';
+    }
+    return typeof av === 'number' ? (av - bv) * _sortDir : String(av).localeCompare(String(bv)) * _sortDir;
+  });
+  renderTable(sorted);
+}
+
+function _wireThSort() {
+  document.querySelectorAll('table.dt thead th[data-col]').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.onclick = () => {
+      const col = th.dataset.col;
+      if(_sortCol === col) _sortDir *= -1; else { _sortCol = col; _sortDir = -1; }
+      document.querySelectorAll('table.dt thead th').forEach(t => t.classList.remove('sort-a','sort-d'));
+      th.classList.add(_sortDir > 0 ? 'sort-a' : 'sort-d');
+      _sortAndRender();
+    };
+  });
+}
+
 window.loadHolders = async function(){
   document.getElementById('hi-tbody').innerHTML='<tr><td colspan="11" class="loading">LOADING…</td></tr>';
   document.getElementById('hi-whales').innerHTML='<div class="loading">LOADING…</div>';
@@ -163,13 +225,19 @@ window.loadHolders = async function(){
     </div>`).join('')
   :'<div style="padding:8px;font-size:9px;color:var(--txt3)">No substantial holders (≥10%) detected</div>';
 
-  const sorted=[...d.securities].sort((a,b)=>b.hhi-a.hhi);
-  const tb=document.getElementById('hi-tbody'); tb.innerHTML='';
+  // Annotate each security with its substantial holder list for sort/render use
+  d.securities.forEach(s => {
+    s._substantialList = substantial.filter(x => x.ticker === s.ticker);
+    s._substantial = s._substantialList.length;
+  });
+  // Store for re-sort on column click, default sort by HHI desc
+  _secData = [...d.securities];
+  _sortCol = _sortCol || 'hhi'; // keep existing sort if already set
+  _sortAndRender();
+  _wireThSort();
+
   // Take ownership snapshots for diff tracking
   if(r.d && r.d.securities) {
-    // Fetch holders for each ticker to track changes
-    // We'll use the data already returned by holder_intel
-    // and supplement with a separate shareholders call
     (async() => {
       for(const sec of (r.d.securities||[])) {
         const sh = await api('/api/shareholders?ticker='+sec.ticker);
@@ -179,31 +247,6 @@ window.loadHolders = async function(){
       }
     })();
   }
-
-  sorted.forEach(s=>{
-    const hClass=s.hhi>2500?'dn':s.hhi>1500?'yel':'up';
-    const subForTicker=substantial.filter(x=>x.ticker===s.ticker);
-    const subStr=subForTicker.length?`<span style="color:var(--org)">★${subForTicker.length}</span>`:'—';
-    const tr=document.createElement('tr');
-    tr.innerHTML=`
-      <td><strong class="wht">${s.ticker}</strong></td>
-      <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis">${s.name}</td>
-      <td class="r">${(s.num_holders||0).toLocaleString()}</td>
-      <td class="r ${hClass}" style="font-weight:700">${s.hhi}</td>
-      <td class="r">${s.top1_pct}%</td>
-      <td class="r">${s.top3_pct}%</td>
-      <td class="r">${s.top5_pct}%</td>
-      <td class="r">${s.top10_pct}%</td>
-      <td class="r ${s.whale_count>0?'org':''}">${s.whale_count}</td>
-      <td class="r dim">${s.hhi&&s.hhi>0?((s.hhi/10000)**0.5).toFixed(3):'—'}</td>
-      <td class="r">${subStr}</td>`;
-    const btnTd = document.createElement('td');
-    btnTd.style.whiteSpace = 'nowrap';
-    btnTd.innerHTML = `<button class="act-b" onclick="event.stopPropagation();holdQO('${s.ticker}','buy')">B</button>&nbsp;<button class="act-s" onclick="event.stopPropagation();holdQO('${s.ticker}','sell')">S</button>`;
-    tr.appendChild(btnTd);
-    tr.onclick=()=>{ sw('tkr'); setTimeout(()=>PAGE_tkr_load&&PAGE_tkr_load(s.ticker),250); };
-    tb.appendChild(tr);
-  });
 
   const whales=d.whales||[];
   document.getElementById('hi-whales').innerHTML=whales.length?whales.slice(0,15).map(w=>{
