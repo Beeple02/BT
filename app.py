@@ -560,12 +560,22 @@ def _macd(closes, fast=12, slow=26, signal=9):
     histogram = [round(m-s, 6) for m,s in zip(macd_line, sig_line)]
     return macd_line, sig_line, histogram
 
-def _vwap_series(highs, lows, closes, volumes):
+def _vwap_series(highs, lows, closes, volumes, window=20):
+    """Rolling VWAP over `window` bars (default 20).
+    Cumulative VWAP over a long history produces values far from current
+    price (because early high-volume bars dominate), which blows up the
+    chart Y-axis and makes all SMA/BB overlays invisible (squished to bottom).
+    Rolling VWAP stays anchored near current price at all times."""
     typical = [(h+l+c)/3 for h,l,c in zip(highs,lows,closes)]
-    cum_tv = 0; cum_v = 0; result = []
-    for tp, v in zip(typical, volumes):
-        cum_tv += tp*v; cum_v += v
-        result.append(round(cum_tv/cum_v, 6) if cum_v else None)
+    result = []
+    for i in range(len(typical)):
+        if i < window - 1:
+            result.append(None)
+        else:
+            tp_w = typical[i-window+1:i+1]
+            v_w  = volumes[i-window+1:i+1]
+            cum_v = sum(v_w)
+            result.append(round(sum(t*v for t,v in zip(tp_w,v_w))/cum_v, 6) if cum_v else None)
     return result
 
 def _ann_vol(closes):
