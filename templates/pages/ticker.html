@@ -135,59 +135,6 @@
 (function(){
 let _d=null, _ovs=new Set(['vwap']), _ch={};
 
-// ── Forward-fill candle array to today ────────────────────────────────────
-// For illiquid tickers that go days/weeks without a trade, this generates
-// a synthetic candle for every calendar day up to today, carrying the last
-// known OHLCV forward (volume=0 for synthetic days).
-// Also forward-fills any indicator arrays (sma20, rsi14, etc.) to match.
-function forwardFillCandles(candles, indicatorArrays) {
-  if(!candles || candles.length < 2) return { candles, indicators: indicatorArrays };
-  const todayStr = new Date().toISOString().slice(0,10);
-  // Build date→index map from real candles
-  const byDate = {};
-  candles.forEach((c,i) => { if(c.date) byDate[c.date] = i; });
-  const firstDate = candles[0].date;
-  if(!firstDate || firstDate >= todayStr) return { candles, indicators: indicatorArrays };
-
-  // Walk every calendar day from first candle to today
-  const filled = [];
-  const filledIndicators = Object.fromEntries(
-    Object.keys(indicatorArrays).map(k => [k, []])
-  );
-  const cur = new Date(firstDate + 'T12:00:00Z');
-  const end = new Date(todayStr  + 'T12:00:00Z');
-  let lastCandle = candles[0];
-  let lastIndicatorVals = Object.fromEntries(
-    Object.keys(indicatorArrays).map(k => [k, null])
-  );
-
-  while(cur <= end) {
-    const ds = cur.toISOString().slice(0,10);
-    if(byDate[ds] !== undefined) {
-      // Real candle — use it
-      lastCandle = candles[byDate[ds]];
-      Object.keys(indicatorArrays).forEach(k => {
-        const v = indicatorArrays[k]?.[byDate[ds]];
-        if(v != null) lastIndicatorVals[k] = v;
-      });
-    }
-    // Push forward-filled (or real) candle
-    filled.push({
-      ...lastCandle,
-      date: ds,
-      // synthetic days get 0 volume so bars don't lie about activity
-      volume: byDate[ds] !== undefined ? lastCandle.volume : 0,
-      _synthetic: byDate[ds] === undefined,
-    });
-    Object.keys(indicatorArrays).forEach(k => {
-      filledIndicators[k].push(lastIndicatorVals[k]);
-    });
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-
-  return { candles: filled, indicators: filledIndicators };
-}
-
 window.PAGE_tkr_onShow = function(ticker, exchange){
   populateSel('tkr-sel');
   const sel=document.getElementById('tkr-sel');
@@ -233,8 +180,11 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     return await _loadTSETicker(ticker, days, ctype);
   }
 
+  // Fetch extra days so SMA20/50/100 warmup is always covered —
+  // SMA100 needs 100 bars minimum; add 120 to whatever the user selected.
+  const fetchDays = parseInt(days) + 120;
   const [sR, obR, hiR] = await Promise.all([
-    api(`/api/ticker_stats/${ticker}?days=${days}`),
+    api(`/api/ticker_stats/${ticker}?days=${fetchDays}`),
     api(`/api/orderbook?ticker=${ticker}`),
     api(`/api/holder_intel/${ticker}`)
   ]);
@@ -247,20 +197,33 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     return;
   }
   _d = sR.d;
-  // Forward-fill candles + all indicator series to today
+  // Forward-fill candles + all indicator series to today so weekend/gap days
+  // don't leave the x-axis misaligned with indicator arrays.
   const _ff = forwardFillCandles(_d.candles, {
-    sma20:   _d.sma20,   sma50:  _d.sma50,  sma100: _d.sma100,
-    vwap:    _d.vwap,    bb_upper: _d.bb_upper, bb_lower: _d.bb_lower,
-    macd_line: _d.macd_line, macd_signal: _d.macd_signal, macd_hist: _d.macd_hist,
-    rsi14:   _d.rsi14,   vol_ma20: _d.vol_ma20, atr14: _d.atr14,
+    sma20:_d.sma20, sma50:_d.sma50, sma100:_d.sma100,
+    vwap:_d.vwap, bb_upper:_d.bb_upper, bb_lower:_d.bb_lower,
+    macd_line:_d.macd_line, macd_signal:_d.macd_signal, macd_hist:_d.macd_hist,
+    rsi14:_d.rsi14, vol_ma20:_d.vol_ma20, atr14:_d.atr14,
   });
-  _d.candles    = _ff.candles;
-  _d.sma20      = _ff.indicators.sma20;    _d.sma50    = _ff.indicators.sma50;
-  _d.sma100     = _ff.indicators.sma100;   _d.vwap     = _ff.indicators.vwap;
-  _d.bb_upper   = _ff.indicators.bb_upper; _d.bb_lower = _ff.indicators.bb_lower;
-  _d.macd_line  = _ff.indicators.macd_line; _d.macd_signal = _ff.indicators.macd_signal;
-  _d.macd_hist  = _ff.indicators.macd_hist; _d.rsi14   = _ff.indicators.rsi14;
-  _d.vol_ma20   = _ff.indicators.vol_ma20;  _d.atr14   = _ff.indicators.atr14;
+  // Trim to the user-selected display window (we fetched extra for warmup).
+  // Slice from the end so we always show exactly `days` calendar days.
+  const trimFrom = new Date(); trimFrom.setDate(trimFrom.getDate() - parseInt(days));
+  const trimStr   = trimFrom.toISOString().slice(0,10);
+  const trimIdx   = _ff.candles.findIndex(c=>c.date >= trimStr);
+  const sliceAt   = trimIdx > 0 ? trimIdx : 0;
+  _d.candles    = _ff.candles.slice(sliceAt);
+  _d.sma20      = _ff.indicators.sma20.slice(sliceAt);
+  _d.sma50      = _ff.indicators.sma50.slice(sliceAt);
+  _d.sma100     = _ff.indicators.sma100.slice(sliceAt);
+  _d.vwap       = _ff.indicators.vwap.slice(sliceAt);
+  _d.bb_upper   = _ff.indicators.bb_upper.slice(sliceAt);
+  _d.bb_lower   = _ff.indicators.bb_lower.slice(sliceAt);
+  _d.macd_line  = _ff.indicators.macd_line.slice(sliceAt);
+  _d.macd_signal= _ff.indicators.macd_signal.slice(sliceAt);
+  _d.macd_hist  = _ff.indicators.macd_hist.slice(sliceAt);
+  _d.rsi14      = _ff.indicators.rsi14.slice(sliceAt);
+  _d.vol_ma20   = _ff.indicators.vol_ma20.slice(sliceAt);
+  _d.atr14      = _ff.indicators.atr14.slice(sliceAt);
 
   const cs=_d.candles, cl=cs.map(c=>c.close), hi=cs.map(c=>c.high), lo=cs.map(c=>c.low);
   const vols=cs.map(c=>c.volume), dates=cs.map(c=>c.date), last=cl[cl.length-1];
@@ -286,32 +249,6 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   set('ts-atr', lastATR ? f(lastATR,4) : '—');
   set('ts-mc',  sec.total_shares ? fk(sec.total_shares * last) : '—');
 
-  // ── Near high / near low badge ─────────────────────────────────────────────
-  const pHi=_d.high_period, pLo=_d.low_period;
-  let badge=document.getElementById('tkr-nearhl');
-  if(!badge){ badge=document.createElement('div'); badge.id='tkr-nearhl'; badge.style.cssText='padding:0 6px;font-size:9px;font-weight:700;letter-spacing:1px;border-radius:2px;display:none;margin-bottom:4px'; document.querySelector('.sstrip').appendChild(badge); }
-  if(pHi&&last>=pHi*0.98){ badge.style.display='inline-block'; badge.style.background='rgba(0,200,83,.15)'; badge.style.color='var(--up)'; badge.style.border='1px solid var(--up)'; badge.textContent='↑ NEAR HIGH'; badge.title=`${(((last-pHi)/pHi)*100).toFixed(2)}% from period high`; }
-  else if(pLo&&last<=pLo*1.02){ badge.style.display='inline-block'; badge.style.background='rgba(244,67,54,.15)'; badge.style.color='var(--dn)'; badge.style.border='1px solid var(--dn)'; badge.textContent='↓ NEAR LOW'; badge.title=`${(((last-pLo)/pLo)*100).toFixed(2)}% from period low`; }
-  else { badge.style.display='none'; }
-
-  // ── Stat strip click → explain the number ─────────────────────────────────
-  document.querySelectorAll('.ss').forEach(el=>{
-    el.style.cursor='pointer';
-    el.onclick=()=>{
-      const lbl=el.querySelector('.ss-l')?.textContent||'';
-      const val=el.querySelector('.ss-v')?.textContent||'';
-      const bar=document.getElementById('cmd-st'); if(!bar) return;
-      let msg='';
-      if(lbl==='PERIOD H') msg=`${_d.ticker||''} · period high ${val} · currently ${pHi?((last/pHi-1)*100).toFixed(2)+'% vs high':'—'}`;
-      else if(lbl==='PERIOD L') msg=`${_d.ticker||''} · period low ${val} · currently ${pLo?((last/pLo-1)*100).toFixed(2)+'% vs low':'—'}`;
-      else if(lbl==='ATR(14)') msg=`ATR ${val} · = ${lastATR&&last?(lastATR/last*100).toFixed(2)+'% of price':'—'} · expect ±${val} daily move`;
-      else if(lbl==='MKT CAP') { const rank=(BB.secs||[]).filter(s=>s.total_shares&&s.market_price).sort((a,b)=>b.total_shares*b.market_price-a.total_shares*a.market_price).findIndex(s=>s.ticker===(_d.ticker||'')); msg=`${_d.ticker||''} · $${val} cap · rank #${rank>=0?rank+1:'?'} of ${BB.secs.length} on exchange`; }
-      else if(lbl==='AVG VOL') msg=`${_d.ticker||''} · avg daily volume ${val} · today ${lc.volume?lc.volume.toLocaleString():'—'} (${lc.volume&&_d.avg_volume?((lc.volume/_d.avg_volume-1)*100).toFixed(1)+'% vs avg':'—'})`;
-      else msg=`${lbl}  ${val}`;
-      bar.textContent=msg; bar.style.color='var(--txt3)';
-    };
-  });
-
   // ── Destroy old charts ─────────────────────────────────────────────────────
   if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c => c && c.destroy()); _ch = {};
@@ -330,20 +267,6 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
       ds.push({label:'BB-',data:_d.bb_lower,borderColor:'rgba(0,229,255,.35)',borderWidth:1,pointRadius:0,fill:'-1',backgroundColor:'rgba(0,229,255,.025)',tension:0,spanGaps:true,borderDash:[2,4]});
     }
     _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
-    // Chart hover → push OHLCV to status bar
-    if(_ch.price){
-      const origOnHover=_ch.price.options.onHover||(()=>{});
-      _ch.price.options.plugins.tooltip.external = ctx=>{
-        const bar=document.getElementById('cmd-st'); if(!bar) return;
-        const pts=ctx.tooltip.dataPoints;
-        if(!pts||!pts.length) return;
-        const idx=pts[0].dataIndex;
-        const c=cs[idx]; if(!c) return;
-        bar.textContent=`${_d.ticker||''} · ${dates[idx]||''} · C:${f(c.close,4)}`;
-        bar.style.color='var(--txt3)';
-      };
-      _ch.price.update('none');
-    }
     const leg = [
       {c:'#aa7700',l:'PRICE'},
       _ovs.has('sma20')  && {c:'#00e5ff',l:'SMA20'},
@@ -378,9 +301,6 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     const rv = document.getElementById('rsi-val');
     rv.textContent = lastR ? ' '+lastR.toFixed(1) : '';
     rv.style.color = lastR>70?'var(--dn)':lastR<30?'var(--up)':'var(--txt2)';
-    // Glow the RSI wbar when extreme
-    const rsiWbar=rv.closest('.win');
-    if(rsiWbar){ rsiWbar.style.borderColor=lastR>70?'rgba(244,67,54,.45)':lastR<30?'rgba(0,200,83,.45)':''; }
     _ch.rsi = new Chart(document.getElementById('tkr-rsi'),{type:'line',
       data:{labels:dates,datasets:[{data:_d.rsi14,borderColor:'#e040fb',borderWidth:1.2,pointRadius:0,fill:false,tension:.2,spanGaps:true}]},
       options:{responsive:true,maintainAspectRatio:false,animation:false,
@@ -391,7 +311,7 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   // ── Volume ─────────────────────────────────────────────────────────────────
   _ch.vol = new Chart(document.getElementById('tkr-vc'),{type:'bar',
     data:{labels:dates,datasets:[
-      {data:vols,backgroundColor:cs.map(c=>c._synthetic?'rgba(0,0,0,0)':c.close>=c.open?'rgba(0,200,83,.5)':'rgba(244,67,54,.5)'),borderWidth:0},
+      {data:vols,backgroundColor:cs.map(c=>c.close>=c.open?'rgba(0,200,83,.5)':'rgba(244,67,54,.5)'),borderWidth:0},
       {type:'line',data:_d.vol_ma20,borderColor:'#ff8c00',borderWidth:1,pointRadius:0,fill:false,spanGaps:true}
     ]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,
@@ -404,17 +324,6 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     document.getElementById('tkr-spr').textContent = sp ? `SPR ${sp}` : '';
     const bids=obR.d.bids||[], asks=obR.d.asks||[];
     const bq=bids.reduce((s,b)=>s+b.quantity,0), aq=asks.reduce((s,a)=>s+a.quantity,0);
-    // OB pressure badge
-    const obBar=document.getElementById('tkr-spr');
-    const imb2=(bq+aq)>0?(bq-aq)/(bq+aq)*100:0;
-    const pressureBadge=document.getElementById('tkr-ob-pressure')||(()=>{const d=document.createElement('span');d.id='tkr-ob-pressure';d.style.cssText='font-size:8px;font-weight:700;letter-spacing:.5px;padding:0 4px;border-radius:2px';obBar.parentNode.insertBefore(d,obBar);return d;})();
-    if(imb2>60){pressureBadge.textContent='BUY PRESSURE';pressureBadge.style.color='var(--up)';pressureBadge.style.background='rgba(0,200,83,.12)';}
-    else if(imb2<-60){pressureBadge.textContent='SELL PRESSURE';pressureBadge.style.color='var(--dn)';pressureBadge.style.background='rgba(244,67,54,.12)';}
-    else{pressureBadge.textContent='';}
-    // Wall detection
-    const allQty=[...bids,...asks].map(x=>x.quantity); const avgQ=allQty.reduce((s,v)=>s+v,0)/Math.max(allQty.length,1);
-    const walls=[...bids,...asks].filter(x=>x.quantity>avgQ*3);
-    if(walls.length){const topWall=walls.sort((a,b)=>b.quantity-a.quantity)[0]; if(obBar) obBar.textContent=(sp?`SPR ${sp}  `:'')+`⚠ WALL @$${f(topWall.price,4)}`;}
     // Render depth chart
     renderDepthChart(bids, asks);
     const imb = (bq-aq)/Math.max(bq+aq,1)*100;
@@ -434,8 +343,8 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   }
 
   // ── Risk Profile ───────────────────────────────────────────────────────────
-  if(stR.ok) {
-    const d = stR.d;
+  if(sR.ok) {
+    const d = sR.d;
     const mr = d.mean_reversion_score;
     const dv = d.downside_vol;
     const vs = d.vol_spike;
@@ -576,75 +485,48 @@ async function loadTkrPrints(ticker) {
   _tkrLastPrintIds = newIds;
 }
 
-// ── TSE Ticker loader — Atlas for market data, TSE native for trades ─────
+// ── TSE Ticker loader — uses Atlas as source of truth ─────────────────────────
 async function _loadTSETicker(ticker, days, ctype) {
   const set = (id, v, cls) => { const e=document.getElementById(id); if(!e) return; e.textContent=v; if(cls) e.className=e.className.replace(/up|dn|yel/g,'')+' '+cls; };
-
-  // Atlas uses TSE:ECO format; TSE native API uses bare ECO
+  // TSE ticker always prefixed TSE:XXX in Atlas
   const atlasTicker = ticker.startsWith('TSE:') ? ticker : `TSE:${ticker}`;
-  const sym         = ticker.startsWith('TSE:') ? ticker.slice(4) : ticker;
 
   // Destroy old charts
   if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c=>c&&c.destroy()); _ch={};
 
-  // Fetch in parallel — Atlas OHLCV sometimes returns nothing for TSE tickers,
-  // so we also fire TSE native candles + live market summary as fallbacks.
-  const [sR, tseCanR, tseMktR, obR, tradesR] = await Promise.all([
+  // Fetch in parallel: ticker_stats (candles+stats) + orderbook + breadth for chg_pct
+  // Note: Flask <path:ticker> handles colons natively — do NOT encodeURIComponent
+  const [sR, obR, brR] = await Promise.all([
     api(`/api/ticker_stats/${atlasTicker}?days=${days}`),
-    api(`/api/tse/candles/${sym}?interval=1h&limit=720`),
-    api(`/api/tse/market/${sym}`),
     api(`/api/orderbook/${atlasTicker}`),
-    api(`/api/tse/trades/${sym}?limit=50`),
+    api('/api/market_breadth'),
   ]);
 
-  // ── Build candle array — prefer Atlas, fall back to TSE native ───────────
-  let rawCandles = [];
-  let statsD = {};
-  if(sR.ok && sR.d && Array.isArray(sR.d.candles) && sR.d.candles.length >= 2) {
-    rawCandles = sR.d.candles;
-    statsD     = sR.d;
-  } else if(tseCanR.ok) {
-    const tseCs = Array.isArray(tseCanR.d) ? tseCanR.d
-                : Array.isArray(tseCanR.d?.candles) ? tseCanR.d.candles : [];
-    // Hourly candles → aggregate to daily OHLCV
-    const byDay = {};
-    for(const c of tseCs) {
-      const dt = (c.timestamp||c.date||'').slice(0,10);
-      if(!dt || !c.close) continue;
-      const cl2 = parseFloat(c.close||0);
-      if(!byDay[dt]) byDay[dt] = {date:dt, open:parseFloat(c.open||cl2), high:cl2, low:cl2, close:cl2, volume:0};
-      byDay[dt].high   = Math.max(byDay[dt].high, parseFloat(c.high||cl2));
-      byDay[dt].low    = Math.min(byDay[dt].low,  parseFloat(c.low||cl2));
-      byDay[dt].close  = cl2;  // last hour of day wins
-      byDay[dt].volume += parseInt(c.volume||0);
-    }
-    rawCandles = Object.values(byDay).filter(c=>c.close>0).sort((a,b)=>a.date.localeCompare(b.date));
-  }
-
-  // Live price from TSE market summary (most accurate current price)
-  const livePx = tseMktR.ok ? parseFloat(tseMktR.d?.last_price || tseMktR.d?.current_price || 0) : 0;
-
   // ── Header KPIs ──────────────────────────────────────────────────────────
-  if(rawCandles.length) {
-    const d  = statsD;
-    const _ff = forwardFillCandles(rawCandles, {});
-    const cs = _ff.candles;
+  if(sR.ok && sR.d) {
+    const d = sR.d;
+    const cs = d.candles || [];
     const cl = cs.map(c=>c.close);
-    // Splice live price into last point so chart tip matches header
-    if(livePx > 0 && cs.length) { cs[cs.length-1].close = livePx; cl[cl.length-1] = livePx; }
-    const px = livePx > 0 ? livePx : (cl.length ? cl[cl.length-1] : 0);
+    const px = cl.length ? cl[cl.length-1] : 0;
 
-    const chgPct = cl.length >= 2 && cl[0]
-      ? +((px - cl[0]) / cl[0] * 100).toFixed(2) : null;
+    // chg_pct from breadth or compute directly
+    let chgPct = null;
+    if(brR.ok && brR.d?.securities) {
+      const bsec = brR.d.securities.find(s=>s.ticker===atlasTicker);
+      chgPct = bsec?.chg_pct ?? null;
+    }
+    if(chgPct === null && cl.length >= 2 && cl[0]) {
+      chgPct = +((cl[cl.length-1] - cl[0]) / cl[0] * 100).toFixed(2);
+    }
 
     document.getElementById('tkr-px').textContent = f(px,4);
-    document.getElementById('tkr-px').style.color  = gc(chgPct??0);
-    set('tkr-chg',  chgPct!=null ? fp(chgPct) : '—');
+    document.getElementById('tkr-px').style.color = gc(chgPct??0);
+    set('tkr-chg', chgPct!=null ? fp(chgPct) : '—');
     document.getElementById('tkr-chg').style.color = gc(chgPct??0);
-    set('tkr-vol',  d.volatility_ann_pct != null ? f(d.volatility_ann_pct,1)+'%' : '—');
+    set('tkr-vol', d.volatility_ann_pct != null ? f(d.volatility_ann_pct,1)+'%' : '—');
     set('tkr-shrp', d.sharpe != null ? f(d.sharpe,2) : '—');
-    set('tkr-mdd',  d.max_drawdown_pct  != null ? f(d.max_drawdown_pct,2)+'%' : '—');
+    set('tkr-mdd', d.max_drawdown_pct != null ? f(d.max_drawdown_pct,2)+'%' : '—');
     document.getElementById('tkr-frz').style.display = 'none';
 
     // Stat strip
@@ -654,50 +536,40 @@ async function _loadTSETicker(ticker, days, ctype) {
       set('ts-l', f(Math.min(...cs.map(c=>c.low||c.close)),4));
       set('ts-c', f(px,4));
       const totalVol = cs.reduce((s,c)=>s+(c.volume||0),0);
-      set('ts-v',  totalVol.toLocaleString());
+      set('ts-v', totalVol.toLocaleString());
       set('ts-av', f(totalVol/cs.length,0));
       set('ts-ph', f(Math.max(...cl),4));
       set('ts-pl', f(Math.min(...cl),4));
       set('ts-atr', d.atr14 != null ? f(d.atr14,4) : '—');
-      const sec=(BB.secs||[]).find(s=>s.ticker===atlasTicker)||{};
-      set('ts-mc', sec.total_shares ? fk(sec.total_shares*px) : (d.market_cap ? fk(d.market_cap) : '—'));
     }
+    const sec=(BB.secs||[]).find(s=>s.ticker===atlasTicker)||{};
+    set('ts-mc', sec.total_shares ? fk(sec.total_shares * px) : (d.market_cap ? fk(d.market_cap) : '—'));
 
-    // ── Price chart ────────────────────────────────────────────────────────
+    // ── Price chart ──────────────────────────────────────────────────────────
     if(cs.length >= 2) {
-      const vols  = cs.map(c=>c.volume||0);
-      const dates = cs.map(c=>c.date||'—');
+      const vols=cs.map(c=>c.volume||0);
+      const dates=cs.map(c=>c.date||'—');
       if(ctype==='candle') {
         _ch.price = mkCandle(document.getElementById('tkr-c'), cs.map(c=>({open:c.open||c.close,high:c.high||c.close,low:c.low||c.close,close:c.close,date:c.date||'—'})));
       } else {
         const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
         _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
-    // Chart hover → push OHLCV to status bar
-    if(_ch.price){
-      const origOnHover=_ch.price.options.onHover||(()=>{});
-      _ch.price.options.plugins.tooltip.external = ctx=>{
-        const bar=document.getElementById('cmd-st'); if(!bar) return;
-        const pts=ctx.tooltip.dataPoints;
-        if(!pts||!pts.length) return;
-        const idx=pts[0].dataIndex;
-        const c=cs[idx]; if(!c) return;
-        bar.textContent=`${_d.ticker||''} · ${dates[idx]||''} · C:${f(c.close,4)}`;
-        bar.style.color='var(--txt3)';
-      };
-      _ch.price.update('none');
-    }
       }
       _ch.vol = mkVol(document.getElementById('tkr-v'), dates, vols);
-      if(cl.length >= 26){ const m=calcMACD(cl); if(m) _ch.macd=mkMACD(document.getElementById('tkr-macd'),dates,m); }
-      if(cl.length >= 14){ const r=calcRSI(cl,14); if(r) _ch.rsi=mkRSI(document.getElementById('tkr-rsi'),dates,r); }
+      if(cl.length >= 26) { const m=calcMACD(cl); if(m) _ch.macd=mkMACD(document.getElementById('tkr-macd'),dates,m); }
+      if(cl.length >= 14) { const r=calcRSI(cl,14); if(r) _ch.rsi=mkRSI(document.getElementById('tkr-rsi'),dates,r); }
+    } else {
+      document.getElementById('tkr-c').getContext('2d').clearRect(0,0,9999,9999);
     }
+  } else {
+    document.getElementById('tkr-c').getContext('2d').clearRect(0,0,9999,9999);
   }
 
-  // ── Order book — Atlas /orderbook/TSE:ECO ─────────────────────────────────
+  // ── Order book from Atlas ─────────────────────────────────────────────────
   if(obR.ok && obR.d) {
-    const raw  = obR.d;
-    const bids = (raw.bids||raw.buy_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(b=>b.price>0);
-    const asks = (raw.asks||raw.sell_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(a=>a.price>0);
+    const raw=obR.d;
+    const bids=(raw.bids||raw.buy_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(b=>b.price>0);
+    const asks=(raw.asks||raw.sell_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(a=>a.price>0);
     _buildDepthChart(bids, asks);
     _fillOBTable(bids, asks);
   }
@@ -706,31 +578,50 @@ async function _loadTSETicker(ticker, days, ctype) {
   document.getElementById('tkr-hi').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">Holder data not available for TSE securities</div>';
   document.getElementById('tkr-sh').innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">—</div>';
 
-  // ── Recent prints — TSE native trades endpoint ────────────────────────────
+  // ── Recent prints from Atlas history ──────────────────────────────────────
+  const hR = await api(`/api/history/${atlasTicker}?limit=50`);
   const el = document.getElementById('tkr-prints'); if(!el) return;
-  if(tradesR.ok && Array.isArray(tradesR.d) && tradesR.d.length) {
-    const trades = tradesR.d;
+  if(hR.ok && hR.d?.data?.length) {
+    const trades = hR.d.data.slice(0,50);
     document.getElementById('tkr-print-ct').textContent = ` — ${trades.length}`;
-    const tot      = trades.reduce((s,t)=>s+(t.quantity||0),0);
-    const vwapVal  = tot>0 ? trades.reduce((s,t)=>s+(t.price||0)*(t.quantity||0),0)/tot : 0;
-    el.innerHTML   = trades.map(t => {
-      const px2=parseFloat(t.price||0), qty=t.quantity||0;
-      const ts=t.executed_ts||t.timestamp||t.ts||'';
+    el.innerHTML = trades.map(t=>{
+      const px=parseFloat(t.price||0), qty=t.volume||t.quantity||0;
+      const ts=t.timestamp||t.ts||'';
       const time=ts?new Date(ts).toLocaleTimeString('en-GB',{hour12:false}):'—';
       return `<div style="display:flex;align-items:center;gap:4px;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.3);font-size:9px">
         <span style="color:var(--txt3);width:36px;font-variant-numeric:tabular-nums">${time}</span>
-        <span style="color:var(--cyn);font-weight:700;width:28px">TSE</span>
+        <span style="color:var(--cyn);font-weight:700;width:68px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${atlasTicker}</span>
         <span style="color:var(--wht);width:40px;text-align:right;font-variant-numeric:tabular-nums">${qty.toLocaleString()}</span>
-        <span style="color:var(--yel);flex:1;text-align:right;font-variant-numeric:tabular-nums">$${f(px2,4)}</span>
+        <span style="color:var(--yel);flex:1;text-align:right;font-variant-numeric:tabular-nums">$${f(px,4)}</span>
       </div>`;
-    }).join('')
-    + `<div style="padding:4px 6px;font-size:9px;border-top:1px solid var(--bdr);display:flex;gap:12px">
-        <span>VWAP <span style="color:var(--cyn);font-weight:700">$${f(vwapVal,4)}</span></span>
-        <span style="color:var(--txt3)">${trades.length} prints · ${tot.toLocaleString()} sh</span>
-       </div>`;
+    }).join('');
   } else {
     el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>';
   }
+}
+async function _loadTSEPrints(ticker) {
+  const el=document.getElementById('tkr-prints'); if(!el) return;
+  const r=await api(`/api/tse/trades/${ticker}?limit=50`);
+  if(!r.ok||!Array.isArray(r.d)){el.innerHTML='<div class="loading">—</div>';return;}
+  const trades=r.d;
+  document.getElementById('tkr-print-ct').textContent=trades.length?` — ${trades.length}`:'';
+  if(!trades.length){el.innerHTML='<div style="padding:8px;font-size:9px;color:var(--txt3)">No recent trades</div>';return;}
+  const tot=trades.reduce((s,t)=>s+(t.quantity||0),0);
+  const vwapVal=tot>0?trades.reduce((s,t)=>s+(t.price||0)*(t.quantity||0),0)/tot:0;
+  el.innerHTML=trades.map(t=>{
+    const px=parseFloat(t.price||0), qty=t.quantity||0;
+    const ts=t.executed_ts||t.timestamp||'';
+    const timeStr=ts?new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+    return `<div style="padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.5);display:flex;justify-content:space-between;font-size:10px">
+      <span style="color:var(--txt3)">${timeStr}</span>
+      <span style="color:var(--cyn);font-weight:700">${f(px,4)}</span>
+      <span style="color:var(--wht)">${qty.toLocaleString()}</span>
+    </div>`;
+  }).join('')
+  +`<div style="padding:4px 6px;font-size:9px;border-top:1px solid var(--bdr);display:flex;gap:12px">
+    <span>VWAP <span style="color:var(--cyn);font-weight:700">$${f(vwapVal,4)}</span></span>
+    <span style="color:var(--txt3)">${trades.length} prints · ${tot.toLocaleString()} sh</span>
+  </div>`;
 }
 
 // Helper: fill OB table rows (shared between NER and TSE)
@@ -761,49 +652,5 @@ function countWalls(bids, asks) {
 setInterval(()=>{
   if(BB.activePanel==='tkr' && _d?.ticker) loadTkrPrints(_d.ticker);
 }, 8000);
-
-// ── Persist last viewed ticker + period to sessionStorage ─────────────────
-const _origLoad = window.PAGE_tkr_load;
-window.PAGE_tkr_load = async function(ticker, exchange){
-  if(ticker){ try{ sessionStorage.setItem('bb_last_ticker', ticker+(exchange?'|'+exchange:'')); }catch(e){} }
-  return _origLoad(ticker, exchange);
-};
-
-// ── Keyboard: , / .  → prev/next ticker; [ / ] → step period ─────────────
-document.addEventListener('keydown', e=>{
-  if(BB.activePanel!=='tkr') return;
-  const cmd=document.getElementById('cmd-in');
-  if(document.activeElement===cmd) return;
-  const PERIODS=['7','14','30','60','90','180'];
-  if(e.key===','||e.key==='.'){ 
-    e.preventDefault();
-    const secs=BB.secs||[]; if(!secs.length) return;
-    const cur=document.getElementById('tkr-sel')?.value||'';
-    const idx=secs.findIndex(s=>s.ticker===cur);
-    const next=e.key==='.'?secs[(idx+1)%secs.length]:secs[(idx-1+secs.length)%secs.length];
-    if(next) PAGE_tkr_load(next.ticker, next.exchange||'NER');
-  }
-  if(e.key==='['||e.key===']'){
-    e.preventDefault();
-    const rng=document.getElementById('tkr-rng'); if(!rng) return;
-    const idx=PERIODS.indexOf(rng.value);
-    const next=e.key===']'?PERIODS[Math.min(idx+1,PERIODS.length-1)]:PERIODS[Math.max(idx-1,0)];
-    rng.value=next;
-    const t=document.getElementById('tkr-sel')?.value;
-    if(t) PAGE_tkr_load(t, document.getElementById('tkr-exch')?.value||'NER');
-  }
-});
-
-// ── On page show: restore last viewed ticker ──────────────────────────────
-const _origOnShow = window.PAGE_tkr_onShow;
-window.PAGE_tkr_onShow = function(ticker, exchange){
-  if(!ticker){
-    try{
-      const last=sessionStorage.getItem('bb_last_ticker');
-      if(last){ const parts=last.split('|'); ticker=parts[0]; exchange=parts[1]||null; }
-    }catch(e){}
-  }
-  return _origOnShow(ticker, exchange);
-};
 })();
 </script>
