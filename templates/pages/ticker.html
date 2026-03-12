@@ -286,6 +286,32 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   set('ts-atr', lastATR ? f(lastATR,4) : '—');
   set('ts-mc',  sec.total_shares ? fk(sec.total_shares * last) : '—');
 
+  // ── Near high / near low badge ─────────────────────────────────────────────
+  const pHi=_d.high_period, pLo=_d.low_period;
+  let badge=document.getElementById('tkr-nearhl');
+  if(!badge){ badge=document.createElement('div'); badge.id='tkr-nearhl'; badge.style.cssText='padding:0 6px;font-size:9px;font-weight:700;letter-spacing:1px;border-radius:2px;display:none;margin-bottom:4px'; document.querySelector('.sstrip').appendChild(badge); }
+  if(pHi&&last>=pHi*0.98){ badge.style.display='inline-block'; badge.style.background='rgba(0,200,83,.15)'; badge.style.color='var(--up)'; badge.style.border='1px solid var(--up)'; badge.textContent='↑ NEAR HIGH'; badge.title=`${(((last-pHi)/pHi)*100).toFixed(2)}% from period high`; }
+  else if(pLo&&last<=pLo*1.02){ badge.style.display='inline-block'; badge.style.background='rgba(244,67,54,.15)'; badge.style.color='var(--dn)'; badge.style.border='1px solid var(--dn)'; badge.textContent='↓ NEAR LOW'; badge.title=`${(((last-pLo)/pLo)*100).toFixed(2)}% from period low`; }
+  else { badge.style.display='none'; }
+
+  // ── Stat strip click → explain the number ─────────────────────────────────
+  document.querySelectorAll('.ss').forEach(el=>{
+    el.style.cursor='pointer';
+    el.onclick=()=>{
+      const lbl=el.querySelector('.ss-l')?.textContent||'';
+      const val=el.querySelector('.ss-v')?.textContent||'';
+      const bar=document.getElementById('cmd-st'); if(!bar) return;
+      let msg='';
+      if(lbl==='PERIOD H') msg=`${_d.ticker||''} · period high ${val} · currently ${pHi?((last/pHi-1)*100).toFixed(2)+'% vs high':'—'}`;
+      else if(lbl==='PERIOD L') msg=`${_d.ticker||''} · period low ${val} · currently ${pLo?((last/pLo-1)*100).toFixed(2)+'% vs low':'—'}`;
+      else if(lbl==='ATR(14)') msg=`ATR ${val} · = ${lastATR&&last?(lastATR/last*100).toFixed(2)+'% of price':'—'} · expect ±${val} daily move`;
+      else if(lbl==='MKT CAP') { const rank=(BB.secs||[]).filter(s=>s.total_shares&&s.market_price).sort((a,b)=>b.total_shares*b.market_price-a.total_shares*a.market_price).findIndex(s=>s.ticker===(_d.ticker||'')); msg=`${_d.ticker||''} · $${val} cap · rank #${rank>=0?rank+1:'?'} of ${BB.secs.length} on exchange`; }
+      else if(lbl==='AVG VOL') msg=`${_d.ticker||''} · avg daily volume ${val} · today ${lc.volume?lc.volume.toLocaleString():'—'} (${lc.volume&&_d.avg_volume?((lc.volume/_d.avg_volume-1)*100).toFixed(1)+'% vs avg':'—'})`;
+      else msg=`${lbl}  ${val}`;
+      bar.textContent=msg; bar.style.color='var(--txt3)';
+    };
+  });
+
   // ── Destroy old charts ─────────────────────────────────────────────────────
   if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c => c && c.destroy()); _ch = {};
@@ -304,6 +330,20 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
       ds.push({label:'BB-',data:_d.bb_lower,borderColor:'rgba(0,229,255,.35)',borderWidth:1,pointRadius:0,fill:'-1',backgroundColor:'rgba(0,229,255,.025)',tension:0,spanGaps:true,borderDash:[2,4]});
     }
     _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
+    // Chart hover → push OHLCV to status bar
+    if(_ch.price){
+      const origOnHover=_ch.price.options.onHover||(()=>{});
+      _ch.price.options.plugins.tooltip.external = ctx=>{
+        const bar=document.getElementById('cmd-st'); if(!bar) return;
+        const pts=ctx.tooltip.dataPoints;
+        if(!pts||!pts.length) return;
+        const idx=pts[0].dataIndex;
+        const c=cs[idx]; if(!c) return;
+        bar.textContent=`${_d.ticker||''} · ${dates[idx]||''} · C:${f(c.close,4)}`;
+        bar.style.color='var(--txt3)';
+      };
+      _ch.price.update('none');
+    }
     const leg = [
       {c:'#aa7700',l:'PRICE'},
       _ovs.has('sma20')  && {c:'#00e5ff',l:'SMA20'},
@@ -338,6 +378,9 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     const rv = document.getElementById('rsi-val');
     rv.textContent = lastR ? ' '+lastR.toFixed(1) : '';
     rv.style.color = lastR>70?'var(--dn)':lastR<30?'var(--up)':'var(--txt2)';
+    // Glow the RSI wbar when extreme
+    const rsiWbar=rv.closest('.win');
+    if(rsiWbar){ rsiWbar.style.borderColor=lastR>70?'rgba(244,67,54,.45)':lastR<30?'rgba(0,200,83,.45)':''; }
     _ch.rsi = new Chart(document.getElementById('tkr-rsi'),{type:'line',
       data:{labels:dates,datasets:[{data:_d.rsi14,borderColor:'#e040fb',borderWidth:1.2,pointRadius:0,fill:false,tension:.2,spanGaps:true}]},
       options:{responsive:true,maintainAspectRatio:false,animation:false,
@@ -361,6 +404,17 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     document.getElementById('tkr-spr').textContent = sp ? `SPR ${sp}` : '';
     const bids=obR.d.bids||[], asks=obR.d.asks||[];
     const bq=bids.reduce((s,b)=>s+b.quantity,0), aq=asks.reduce((s,a)=>s+a.quantity,0);
+    // OB pressure badge
+    const obBar=document.getElementById('tkr-spr');
+    const imb2=(bq+aq)>0?(bq-aq)/(bq+aq)*100:0;
+    const pressureBadge=document.getElementById('tkr-ob-pressure')||(()=>{const d=document.createElement('span');d.id='tkr-ob-pressure';d.style.cssText='font-size:8px;font-weight:700;letter-spacing:.5px;padding:0 4px;border-radius:2px';obBar.parentNode.insertBefore(d,obBar);return d;})();
+    if(imb2>60){pressureBadge.textContent='BUY PRESSURE';pressureBadge.style.color='var(--up)';pressureBadge.style.background='rgba(0,200,83,.12)';}
+    else if(imb2<-60){pressureBadge.textContent='SELL PRESSURE';pressureBadge.style.color='var(--dn)';pressureBadge.style.background='rgba(244,67,54,.12)';}
+    else{pressureBadge.textContent='';}
+    // Wall detection
+    const allQty=[...bids,...asks].map(x=>x.quantity); const avgQ=allQty.reduce((s,v)=>s+v,0)/Math.max(allQty.length,1);
+    const walls=[...bids,...asks].filter(x=>x.quantity>avgQ*3);
+    if(walls.length){const topWall=walls.sort((a,b)=>b.quantity-a.quantity)[0]; if(obBar) obBar.textContent=(sp?`SPR ${sp}  `:'')+`⚠ WALL @$${f(topWall.price,4)}`;}
     // Render depth chart
     renderDepthChart(bids, asks);
     const imb = (bq-aq)/Math.max(bq+aq,1)*100;
@@ -618,6 +672,20 @@ async function _loadTSETicker(ticker, days, ctype) {
       } else {
         const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
         _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
+    // Chart hover → push OHLCV to status bar
+    if(_ch.price){
+      const origOnHover=_ch.price.options.onHover||(()=>{});
+      _ch.price.options.plugins.tooltip.external = ctx=>{
+        const bar=document.getElementById('cmd-st'); if(!bar) return;
+        const pts=ctx.tooltip.dataPoints;
+        if(!pts||!pts.length) return;
+        const idx=pts[0].dataIndex;
+        const c=cs[idx]; if(!c) return;
+        bar.textContent=`${_d.ticker||''} · ${dates[idx]||''} · C:${f(c.close,4)}`;
+        bar.style.color='var(--txt3)';
+      };
+      _ch.price.update('none');
+    }
       }
       _ch.vol = mkVol(document.getElementById('tkr-v'), dates, vols);
       if(cl.length >= 26){ const m=calcMACD(cl); if(m) _ch.macd=mkMACD(document.getElementById('tkr-macd'),dates,m); }
@@ -693,5 +761,49 @@ function countWalls(bids, asks) {
 setInterval(()=>{
   if(BB.activePanel==='tkr' && _d?.ticker) loadTkrPrints(_d.ticker);
 }, 8000);
+
+// ── Persist last viewed ticker + period to sessionStorage ─────────────────
+const _origLoad = window.PAGE_tkr_load;
+window.PAGE_tkr_load = async function(ticker, exchange){
+  if(ticker){ try{ sessionStorage.setItem('bb_last_ticker', ticker+(exchange?'|'+exchange:'')); }catch(e){} }
+  return _origLoad(ticker, exchange);
+};
+
+// ── Keyboard: , / .  → prev/next ticker; [ / ] → step period ─────────────
+document.addEventListener('keydown', e=>{
+  if(BB.activePanel!=='tkr') return;
+  const cmd=document.getElementById('cmd-in');
+  if(document.activeElement===cmd) return;
+  const PERIODS=['7','14','30','60','90','180'];
+  if(e.key===','||e.key==='.'){ 
+    e.preventDefault();
+    const secs=BB.secs||[]; if(!secs.length) return;
+    const cur=document.getElementById('tkr-sel')?.value||'';
+    const idx=secs.findIndex(s=>s.ticker===cur);
+    const next=e.key==='.'?secs[(idx+1)%secs.length]:secs[(idx-1+secs.length)%secs.length];
+    if(next) PAGE_tkr_load(next.ticker, next.exchange||'NER');
+  }
+  if(e.key==='['||e.key===']'){
+    e.preventDefault();
+    const rng=document.getElementById('tkr-rng'); if(!rng) return;
+    const idx=PERIODS.indexOf(rng.value);
+    const next=e.key===']'?PERIODS[Math.min(idx+1,PERIODS.length-1)]:PERIODS[Math.max(idx-1,0)];
+    rng.value=next;
+    const t=document.getElementById('tkr-sel')?.value;
+    if(t) PAGE_tkr_load(t, document.getElementById('tkr-exch')?.value||'NER');
+  }
+});
+
+// ── On page show: restore last viewed ticker ──────────────────────────────
+const _origOnShow = window.PAGE_tkr_onShow;
+window.PAGE_tkr_onShow = function(ticker, exchange){
+  if(!ticker){
+    try{
+      const last=sessionStorage.getItem('bb_last_ticker');
+      if(last){ const parts=last.split('|'); ticker=parts[0]; exchange=parts[1]||null; }
+    }catch(e){}
+  }
+  return _origOnShow(ticker, exchange);
+};
 })();
 </script>
