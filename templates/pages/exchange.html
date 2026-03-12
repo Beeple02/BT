@@ -87,10 +87,10 @@
     </div>
     <div class="scroll">
       <table class="dt"><thead><tr>
-        <th>TICKER</th><th>NAME</th><th class="r">LAST</th><th class="r">CHG%</th>
-        <th class="r">MKT CAP</th><th class="r">VOLUME</th><th class="r">VOL SHR</th>
-        <th class="r">CAP SHR</th><th class="r">VOL%pa</th><th class="r">SHARPE</th>
-        <th class="r">MAX DD</th><th class="r">MOMENTUM</th><th>ACT</th>
+        <th data-col="ticker">TICKER</th><th data-col="name">NAME</th><th data-col="last" class="r">LAST</th><th data-col="chg_pct" class="r">CHG%</th>
+        <th data-col="mcap" class="r">MKT CAP</th><th data-col="volume" class="r">VOLUME</th><th data-col="vol_share_pct" class="r">VOL SHR</th>
+        <th data-col="mcap_share_pct" class="r">CAP SHR</th><th data-col="volatility" class="r">VOL%pa</th><th data-col="sharpe" class="r">SHARPE</th>
+        <th data-col="max_dd" class="r">MAX DD</th><th data-col="momentum" class="r">MOMENTUM</th><th>ACT</th>
       </tr></thead>
       <tbody id="ex-tbody"><tr><td colspan="13" class="loading">LOADING…</td></tr></tbody>
       </table>
@@ -122,9 +122,9 @@
     </div>
     <div class="scroll">
       <table class="dt"><thead><tr>
-        <th>SYMBOL</th><th>NAME</th><th>SECTOR</th>
-        <th class="r">PRICE</th><th class="r">CHG%</th><th class="r">BID</th><th class="r">ASK</th>
-        <th class="r">SPREAD%</th><th class="r">VOL 24H</th><th class="r">MKT CAP</th>
+        <th data-col="ticker">SYMBOL</th><th data-col="full_name">NAME</th><th data-col="sector">SECTOR</th>
+        <th data-col="current_price" class="r">PRICE</th><th data-col="price_change_pct" class="r">CHG%</th><th data-col="bid" class="r">BID</th><th data-col="ask" class="r">ASK</th>
+        <th data-col="spread_pct" class="r">SPREAD%</th><th data-col="volume_24h" class="r">VOL 24H</th><th data-col="market_cap" class="r">MKT CAP</th>
         <th>STATUS</th><th>ACT</th>
       </tr></thead>
       <tbody id="tse-tbody"><tr><td colspan="12" class="loading">SELECT TSE TAB TO LOAD</td></tr></tbody>
@@ -157,6 +157,8 @@ let _nerData=null, _tseData=null, _tseLoaded=false;
 let _cCap=null,_cMom=null,_cSector=null;
 let _streamTrades=[],_streamPos=0,_streamRaf=null;
 let _activeTab='ner';
+let _nerSortCol='mcap', _nerSortDir=-1;
+let _tseSortCol='market_cap', _tseSortDir=-1;
 
 // ── Tab switching ──────────────────────────────────────────────────────────
 window.exTab = function(tab) {
@@ -211,16 +213,21 @@ window.loadExch = async function(){
   const bEl=document.getElementById('ex-breadth'); bEl.textContent=breadthPct+'%';
   bEl.style.color=breadthPct>60?'var(--up)':breadthPct<40?'var(--dn)':'var(--yel)';
   document.getElementById('ex-updated').textContent='Updated '+new Date().toLocaleTimeString('en-GB');
-  renderExchRows(); renderExchCharts();
+  renderExchRows(); renderExchCharts(); _wireNerSort();
 };
 
 window.renderExchRows = function(){
   if(!_nerData) return;
-  const srt=document.getElementById('ex-sort').value;
+  // Also sync dropdown value so it stays consistent
+  const dropVal = document.getElementById('ex-sort').value;
+  if(dropVal !== _nerSortCol) { _nerSortCol = dropVal; _nerSortDir = -1; }
   const sorted=[..._nerData.tickers].sort((a,b)=>{
-    const dir=(srt==='chg_pct'||srt==='sharpe')?-1:srt==='max_dd'?1:-1;
-    return (a[srt]<b[srt]?1:-1)*dir;
+    let av = _nerSortCol==='momentum' ? a.chg_pct : (a[_nerSortCol]??0);
+    let bv = _nerSortCol==='momentum' ? b.chg_pct : (b[_nerSortCol]??0);
+    if(typeof av==='string') return av.localeCompare(bv) * _nerSortDir;
+    return (av - bv) * _nerSortDir;
   });
+  _syncNerSortIndicator();
   const tb=document.getElementById('ex-tbody'); tb.innerHTML='';
   sorted.forEach(s=>{
     const mom=s.chg_pct>2?'▲▲ STRONG':s.chg_pct>0.5?'▲ RISING':s.chg_pct<-2?'▼▼ WEAK':s.chg_pct<-0.5?'▼ FALLING':'◆ FLAT';
@@ -240,6 +247,27 @@ window.renderExchRows = function(){
   });
   document.getElementById('ex-tbl-sub').textContent=`${sorted.length} securities`;
 };
+
+function _syncNerSortIndicator() {
+  document.querySelectorAll('#ex-ner-panel table.dt thead th').forEach(th => {
+    th.classList.remove('sort-a','sort-d');
+    if(th.dataset.col === _nerSortCol) th.classList.add(_nerSortDir > 0 ? 'sort-a' : 'sort-d');
+  });
+}
+
+function _wireNerSort() {
+  document.querySelectorAll('#ex-ner-panel table.dt thead th[data-col]').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.onclick = () => {
+      const col = th.dataset.col;
+      if(_nerSortCol === col) _nerSortDir *= -1; else { _nerSortCol = col; _nerSortDir = -1; }
+      // Sync dropdown if the col matches a dropdown option
+      const dd = document.getElementById('ex-sort');
+      if([...dd.options].some(o => o.value === col)) dd.value = col;
+      renderExchRows();
+    };
+  });
+}
 
 async function renderExchCharts(){
   if(!_nerData) return;
@@ -380,6 +408,7 @@ window.loadTSE = async function(force=false) {
 
     renderTSERows();
     renderTSESectorChart();
+    _wireTseSort();
     _tseLoaded = true;
   }
 
@@ -405,13 +434,20 @@ window.loadTSE = async function(force=false) {
 
 window.renderTSERows = function() {
   const sector = document.getElementById('tse-sector-filter')?.value || '';
-  const srt    = document.getElementById('tse-sort')?.value || 'market_cap';
+  const dropVal = document.getElementById('tse-sort')?.value || 'market_cap';
+  if(dropVal !== _tseSortCol) { _tseSortCol = dropVal; _tseSortDir = -1; }
   let rows = sector ? _tseSecs.filter(s=>s.sector===sector) : [..._tseSecs];
   rows.sort((a,b) => {
-    const va = srt==='market_cap'?(a.current_price||0)*(a.total_shares||0) : (a[srt]||0);
-    const vb = srt==='market_cap'?(b.current_price||0)*(b.total_shares||0) : (b[srt]||0);
-    return srt==='price_change_pct' ? vb-va : vb-va;
+    let av, bv;
+    if(_tseSortCol==='market_cap') { av=(a.current_price||0)*(a.total_shares||0); bv=(b.current_price||0)*(b.total_shares||0); }
+    else if(_tseSortCol==='spread_pct') {
+      av = a.bid&&a.ask ? (a.ask-a.bid)/a.bid*100 : 0;
+      bv = b.bid&&b.ask ? (b.ask-b.bid)/b.bid*100 : 0;
+    } else { av = a[_tseSortCol]||0; bv = b[_tseSortCol]||0; }
+    if(typeof av==='string') return av.localeCompare(bv) * _tseSortDir;
+    return (av - bv) * _tseSortDir;
   });
+  _syncTseSortIndicator();
   const tb = document.getElementById('tse-tbody'); tb.innerHTML='';
   rows.forEach(s => {
     const px   = s.current_price||s.market_price||0;
@@ -450,6 +486,26 @@ window.renderTSERows = function() {
   });
   document.getElementById('tse-tbl-sub').textContent = `${rows.length} securities`;
 };
+
+function _syncTseSortIndicator() {
+  document.querySelectorAll('#ex-tse-panel table.dt thead th').forEach(th => {
+    th.classList.remove('sort-a','sort-d');
+    if(th.dataset.col === _tseSortCol) th.classList.add(_tseSortDir > 0 ? 'sort-a' : 'sort-d');
+  });
+}
+
+function _wireTseSort() {
+  document.querySelectorAll('#ex-tse-panel table.dt thead th[data-col]').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.onclick = () => {
+      const col = th.dataset.col;
+      if(_tseSortCol === col) _tseSortDir *= -1; else { _tseSortCol = col; _tseSortDir = -1; }
+      const dd = document.getElementById('tse-sort');
+      if([...dd.options].some(o => o.value === col)) dd.value = col;
+      renderTSERows();
+    };
+  });
+}
 
 function renderTSETrades(data) {
   const el = document.getElementById('tse-recent-trades'); if(!el) return;
