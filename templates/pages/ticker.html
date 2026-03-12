@@ -737,9 +737,53 @@ async function _loadTSETicker(ticker, days, ctype) {
       _ch.price.update('none');
     }
       }
-      _ch.vol = mkVol(document.getElementById('tkr-v'), dates, vols);
-      if(cl.length >= 26){ const m=calcMACD(cl); if(m) _ch.macd=mkMACD(document.getElementById('tkr-macd'),dates,m); }
-      if(cl.length >= 14){ const r=calcRSI(cl,14); if(r) _ch.rsi=mkRSI(document.getElementById('tkr-rsi'),dates,r); }
+      // ── Volume chart ──────────────────────────────────────────────────────
+      _ch.vol = new Chart(document.getElementById('tkr-vc'),{type:'bar',
+        data:{labels:dates,datasets:[
+          {data:vols,backgroundColor:cs.map(c=>c._synthetic?'rgba(0,0,0,0)':c.close>=c.open?'rgba(0,200,83,.5)':'rgba(244,67,54,.5)'),borderWidth:0},
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,animation:false,
+          plugins:{legend:{display:false},tooltip:{...TT}},
+          scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{maxTicksLimit:3,color:'#444'}}}}});
+
+      // ── MACD ──────────────────────────────────────────────────────────────
+      if(cl.length >= 26) {
+        const _calcEMA = (arr, n) => { const k=2/(n+1); return arr.reduce((r,v,i)=>{r.push(i===0?v:v*k+r[i-1]*(1-k));return r;},[]);};
+        const e12=_calcEMA(cl,12), e26=_calcEMA(cl,26);
+        const macdLine=e12.map((v,i)=>v-e26[i]);
+        const macdSig=_calcEMA(macdLine,9);
+        const macdHist=macdLine.map((v,i)=>v-macdSig[i]);
+        const lastM=macdLine[macdLine.length-1];
+        document.getElementById('macd-val').textContent = lastM!=null?' '+f(lastM,4):'';
+        const hcols=macdHist.map(v=>v>=0?'rgba(0,200,83,.6)':'rgba(244,67,54,.6)');
+        _ch.macd = new Chart(document.getElementById('tkr-macd'),{type:'bar',
+          data:{labels:dates,datasets:[
+            {data:macdHist,backgroundColor:hcols,borderWidth:0,order:2},
+            {type:'line',data:macdLine,borderColor:'#00e5ff',borderWidth:1,pointRadius:0,fill:false,order:1,spanGaps:true},
+            {type:'line',data:macdSig, borderColor:'#ff8c00',borderWidth:1,pointRadius:0,fill:false,order:1,spanGaps:true}
+          ]},options:{responsive:true,maintainAspectRatio:false,animation:false,
+            plugins:{legend:{display:false},tooltip:{...TT}},
+            scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{maxTicksLimit:3,color:'#444'}}}}});
+      }
+
+      // ── RSI ───────────────────────────────────────────────────────────────
+      if(cl.length >= 14) {
+        const rsiArr=cl.map((_,i)=>{
+          if(i<14) return null;
+          const w=cl.slice(i-14+1,i+1); let g=0,l=0;
+          for(let j=1;j<w.length;j++){const d=w[j]-w[j-1];d>0?g+=d:l-=d;}
+          const ag=g/14,al=l/14; return al===0?100:parseFloat((100-100/(1+ag/al)).toFixed(2));
+        });
+        const lastR=rsiArr.filter(v=>v!=null).pop();
+        const rv=document.getElementById('rsi-val');
+        rv.textContent=lastR?' '+lastR.toFixed(1):'';
+        rv.style.color=lastR>70?'var(--dn)':lastR<30?'var(--up)':'var(--txt2)';
+        _ch.rsi = new Chart(document.getElementById('tkr-rsi'),{type:'line',
+          data:{labels:dates,datasets:[{data:rsiArr,borderColor:'#e040fb',borderWidth:1.2,pointRadius:0,fill:false,tension:.2,spanGaps:true}]},
+          options:{responsive:true,maintainAspectRatio:false,animation:false,
+            plugins:{legend:{display:false},tooltip:{...TT}},
+            scales:{x:{display:false},y:{min:0,max:100,grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',maxTicksLimit:3}}}}});
+      }
     }
   }
 
@@ -750,6 +794,55 @@ async function _loadTSETicker(ticker, days, ctype) {
     const asks = (raw.asks||raw.sell_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(a=>a.price>0);
     _buildDepthChart(bids, asks);
     _fillOBTable(bids, asks);
+  }
+
+  // ── Microstructure — computed from candles ────────────────────────────────
+  if(rawCandles.length >= 2) {
+    const _ff2 = forwardFillCandles(rawCandles, {});
+    const cs2  = _ff2.candles;
+    const cl2  = cs2.map(c=>c.close);
+    const vols2= cs2.map(c=>c.volume||0);
+    const totalVol2 = vols2.reduce((s,v)=>s+v,0);
+    const avgVol2   = totalVol2 / Math.max(cs2.length,1);
+    const lastVol2  = vols2[vols2.length-1]||0;
+    const volSpike  = avgVol2>0 ? (lastVol2/avgVol2).toFixed(2) : '—';
+    const obD   = (obR.ok && obR.d) ? obR.d : {};
+    const bids2 = (obD.bids||[]);
+    const asks2 = (obD.asks||[]);
+    const bidQty= bids2.reduce((s,b)=>s+(b.quantity||0),0);
+    const askQty= asks2.reduce((s,a)=>s+(a.quantity||0),0);
+    const imbal = (bidQty+askQty)>0 ? ((bidQty-askQty)/(bidQty+askQty)*100).toFixed(1) : '—';
+    const spread= (obD.best_ask&&obD.best_bid) ? ((obD.best_ask-obD.best_bid)/obD.best_bid*100).toFixed(4) : '—';
+    document.getElementById('tkr-micro').innerHTML = `
+      <div class="micro-grid">
+        <span class="k">SPREAD</span><span class="v">${spread !== '—' ? spread+'%' : '—'}</span>
+        <span class="k">OB IMBAL</span><span class="v" style="color:${parseFloat(imbal)>0?'var(--up)':parseFloat(imbal)<0?'var(--dn)':'var(--txt2)'}">${imbal !== '—' ? imbal+'%' : '—'}</span>
+        <span class="k">BID QTY</span><span class="v up">${bidQty.toLocaleString()}</span>
+        <span class="k">ASK QTY</span><span class="v dn">${askQty.toLocaleString()}</span>
+        <span class="k">AVG VOL</span><span class="v">${Math.round(avgVol2).toLocaleString()}</span>
+        <span class="k">VOL SPIKE</span><span class="v ${parseFloat(volSpike)>2?'yel':''}">${volSpike}x</span>
+        <span class="k">MID</span><span class="v wht">${f(obD.mid,4)}</span>
+        <span class="k">EXCHANGE</span><span class="v cyn">TSE</span>
+      </div>`;
+    // ── Risk profile
+    const rets2 = cl2.slice(1).map((v,i)=>cl2[i]>0?(v-cl2[i])/cl2[i]:0);
+    const mu2   = rets2.reduce((s,v)=>s+v,0)/Math.max(rets2.length,1);
+    const std2  = rets2.length>1 ? Math.sqrt(rets2.reduce((s,v)=>s+(v-mu2)**2,0)/rets2.length) : 0;
+    const annVol2  = (std2*(252**0.5)*100).toFixed(1);
+    const sharpe2  = std2>0 ? (mu2/std2*(252**0.5)).toFixed(2) : '—';
+    let peak2=cl2[0], mdd2=0;
+    cl2.forEach(v=>{ if(v>peak2)peak2=v; const dd=(peak2-v)/peak2; if(dd>mdd2)mdd2=dd; });
+    const mddPct2  = (mdd2*100).toFixed(2);
+    const chgPct2  = cl2.length>=2&&cl2[0] ? ((cl2[cl2.length-1]-cl2[0])/cl2[0]*100).toFixed(2) : '—';
+    document.getElementById('tkr-risk').innerHTML = `
+      <div class="micro-grid">
+        <span class="k">PERIOD RET</span><span class="v" style="color:${parseFloat(chgPct2)>=0?'var(--up)':'var(--dn)'}">${chgPct2}%</span>
+        <span class="k">ANN VOL</span><span class="v yel">${annVol2}%</span>
+        <span class="k">SHARPE</span><span class="v" style="color:${parseFloat(sharpe2)>1?'var(--up)':parseFloat(sharpe2)<0?'var(--dn)':'var(--txt)'}">${sharpe2}</span>
+        <span class="k">MAX DD</span><span class="v dn">${mddPct2}%</span>
+        <span class="k">CANDLES</span><span class="v dim">${cs2.length}</span>
+        <span class="k">LAST PX</span><span class="v wht">${f(cl2[cl2.length-1],4)}</span>
+      </div>`;
   }
 
   // TSE — holders not available
