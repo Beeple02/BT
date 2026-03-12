@@ -135,6 +135,24 @@
           <span class="method">GET</span>/status<span class="status-dot" id="dot-status"></span>
         </div>
       </div>
+      <div class="dbg-sidebar-section">
+        <div class="dbg-sidebar-title" style="color:var(--cyn)">FLASK / TSE ROUTES</div>
+        <div class="dbg-ep" data-ep="flask_analytics_ohlcv" onclick="selectEp(this)">
+          <span class="method" style="color:var(--cyn)">GET</span>/api/analytics/ohlcv<span class="status-dot" id="dot-flask_analytics_ohlcv"></span>
+        </div>
+        <div class="dbg-ep" data-ep="flask_price_history" onclick="selectEp(this)">
+          <span class="method" style="color:var(--cyn)">GET</span>/api/analytics/price_history<span class="status-dot" id="dot-flask_price_history"></span>
+        </div>
+        <div class="dbg-ep" data-ep="flask_ticker_stats" onclick="selectEp(this)">
+          <span class="method" style="color:var(--cyn)">GET</span>/api/ticker_stats<span class="status-dot" id="dot-flask_ticker_stats"></span>
+        </div>
+        <div class="dbg-ep" data-ep="flask_orderbook" onclick="selectEp(this)">
+          <span class="method" style="color:var(--cyn)">GET</span>/api/orderbook?ticker<span class="status-dot" id="dot-flask_orderbook"></span>
+        </div>
+        <div class="dbg-ep" data-ep="flask_tse_trades" onclick="selectEp(this)">
+          <span class="method" style="color:var(--cyn)">GET</span>/api/tse/trades<span class="status-dot" id="dot-flask_tse_trades"></span>
+        </div>
+      </div>
     </div>
 
     <!-- Main panel -->
@@ -180,10 +198,16 @@ const EPS = {
   market_breadth:       { path: (p) => `/market/breadth`,                    params: ['days'] },
   transactions:         { path: () => '/transactions',                       params: ['ticker', 'limit'] },
   status:               { path: () => '/status',                             params: [] },
+  // Flask-direct routes (hit /api/... directly, not via atlas proxy)
+  flask_analytics_ohlcv:  { path: (p) => `/api/analytics/ohlcv/${p.ticker}`, params: ['ticker','days'], direct: true },
+  flask_price_history:    { path: (p) => `/api/analytics/price_history/${p.ticker}`, params: ['ticker','days'], direct: true },
+  flask_ticker_stats:     { path: (p) => `/api/ticker_stats/${p.ticker}`,    params: ['ticker','days'], direct: true },
+  flask_orderbook:        { path: (p) => `/api/orderbook?ticker=${p.ticker}`, params: ['ticker'], direct: true },
+  flask_tse_trades:       { path: (p) => `/api/tse/trades/${p.sym}`,         params: ['sym','limit'], direct: true },
 };
 
 // Default param values
-const DEFAULTS = { ticker: 'RTG', days: '30', limit: '20' };
+const DEFAULTS = { ticker: 'TSE:GOLD', days: '30', limit: '20', sym: 'GOLD' };
 
 let _current = null;
 let _params  = { ...DEFAULTS };
