@@ -851,26 +851,62 @@ document.getElementById('tape-inner').addEventListener('dblclick', e=>{
   if(bar){ bar.textContent='+ '+tk+' → watchlist'; bar.style.color='var(--up)'; setTimeout(()=>{bar.textContent='READY';bar.style.color='var(--txt3)';},2000); }
 });
 
-// ── Tape item: hover tooltip ───────────────────────────────────────────────
+// ── Tape item: hover tooltip (live bid/ask via orderbook fetch) ───────────
 (function(){
-  let _tt=null;
-  document.getElementById('tape-inner').addEventListener('mouseover', e=>{
-    const ti=e.target.closest('.ti'); if(!ti) return;
-    const tk=ti.dataset.tk; if(!tk) return;
-    const sec=BB.secs.find(s=>s.ticker===tk); if(!sec) return;
-    const bid=sec.bid_price, ask=sec.ask_price;
-    const spread=bid&&ask?((ask-bid)/bid*100).toFixed(3)+'%':'—';
-    const chg=sec.change_pct;
+  let _tt=null, _fetchCache={}, _hoverTk=null;
+
+  function showTT(ti, tk, bid, ask, chg){
     if(_tt) _tt.remove();
+    const spread=bid&&ask?((ask-bid)/bid*100).toFixed(3)+'%':'—';
     _tt=document.createElement('div');
-    _tt.style.cssText='position:fixed;background:#111;border:1px solid var(--org);padding:4px 8px;font-size:9px;font-family:var(--font);color:var(--wht);z-index:9999;pointer-events:none;white-space:nowrap';
-    _tt.innerHTML=`<span style="color:var(--cyn);font-weight:700">${tk}</span>  BID <span style="color:var(--up)">${bid?f(bid,4):'—'}</span>  ASK <span style="color:var(--dn)">${ask?f(ask,4):'—'}</span>  SPR <span style="color:var(--yel)">${spread}</span>  CHG <span style="color:${gcI(chg||0)}">${chg!=null?(chg>=0?'+':'')+chg.toFixed(2)+'%':'—'}</span>`;
+    _tt.style.cssText='position:fixed;background:#111;border:1px solid var(--org);padding:4px 8px;font-size:9px;font-family:var(--font);color:var(--wht);z-index:9999;pointer-events:none;white-space:nowrap;transition:opacity .1s';
+    _tt.innerHTML=`<span style="color:var(--cyn);font-weight:700">${tk}</span>`
+      +`  BID <span style="color:var(--up)">${bid!=null?f(bid,4):'…'}</span>`
+      +`  ASK <span style="color:var(--dn)">${ask!=null?f(ask,4):'…'}</span>`
+      +`  SPR <span style="color:var(--yel)">${spread}</span>`
+      +`  CHG <span style="color:${gcI(chg||0)}">${chg!=null?(chg>=0?'+':'')+chg.toFixed(2)+'%':'—'}</span>`;
     document.body.appendChild(_tt);
     const rect=ti.getBoundingClientRect();
-    _tt.style.left=Math.min(rect.left,window.innerWidth-_tt.offsetWidth-8)+'px';
-    _tt.style.top=(rect.top-_tt.offsetHeight-4)+'px';
+    _tt.style.left=Math.min(rect.left,window.innerWidth-(_tt.offsetWidth||180)-8)+'px';
+    _tt.style.top=(rect.top-(_tt.offsetHeight||24)-4)+'px';
+  }
+
+  document.getElementById('tape-inner').addEventListener('mouseover', async e=>{
+    const ti=e.target.closest('.ti'); if(!ti) return;
+    const tk=ti.dataset.tk; if(!tk) return;
+    _hoverTk=tk;
+    const sec=BB.secs.find(s=>s.ticker===tk); if(!sec) return;
+    const chg=sec.change_pct;
+
+    // Show immediately with price while fetch loads
+    showTT(ti, tk, null, null, chg);
+
+    // Use cache if fresh (< 8s old)
+    const now=Date.now();
+    if(_fetchCache[tk] && now-_fetchCache[tk].ts < 8000){
+      const {bid,ask}=_fetchCache[tk];
+      if(_hoverTk===tk) showTT(ti, tk, bid, ask, chg);
+      return;
+    }
+
+    // Fetch live orderbook
+    try{
+      const r=await fetch(`/api/orderbook/${encodeURIComponent(tk)}`);
+      if(!r.ok) return;
+      const d=await r.json();
+      const bids=d.bids||d.buy_orders||[];
+      const asks=d.asks||d.sell_orders||[];
+      const bid=bids.length?parseFloat(bids[0].price||bids[0][0]||0):null;
+      const ask=asks.length?parseFloat(asks[0].price||asks[0][0]||0):null;
+      _fetchCache[tk]={bid,ask,ts:Date.now()};
+      if(_hoverTk===tk) showTT(ti, tk, bid, ask, chg);
+    }catch(_){}
   });
-  document.getElementById('tape-inner').addEventListener('mouseout', ()=>{ if(_tt){_tt.remove();_tt=null;} });
+
+  document.getElementById('tape-inner').addEventListener('mouseout', e=>{
+    const ti=e.relatedTarget?.closest?.('.ti');
+    if(!ti){ _hoverTk=null; if(_tt){_tt.remove();_tt=null;} }
+  });
 })();
 
 // ── Sparkline pulse on direction ───────────────────────────────────────────
