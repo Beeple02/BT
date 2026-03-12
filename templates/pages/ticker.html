@@ -233,8 +233,13 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
     return await _loadTSETicker(ticker, days, ctype);
   }
 
+  // Fetch extra candles for indicator warmup (SMA100 needs 100 bars minimum).
+  // Without warmup, short ranges (e.g. 30D) return arrays that are almost
+  // entirely leading nulls — overlays appear blank even though data exists.
+  const fetchDays = parseInt(days) + 120;
+
   const [sR, obR, hiR] = await Promise.all([
-    api(`/api/ticker_stats/${ticker}?days=${days}`),
+    api(`/api/ticker_stats/${ticker}?days=${fetchDays}`),
     api(`/api/orderbook?ticker=${ticker}`),
     api(`/api/holder_intel/${ticker}`)
   ]);
@@ -261,6 +266,18 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   _d.macd_line  = _ff.indicators.macd_line; _d.macd_signal = _ff.indicators.macd_signal;
   _d.macd_hist  = _ff.indicators.macd_hist; _d.rsi14   = _ff.indicators.rsi14;
   _d.vol_ma20   = _ff.indicators.vol_ma20;  _d.atr14   = _ff.indicators.atr14;
+
+  // Trim all arrays back to the user-selected display window.
+  // candles and ALL indicator arrays must be sliced at the same index.
+  const trimIdx = Math.max(0, _d.candles.length - parseInt(days));
+  const trimArr = arr => Array.isArray(arr) ? arr.slice(trimIdx) : arr;
+  _d.candles    = trimArr(_d.candles);
+  _d.sma20      = trimArr(_d.sma20);    _d.sma50    = trimArr(_d.sma50);
+  _d.sma100     = trimArr(_d.sma100);   _d.vwap     = trimArr(_d.vwap);
+  _d.bb_upper   = trimArr(_d.bb_upper); _d.bb_lower = trimArr(_d.bb_lower);
+  _d.macd_line  = trimArr(_d.macd_line); _d.macd_signal = trimArr(_d.macd_signal);
+  _d.macd_hist  = trimArr(_d.macd_hist); _d.rsi14   = trimArr(_d.rsi14);
+  _d.vol_ma20   = trimArr(_d.vol_ma20);  _d.atr14   = trimArr(_d.atr14);
 
   const cs=_d.candles, cl=cs.map(c=>c.close), hi=cs.map(c=>c.high), lo=cs.map(c=>c.low);
   const vols=cs.map(c=>c.volume), dates=cs.map(c=>c.date), last=cl[cl.length-1];
@@ -434,8 +451,8 @@ window.PAGE_tkr_load = async function(ticker, exchange) {
   }
 
   // ── Risk Profile ───────────────────────────────────────────────────────────
-  if(stR.ok) {
-    const d = stR.d;
+  if(sR.ok) {
+    const d = sR.d;
     const mr = d.mean_reversion_score;
     const dv = d.downside_vol;
     const vs = d.vol_spike;
