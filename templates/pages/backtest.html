@@ -292,6 +292,38 @@
 .bt-tab.active { color: var(--wht); border-bottom-color: var(--org); background: var(--bg4); }
 .bt-view { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 .bt-pg   { display: flex; gap: 6px; }
+
+/* ── Statistical power indicators ── */
+.sp-banner {
+  margin: 0; padding: 6px 12px; font-size: 9px; font-weight: 700;
+  letter-spacing: 1.2px; border-bottom: 1px solid var(--bdr);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.sp-banner.sp-invalid  { background: rgba(244,67,54,.12);  color: #f44336; border-left: 3px solid #f44336; }
+.sp-banner.sp-low      { background: rgba(255,214,0,.08);  color: #ffd600; border-left: 3px solid #ffd600; }
+.sp-banner.sp-ok       { background: rgba(0,200,83,.07);   color: #00c853; border-left: 3px solid #00c853; }
+.sp-banner .sp-icon    { font-size: 13px; flex-shrink: 0; }
+.sp-banner .sp-dismiss { margin-left: auto; cursor: pointer; opacity: .5; font-size: 11px; }
+.sp-banner .sp-dismiss:hover { opacity: 1; }
+
+/* n-badge on metric strip cells */
+.sp-tag {
+  display: inline-block; font-size: 7px; font-weight: 700; letter-spacing: .8px;
+  padding: 1px 4px; border-radius: 2px; margin-left: 4px; vertical-align: middle;
+  line-height: 1.4; cursor: default;
+}
+.sp-tag.sp-t-invalid { background: rgba(244,67,54,.25); color: #f44336; }
+.sp-tag.sp-t-low     { background: rgba(255,214,0,.2);  color: #ffd600; }
+.sp-tag.sp-tag-ci    { background: rgba(0,229,255,.1);  color: var(--cyn); font-weight: 400; }
+
+/* Multi-ticker table row dimming */
+.mt-row-invalid td { opacity: .45; }
+.mt-row-invalid td:first-child::after {
+  content: ' ⚠'; color: #f44336; font-size: 9px;
+}
+.mt-row-low td:first-child::after {
+  content: ' ~'; color: #ffd600; font-size: 9px;
+}
 </style>
 
 <!-- ════════ SCRIPT ════════ -->
@@ -301,6 +333,100 @@
 /* chart registry — destroy before re-creating */
 const _C = {};
 function kc(id) { if (_C[id]) { _C[id].destroy(); delete _C[id]; } }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STATISTICAL POWER ENGINE
+   ─────────────────────────────────────────────────────────────────────────
+   Context: DemocracyCraft NER tickers trade ~8-20 times over 90 days.
+   At those sample sizes every metric has confidence intervals so wide
+   they span the entire plausible range — effectively ±∞ risk.
+   A Sharpe of 2.1 on 7 trades is indistinguishable from luck.
+   These helpers make that fact visible rather than hiding it.
+══════════════════════════════════════════════════════════════════════════ */
+
+// Thresholds — tuned to this market's trade frequency reality
+const SP = {
+  INVALID : 10,   // n < 10  → metrics are numerical noise, do not use
+  LOW     : 30,   // n < 30  → metrics exist but CIs are very wide (Law of Large Numbers barely kicking in)
+  OK      : 30,   // n ≥ 30  → usable with caveats
+};
+
+// Returns { level:'invalid'|'low'|'ok', label, n }
+function spLevel(nTrades) {
+  const n = nTrades || 0;
+  if (n < SP.INVALID) return { level:'invalid', n, label:`n=${n}` };
+  if (n < SP.LOW)     return { level:'low',     n, label:`n=${n}` };
+  return                     { level:'ok',      n, label:`n=${n}` };
+}
+
+// 95% CI on Sharpe ratio via Lo (2002) approximation: SE(SR) ≈ sqrt((1 + 0.5*SR²) / n)
+function sharpCI(sharpe, n) {
+  if (!n || n < 4) return null;
+  const se = Math.sqrt((1 + 0.5 * sharpe * sharpe) / n);
+  const z = 1.96;
+  return { lo: +(sharpe - z*se).toFixed(2), hi: +(sharpe + z*se).toFixed(2) };
+}
+
+// 95% CI on win rate (binomial proportion, Wilson score interval)
+function winRateCI(winRatePct, n) {
+  if (!n || n < 4) return null;
+  const p = winRatePct / 100;
+  const z = 1.96, z2 = z*z;
+  const denom = 1 + z2/n;
+  const centre = (p + z2/(2*n)) / denom;
+  const margin = (z * Math.sqrt(p*(1-p)/n + z2/(4*n*n))) / denom;
+  return {
+    lo: Math.max(0, +((centre - margin)*100).toFixed(1)),
+    hi: Math.min(100, +((centre + margin)*100).toFixed(1))
+  };
+}
+
+// Inject or remove the banner above a given container element
+function spShowBanner(containerId, nTrades, extra) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  // Remove old banner if present
+  const old = container.querySelector('.sp-banner');
+  if (old) old.remove();
+
+  const sp = spLevel(nTrades);
+  if (sp.level === 'ok' && !extra) return; // clean — no banner needed
+
+  const msgs = {
+    invalid: {
+      icon: '⛔',
+      title: `INSUFFICIENT DATA — n=${nTrades} trades`,
+      body: `Statistical power requires ≥${SP.INVALID} trades minimum. At n=${nTrades}, every metric shown has confidence intervals spanning ±∞. These numbers are indistinguishable from random noise. Do not use to inform trading decisions.`
+    },
+    low: {
+      icon: '⚠',
+      title: `LOW SAMPLE SIZE — n=${nTrades} trades`,
+      body: `Metrics are computed but confidence intervals are very wide (see CI tags below). ≥${SP.LOW} completed trades are needed for reliable estimates. Treat all values as indicative only.`
+    },
+  };
+
+  const cfg = sp.level === 'invalid' ? msgs.invalid : msgs.low;
+  const div = document.createElement('div');
+  div.className = `sp-banner sp-${sp.level}`;
+  div.innerHTML = `<span class="sp-icon">${cfg.icon}</span>
+    <span><strong>${cfg.title}</strong>&ensp;<span style="font-weight:400;opacity:.85">${cfg.body}</span></span>
+    <span class="sp-dismiss" title="Dismiss" onclick="this.parentElement.remove()">✕</span>`;
+  // Insert before first child of container
+  container.insertBefore(div, container.firstChild);
+}
+
+// Returns HTML for an inline sp-tag (used next to metric values)
+function spTag(level) {
+  if (level === 'ok') return '';
+  const map = { invalid: ['sp-t-invalid','⛔ INVALID'], low: ['sp-t-low','~ LOW-N'] };
+  const [cls, txt] = map[level] || [];
+  return cls ? `<span class="sp-tag ${cls}" title="Insufficient sample size for this metric">${txt}</span>` : '';
+}
+
+// Returns HTML for a CI tag
+function ciTag(lo, hi, unit='') {
+  return `<span class="sp-tag sp-tag-ci" title="95% confidence interval">95% CI: ${lo}${unit} – ${hi}${unit}</span>`;
+}
 
 /* ── tab switching ────────────────────────────────────────────────────────── */
 window.btTab = function (el) {
@@ -360,6 +486,8 @@ window.runBT = async function () {
   }
 
   const d = r.d, m = d.metrics;
+  const nT  = m.num_trades || 0;
+  const sp  = spLevel(nT);
 
   /* metrics strip */
   document.getElementById('bt-strip').style.display = 'flex';
@@ -379,6 +507,33 @@ window.runBT = async function () {
   document.getElementById('bm-trades').textContent = m.num_trades;
   document.getElementById('bm-wr').textContent     = m.win_rate + '%';
   document.getElementById('bm-eq').textContent     = f(m.final_equity);
+
+  // ── Stat power: banner + CI tags on sensitive metrics ──────────────────
+  spShowBanner('bv-single', nT);
+
+  // Annotate Sharpe with CI
+  const shEl = document.getElementById('bm-sharpe');
+  const shCI = sharpCI(m.sharpe_ratio, nT);
+  if (shCI && sp.level !== 'invalid') {
+    shEl.innerHTML = f(m.sharpe_ratio,2) + ciTag(shCI.lo, shCI.hi);
+  } else {
+    shEl.innerHTML = f(m.sharpe_ratio,2) + spTag(sp.level);
+  }
+
+  // Annotate win rate with CI
+  const wrEl = document.getElementById('bm-wr');
+  const wrCI = winRateCI(m.win_rate, nT);
+  if (wrCI && sp.level !== 'invalid') {
+    wrEl.innerHTML = m.win_rate + '%' + ciTag(wrCI.lo, wrCI.hi, '%');
+  } else {
+    wrEl.innerHTML = m.win_rate + '%' + spTag(sp.level);
+  }
+
+  // Annotate return with sp tag if invalid/low
+  if (sp.level !== 'ok') {
+    document.getElementById('bm-ret').insertAdjacentHTML('beforeend', spTag(sp.level));
+    document.getElementById('bm-alpha').insertAdjacentHTML('beforeend', spTag(sp.level));
+  }
 
   /* equity chart */
   kc('bt-eq-c');
@@ -459,8 +614,20 @@ window.runMulti = async function () {
   tb.innerHTML = '';
   results.forEach(res => {
     const m = res.m;
+    const sp = spLevel(m.num_trades || 0);
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
+    if (sp.level === 'invalid') tr.classList.add('mt-row-invalid');
+    else if (sp.level === 'low') tr.classList.add('mt-row-low');
+    // Sharpe CI for display
+    const shCI  = sharpCI(m.sharpe_ratio, m.num_trades);
+    const shTxt = sp.level === 'ok' && shCI
+      ? `${f(m.sharpe_ratio,2)}<br><span style="font-size:8px;color:var(--txt3)">[${shCI.lo}, ${shCI.hi}]</span>`
+      : f(m.sharpe_ratio,2);
+    const wrCI  = winRateCI(m.win_rate, m.num_trades);
+    const wrTxt = sp.level === 'ok' && wrCI
+      ? `${m.win_rate}%<br><span style="font-size:8px;color:var(--txt3)">[${wrCI.lo}–${wrCI.hi}%]</span>`
+      : m.win_rate+'%';
     tr.innerHTML = `
       <td><strong class="wht">${res.ticker}</strong></td>
       <td class="dim" style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${res.name}</td>
@@ -468,14 +635,26 @@ window.runMulti = async function () {
       <td class="r dim">${fp(m.benchmark_return_pct)}</td>
       <td class="r ${m.alpha_pct         >= 0 ? 'up' : 'dn'}">${fp(m.alpha_pct)}</td>
       <td class="r dn">-${m.max_drawdown_pct}%</td>
-      <td class="r ${m.sharpe_ratio      >= 0 ? 'up' : 'dn'}">${f(m.sharpe_ratio,2)}</td>
+      <td class="r ${m.sharpe_ratio      >= 0 ? 'up' : 'dn'}">${shTxt}</td>
       <td class="r ${m.calmar_ratio      >= 0 ? 'up' : 'dn'}">${f(m.calmar_ratio,2)}</td>
       <td class="r dim">${m.num_trades}</td>
-      <td class="r">${m.win_rate}%</td>
+      <td class="r">${wrTxt}</td>
       <td class="r wht">${f(m.final_equity)}</td>`;
     tr.onclick = () => { sw('tkr'); setTimeout(() => PAGE_tkr_load && PAGE_tkr_load(res.ticker), 200); };
     tb.appendChild(tr);
   });
+
+  // Legend below table explaining the row colouring
+  const nInvalid = results.filter(r => spLevel(r.m.num_trades||0).level==='invalid').length;
+  const nLow     = results.filter(r => spLevel(r.m.num_trades||0).level==='low').length;
+  if (nInvalid + nLow > 0) {
+    const legend = document.createElement('tr');
+    legend.innerHTML = `<td colspan="11" style="padding:6px 10px;font-size:9px;color:var(--txt3);border-top:1px solid var(--bdr)">
+      ${nInvalid ? `<span style="color:#f44336">⛔ ${nInvalid} ticker${nInvalid>1?'s':''} with n&lt;${SP.INVALID} trades — metrics are statistical noise, dimmed above.</span>&ensp;` : ''}
+      ${nLow ? `<span style="color:#ffd600">⚠ ${nLow} ticker${nLow>1?'s':''} with n&lt;${SP.LOW} trades — wide confidence intervals shown in brackets.</span>` : ''}
+    </td>`;
+    tb.appendChild(legend);
+  }
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -534,6 +713,13 @@ window.runWF = async function () {
   const overfit = deg > 20 ? 'HIGH' : deg > 10 ? 'MODERATE' : 'LOW';
   const ofColor = deg > 20 ? 'var(--dn)' : deg > 10 ? 'var(--yel)' : 'var(--up)';
 
+  // Stat power — WF splits sample in two, compounding the low-n problem
+  const trainSP = spLevel(tm.num_trades || 0);
+  const testSP  = spLevel(te.num_trades || 0);
+  const worstSP = (testSP.level === 'invalid' || trainSP.level === 'invalid') ? 'invalid'
+                : (testSP.level === 'low'     || trainSP.level === 'low')     ? 'low' : 'ok';
+  spShowBanner('bv-wf', Math.min(tm.num_trades||0, te.num_trades||0));
+
   document.getElementById('wf-strip').style.display = 'flex';
   const S = (id, v, c) => { const el = document.getElementById(id); el.textContent = v; if (c) el.style.color = c; };
   S('wf-tr',  fp(tm.total_return_pct),  gc(tm.total_return_pct));
@@ -586,14 +772,14 @@ window.runWF = async function () {
     <div style="padding:10px;font-size:11px">
     <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:8px">TRAIN PERIOD (${trainDays}D)</div>
     <div class="rm"><span class="k">RETURN</span> <span class="v" style="color:${gc(tm.total_return_pct)}">${fp(tm.total_return_pct)}</span></div>
-    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(tm.sharpe_ratio)}">${f(tm.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(tm.sharpe_ratio)}">${f(tm.sharpe_ratio,2)}${(()=>{ const ci=sharpCI(tm.sharpe_ratio,tm.num_trades); return ci&&trainSP.level!=='invalid'?` <span style="font-size:8px;color:var(--txt3)">[${ci.lo}, ${ci.hi}]</span>`:''; })()}</span></div>
     <div class="rm"><span class="k">MAX DD</span> <span class="v dn">-${tm.max_drawdown_pct}%</span></div>
-    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${tm.num_trades}</span></div>
+    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${tm.num_trades}${trainSP.level!=='ok'?spTag(trainSP.level):''}</span></div>
     <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">TEST PERIOD (${testDays}D)</div>
     <div class="rm"><span class="k">RETURN</span> <span class="v" style="color:${gc(te.total_return_pct)}">${fp(te.total_return_pct)}</span></div>
-    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(te.sharpe_ratio)}">${f(te.sharpe_ratio,2)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span> <span class="v" style="color:${gc(te.sharpe_ratio)}">${f(te.sharpe_ratio,2)}${(()=>{ const ci=sharpCI(te.sharpe_ratio,te.num_trades); return ci&&testSP.level!=='invalid'?` <span style="font-size:8px;color:var(--txt3)">[${ci.lo}, ${ci.hi}]</span>`:''; })()}</span></div>
     <div class="rm"><span class="k">MAX DD</span> <span class="v dn">-${te.max_drawdown_pct}%</span></div>
-    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${te.num_trades}</span></div>
+    <div class="rm"><span class="k">TRADES</span> <span class="v dim">${te.num_trades}${testSP.level!=='ok'?spTag(testSP.level):''}</span></div>
     <div style="margin:10px 0 6px;font-size:9px;color:var(--txt3);letter-spacing:1.5px;border-top:1px solid var(--bdr);padding-top:8px">VERDICT</div>
     <div class="rm"><span class="k">DEGRADATION</span> <span class="v" style="color:${gc(-deg)}">${fp(deg)}</span></div>
     <div class="rm"><span class="k">OVERFIT RISK</span><span class="v" style="color:${ofColor}">${overfit}</span></div>
@@ -602,6 +788,11 @@ window.runWF = async function () {
         overfit==='MODERATE' ? 'Moderate decay — use caution in live deployment.' :
         'Strategy generalises well to unseen data.'}
     </div>
+    ${worstSP !== 'ok' ? `<div style="margin-top:8px;padding:6px 8px;font-size:9px;line-height:1.6;border:1px solid ${worstSP==='invalid'?'rgba(244,67,54,.3)':'rgba(255,214,0,.3)'};border-radius:2px;color:${worstSP==='invalid'?'#f44336':'#ffd600'}">
+      ${worstSP==='invalid'
+        ? `⛔ Walk-forward is splitting an already insufficient sample. Train n=${tm.num_trades}, test n=${te.num_trades}. The overfit verdict above has no statistical validity at these sample sizes.`
+        : `⚠ Low sample sizes in one or both periods (train n=${tm.num_trades}, test n=${te.num_trades}). Degradation estimate is imprecise — wide confidence intervals apply.`}
+    </div>` : ''}
     </div>`;
 };
 
@@ -625,6 +816,11 @@ window.runMC = async function () {
 
   const d = r.d;
   document.getElementById('mc-strip').style.display = 'flex';
+
+  // Monte Carlo quality depends on how many real candles were used to estimate μ and σ
+  // d.candles tells us how many real data points the GBM parameters were fit to
+  const mcN   = d.candles || d.days || 0;
+  const mcSP  = spLevel(mcN);   // reuse same thresholds — candles ≈ trading days here
 
   const setv = (id, val) => {
     const el = document.getElementById(id);
@@ -692,6 +888,12 @@ window.runMC = async function () {
     <div style="border-top:1px solid var(--bdr);margin:8px 0"></div>
     <div class="rm"><span class="k">DAILY μ</span>       <span class="v dim">${d.mu_daily?.toFixed(4)}%</span></div>
     <div class="rm"><span class="k">DAILY σ</span>       <span class="v dim">${d.std_daily?.toFixed(4)}%</span></div>
+    <div class="rm"><span class="k">FIT CANDLES</span>   <span class="v dim">${mcN}${mcSP.level!=='ok'?spTag(mcSP.level):''}</span></div>
+    ${mcSP.level !== 'ok' ? `<div style="margin-top:8px;padding:6px 8px;font-size:9px;line-height:1.5;border:1px solid ${mcSP.level==='invalid'?'rgba(244,67,54,.3)':'rgba(255,214,0,.3)'};border-radius:2px;color:${mcSP.level==='invalid'?'#f44336':'#ffd600'}">
+      ${mcSP.level==='invalid'
+        ? `⛔ GBM parameters (μ, σ) estimated from only ${mcN} candles. The σ estimate is unreliable — simulation fan-out is wider than shown. Percentile bands do not reflect true uncertainty.`
+        : `⚠ μ and σ fit on ${mcN} candles. Estimates are noisy — treat percentile bands as rough guides only.`}
+    </div>` : ''}
     </div>`;
 
   document.getElementById('mc-status').textContent = `${d.sims} simulations complete · ${d.horizon}D horizon`;
@@ -759,6 +961,9 @@ window.runSens = async function () {
     ? (allVals.filter(v => v > d.bh_return).length / allVals.length * 100).toFixed(0)
     : 0;
 
+  // Stat power for sensitivity: d.candles is the number of data points the whole grid ran on
+  const sensSP = spLevel(d.candles || 0);
+
   document.getElementById('sens-detail').innerHTML = `
     <div style="padding:10px;font-size:10px">
     <div style="font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:8px">OPTIMAL PARAMETERS</div>
@@ -771,6 +976,11 @@ window.runSens = async function () {
       ${allVals.filter(v => v > d.bh_return).length} / ${allVals.length} combos beat B&H.
       Robustness: <span style="color:${+robustness>50?'var(--up)':'var(--dn)'}">${robustness}%</span>
     </div>
+    ${sensSP.level !== 'ok' ? `<div style="padding:6px 8px;margin-bottom:8px;font-size:9px;line-height:1.5;border:1px solid ${sensSP.level==='invalid'?'rgba(244,67,54,.4)':'rgba(255,214,0,.3)'};border-radius:2px;color:${sensSP.level==='invalid'?'#f44336':'#ffd600'}">
+      ${sensSP.level==='invalid'
+        ? `⛔ Grid searched ${d.candles} candles. With this few data points, the "winning" parameter combination is almost certainly a false positive — the optimizer is fitting noise. The heatmap shows sampling error, not true alpha.`
+        : `⚠ ${d.candles} candles available. Best params may be overfitted to a small sample — robustness figure is optimistic. Use Walk-Forward to stress test before trusting.`}
+    </div>` : ''}
     <div style="font-size:9px;color:var(--txt3)">&#9888; In-sample only. Use Walk-Forward to validate.</div>
     <div style="margin-top:10px">
       <button class="btn on" id="sens-wf-btn" onclick="sensValidateWF()" style="width:100%;font-size:9px;letter-spacing:1px">
