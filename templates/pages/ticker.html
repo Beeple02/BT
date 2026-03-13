@@ -771,20 +771,20 @@ async function _loadTSETicker(ticker, days, ctype) {
       } else {
         const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
         _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
-    // Chart hover → push OHLCV to status bar
-    if(_ch.price){
-      const origOnHover=_ch.price.options.onHover||(()=>{});
-      _ch.price.options.plugins.tooltip.external = ctx=>{
-        const bar=document.getElementById('cmd-st'); if(!bar) return;
-        const pts=ctx.tooltip.dataPoints;
-        if(!pts||!pts.length) return;
-        const idx=pts[0].dataIndex;
-        const c=cs[idx]; if(!c) return;
-        bar.textContent=`${_d.ticker||''} · ${dates[idx]||''} · C:${f(c.close,4)}`;
-        bar.style.color='var(--txt3)';
-      };
-      _ch.price.update('none');
-    }
+      }
+      // Chart hover → push OHLCV to status bar (both line and candle modes)
+      if(_ch.price){
+        const origOnHover=_ch.price.options.onHover||(()=>{});
+        _ch.price.options.plugins.tooltip.external = ctx=>{
+          const bar=document.getElementById('cmd-st'); if(!bar) return;
+          const pts=ctx.tooltip.dataPoints;
+          if(!pts||!pts.length) return;
+          const idx=pts[0].dataIndex;
+          const c=cs[idx]; if(!c) return;
+          bar.textContent=`${_d.ticker||''} · ${dates[idx]||''} · C:${f(c.close,4)}`;
+          bar.style.color='var(--txt3)';
+        };
+        _ch.price.update('none');
       }
       // ── Volume chart ──────────────────────────────────────────────────────
       _ch.vol = new Chart(document.getElementById('tkr-vc'),{type:'bar',
