@@ -667,8 +667,9 @@ async function _loadTSETicker(ticker, days, ctype) {
   // Atlas /analytics/ohlcv returns empty candles for TSE tickers.
   // Use /api/analytics/price_history instead — returns [{timestamp, price}, ...]
   // which is confirmed working (used by market page mini-charts).
+  // Fetch full history for TSE (trades are sparse — fetch max then trim to display range)
   const [phR, obR, tradesR] = await Promise.all([
-    api(`/api/analytics/price_history/${atlasTicker}?days=${days}`),
+    api(`/api/analytics/price_history/${atlasTicker}?days=365`),
     api(`/api/orderbook/${atlasTicker}`),
     api(`/api/tse/trades/${sym}?limit=50`),
   ]);
@@ -678,13 +679,22 @@ async function _loadTSETicker(ticker, days, ctype) {
   // sorted oldest-first (Flask sorts them). We group by day → daily OHLCV.
   let rawCandles = [];
   let statsD = {};
-  if(phR.ok && Array.isArray(phR.d) && phR.d.length >= 1) {
-    // Group price points by date
+  // Flask /api/analytics/price_history returns a plain array [{id, price, timestamp, volume}]
+  // (Flask extracts .data from Atlas response before returning)
+  const phPts = Array.isArray(phR.d) ? phR.d : Array.isArray(phR.d?.data) ? phR.d.data : [];
+  if(phR.ok && phPts.length >= 1) {
+    // Dedupe by id (Atlas sometimes returns same trade with Z and +00:00 timestamps)
+    const seen = new Set();
+    const unique = phPts.filter(pt => {
+      if(!pt.id) return true;
+      if(seen.has(pt.id)) return false;
+      seen.add(pt.id); return true;
+    });
+    // Group into daily OHLCV candles
     const byDay = {};
-    phR.d.forEach(pt => {
+    unique.forEach(pt => {
       let dateStr = '';
       if(pt.timestamp) {
-        // Handle ISO string or unix int
         const ts = typeof pt.timestamp === 'number'
           ? new Date(pt.timestamp * (pt.timestamp > 1e10 ? 1 : 1000))
           : new Date(pt.timestamp);
@@ -693,15 +703,23 @@ async function _loadTSETicker(ticker, days, ctype) {
       if(!dateStr) return;
       const px = parseFloat(pt.price || 0);
       if(!px) return;
-      if(!byDay[dateStr]) byDay[dateStr] = { open: px, high: px, low: px, close: px, volume: 0, date: dateStr };
+      if(!byDay[dateStr]) byDay[dateStr] = { open: px, high: px, low: px, close: px, volume: pt.volume || 0, date: dateStr };
       else {
         byDay[dateStr].high   = Math.max(byDay[dateStr].high, px);
         byDay[dateStr].low    = Math.min(byDay[dateStr].low,  px);
         byDay[dateStr].close  = px;
-        byDay[dateStr].volume += pt.volume || pt.quantity || 0;
+        byDay[dateStr].volume += pt.volume || 0;
       }
     });
     rawCandles = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+    // Trim to display range (days param) — keep last N calendar days
+    if(rawCandles.length > 0 && parseInt(days) < 365) {
+      const cutoff = new Date();
+      cutoff.setUTCDate(cutoff.getUTCDate() - parseInt(days));
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      const trimmed = rawCandles.filter(c => c.date >= cutoffStr);
+      if(trimmed.length >= 1) rawCandles = trimmed;
+    }
   }
 
   // Live price: last candle close
