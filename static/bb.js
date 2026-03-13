@@ -134,7 +134,7 @@ function populateSel(id, prependAll) {
   (BB.secs || []).forEach(s => { tickerCount[s.ticker] = (tickerCount[s.ticker]||0) + 1; });
   const opts = (BB.secs || []).map(s => {
     const isDual = tickerCount[s.ticker] > 1;
-    const ex = s.exchange || 'NER';
+    const ex = s.exchange || (s.ticker.startsWith('TSE:') ? 'TSE' : 'NER');
     const label = isDual
       ? `${s.ticker} [${ex}] — ${s.full_name}`
       : `${s.ticker} — ${s.full_name}`;
