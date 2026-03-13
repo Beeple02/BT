@@ -28,6 +28,13 @@
       <option value="30">30D</option><option value="90">90D</option>
     </select>
   </div>
+  <div class="ff"><label>EXCHANGE</label>
+    <div style="display:flex;gap:3px">
+      <button class="btn btn-xs on" id="hm-ex-ner" onclick="hmSetEx('NER')">NER</button>
+      <button class="btn btn-xs" id="hm-ex-tse" onclick="hmSetEx('TSE')">TSE</button>
+      <button class="btn btn-xs" id="hm-ex-all" onclick="hmSetEx('ALL')">ALL</button>
+    </div>
+  </div>
   <button class="btn on" onclick="loadHM()">↻ REFRESH</button>
   <div style="margin-left:auto;display:flex;gap:16px;align-items:flex-end;padding-bottom:4px;font-size:10px">
     <span style="color:var(--txt3)">BEST <span id="hm-best" class="up">—</span></span>
@@ -87,6 +94,16 @@
 <script>
 (function(){
 let _cache={}, _obCache={}, _holderCache={};
+let _hmEx = 'NER';
+
+window.hmSetEx = function(ex) {
+  _hmEx = ex;
+  ['NER','TSE','ALL'].forEach(e => {
+    const btn = document.getElementById('hm-ex-' + e.toLowerCase());
+    if (btn) btn.classList.toggle('on', e === ex);
+  });
+  loadHM();
+};
 
 window.PAGE_hm_onShow=function(){ loadHM(); };
 
@@ -205,7 +222,12 @@ window.loadHM = async function() {
   const needsOB   = ['spread','liq_depth','vol_spike'].includes(mode);
   const needsHold = mode === 'concentration';
 
-  const priceResults = await Promise.all(BB.secs.map(async s => {
+  const filteredSecs = (BB.secs || []).filter(s => {
+    if (_hmEx === 'NER') return !s.ticker.startsWith('TSE:');
+    if (_hmEx === 'TSE') return  s.ticker.startsWith('TSE:');
+    return true;
+  });
+  const priceResults = await Promise.all(filteredSecs.map(async s => {
     const key = s.ticker + days;
     if (_cache[key]) return _cache[key];
     const r = await api(`/api/analytics/ohlcv/${s.ticker}?days=${days}`);
@@ -278,7 +300,7 @@ window.loadHM = async function() {
     }
   };
 
-  const sizeOf = v => sizeMode === 'mcap' ? v.mcap : sizeMode === 'volume' ? v.volume : 1;
+  const sizeOf = v => { const raw = sizeMode === 'mcap' ? v.mcap : sizeMode === 'volume' ? v.volume : 1; return raw > 0 ? raw : 1; };
   const sorted = [...valid].filter(v => val(v) != null).sort((a, b) => sizeOf(b) - sizeOf(a));
   if (!sorted.length) { el.innerHTML = '<div class="loading">NO DATA FOR THIS METRIC</div>'; return; }
 
@@ -337,8 +359,9 @@ window.loadHM = async function() {
     const vlSz   = Math.max(8, Math.min(14, minSide * 0.16));
     const valColor = v > 0 ? '#a8ffbe' : v < 0 ? '#ffaaaa' : '#aaa';
 
+    const exBadge = (_hmEx === 'ALL' && r.ticker.startsWith('TSE:')) ? '<span style="font-size:7px;opacity:.65;display:block;line-height:1;color:#00e5ff">TSE</span>' : '';
     if (minSide > 28) {
-      cell.innerHTML = `<span class="hm-t" style="font-size:${tkSz}px;max-width:${rw-6}px">${r.ticker}</span>`
+      cell.innerHTML = `${exBadge}<span class="hm-t" style="font-size:${tkSz}px;max-width:${rw-6}px">${r.ticker}</span>`
         + (minSide > 44 ? `<span class="hm-v" style="font-size:${vlSz}px;color:${valColor}">${label(r)}</span>` : '');
     } else if (minSide > 14) {
       cell.style.fontSize = '7px';
