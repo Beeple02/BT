@@ -2002,6 +2002,28 @@ def portfolio_analytics():
 
 
 # ── DEBUG — check raw NER shareholders response ───────────────────────────────
+@app.route("/api/debug/ohlcv/<path:ticker>")
+def debug_ohlcv(ticker):
+    """Debug: shows raw Atlas ohlcv response shape — bypasses all caching."""
+    import requests as _req
+    try:
+        r = _req.get(f"{ATLAS_BASE}/analytics/ohlcv/{ticker}",
+                     headers=ATLAS_H, params={"days": 7}, timeout=10)
+        raw = r.json()
+        candles = raw.get("candles", [])
+        sample = candles[:3] if candles else []
+        return jsonify({
+            "status": r.status_code,
+            "top_level_keys": list(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
+            "candle_count": len(candles),
+            "sample_candles": sample,
+            "first_candle_keys": list(sample[0].keys()) if sample else [],
+            "date_field_type": type(sample[0].get("date", sample[0].get("timestamp", "MISSING"))).__name__ if sample else "no_candles",
+            "date_field_value": sample[0].get("date", sample[0].get("timestamp", "MISSING")) if sample else None,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/debug/shareholders/<ticker>")
 def debug_shareholders(ticker):
     """Exposes raw NER /shareholders response for debugging."""
