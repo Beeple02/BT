@@ -95,6 +95,7 @@
 (function(){
 let _cache={}, _obCache={}, _holderCache={};
 let _hmEx = 'NER';
+let _hmGen = 0; // incremented on each loadHM call; stale renders abort
 
 window.hmSetEx = function(ex) {
   _hmEx = ex;
@@ -217,6 +218,7 @@ window.loadHM = async function() {
   const mode     = document.getElementById('hm-mode').value;
   const sizeMode = document.getElementById('hm-size').value;
   const el       = document.getElementById('heatmap');
+  const _gen = ++_hmGen;
   el.innerHTML   = '<div class="loading" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">LOADING…</div>';
 
   const needsOB   = ['spread','liq_depth','vol_spike'].includes(mode);
@@ -261,6 +263,7 @@ window.loadHM = async function() {
   }));
 
   let valid = priceResults.filter(Boolean);
+  if (_gen !== _hmGen) return;
   if (!valid.length) { el.innerHTML = '<div class="loading">NO DATA</div>'; return; }
 
   if (needsOB) {
@@ -302,6 +305,7 @@ window.loadHM = async function() {
 
   const sizeOf = v => { const raw = sizeMode === 'mcap' ? v.mcap : sizeMode === 'volume' ? v.volume : 1; return raw > 0 ? raw : 1; };
   const sorted = [...valid].filter(v => val(v) != null).sort((a, b) => sizeOf(b) - sizeOf(a));
+  if (_gen !== _hmGen) return;
   if (!sorted.length) { el.innerHTML = '<div class="loading">NO DATA FOR THIS METRIC</div>'; return; }
 
   const vals = sorted.map(v => val(v));
@@ -321,8 +325,14 @@ window.loadHM = async function() {
   };
   document.getElementById('hm-legend').textContent = legends[mode] || '';
 
+  if (_gen !== _hmGen) return; // abort stale render
   // Build treemap — sorted descending by size (required for squarify quality)
-  const W = el.offsetWidth || 800, H = el.offsetHeight || 400;
+  // If container has no dimensions yet (layout not settled), retry after a frame
+  let W = el.offsetWidth, H = el.offsetHeight;
+  if (!W || !H) {
+    await new Promise(r => requestAnimationFrame(r));
+    W = el.offsetWidth || 800; H = el.offsetHeight || 400;
+  }
   const totalSz = sorted.reduce((s, v) => s + sizeOf(v), 0) || 1;
   const items = sorted.map(v => ({...v, v: sizeOf(v) / totalSz}));
   const rects = squarify(items, 0, 0, W, H);
