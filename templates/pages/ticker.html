@@ -156,6 +156,8 @@ function forwardFillCandles(candles, indicatorArrays) {
   );
   const cur = new Date(firstDate + 'T12:00:00Z');
   const end = new Date(todayStr  + 'T12:00:00Z');
+  // Safety: if firstDate didn't parse (e.g. unix ts slipped through), return as-is
+  if(isNaN(cur.getTime())) return { candles, indicators: indicatorArrays };
   let lastCandle = candles[0];
   let lastIndicatorVals = Object.fromEntries(
     Object.keys(indicatorArrays).map(k => [k, null])
@@ -675,19 +677,20 @@ async function _loadTSETicker(ticker, days, ctype) {
   // ── Build candle array from ohlcv response ────────────────────────────────
   let rawCandles = [];
   let statsD = {};
-  if(ohlcvR.ok && Array.isArray(ohlcvR.d?.candles) && ohlcvR.d.candles.length >= 2) {
+  if(ohlcvR.ok && Array.isArray(ohlcvR.d?.candles) && ohlcvR.d.candles.length >= 1) {
     rawCandles = ohlcvR.d.candles;
-    statsD     = ohlcvR.d; // may include volatility_ann_pct, sharpe, etc.
+    statsD     = ohlcvR.d;
   }
 
-  // Live price: last candle close (ohlcv is already up-to-date)
+  // Live price: last candle close
   const livePx = rawCandles.length ? parseFloat(rawCandles[rawCandles.length-1].close || 0) : 0;
 
   // ── Header KPIs ──────────────────────────────────────────────────────────
   if(rawCandles.length) {
     const d  = statsD;
+    // forwardFill needs valid YYYY-MM-DD dates; if TSE dates are missing/bad, use as-is
     const _ff = forwardFillCandles(rawCandles, {});
-    const cs = _ff.candles;
+    const cs = (_ff.candles && _ff.candles.length >= 1) ? _ff.candles : rawCandles;
     const cl = cs.map(c=>c.close);
     const px = livePx > 0 ? livePx : (cl.length ? cl[cl.length-1] : 0);
 
@@ -803,9 +806,9 @@ async function _loadTSETicker(ticker, days, ctype) {
   }
 
   // ── Microstructure — computed from candles ────────────────────────────────
-  if(rawCandles.length >= 2) {
+  if(rawCandles.length >= 1) {
     const _ff2 = forwardFillCandles(rawCandles, {});
-    const cs2  = _ff2.candles;
+    const cs2  = (_ff2.candles && _ff2.candles.length >= 1) ? _ff2.candles : rawCandles;
     const cl2  = cs2.map(c=>c.close);
     const vols2= cs2.map(c=>c.volume||0);
     const totalVol2 = vols2.reduce((s,v)=>s+v,0);
