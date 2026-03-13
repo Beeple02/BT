@@ -762,14 +762,37 @@ async function _loadTSETicker(ticker, days, ctype) {
       set('ts-mc', sec.total_shares ? fk(sec.total_shares*px) : (d.market_cap ? fk(d.market_cap) : '—'));
     }
 
+    // ── VWAP from actual trades (not synthetic forward-fill) ────────────────
+    // Build a date→vwap map from real price_history points
+    const _vwapByDay = {};
+    phPts.forEach(pt => {
+      let ds = '';
+      if(pt.timestamp) {
+        const ts = typeof pt.timestamp === 'number'
+          ? new Date(pt.timestamp*(pt.timestamp>1e10?1:1000))
+          : new Date(pt.timestamp);
+        if(!isNaN(ts)) ds = ts.toISOString().slice(0,10);
+      }
+      if(!ds) return;
+      const px = parseFloat(pt.price||0), vol = pt.volume||0;
+      if(!_vwapByDay[ds]) _vwapByDay[ds] = {tv:0,v:0};
+      _vwapByDay[ds].tv += px*vol; _vwapByDay[ds].v += vol;
+    });
+
     // ── Price chart ────────────────────────────────────────────────────────
     if(cs.length >= 2) {
       const vols  = cs.map(c=>c.volume||0);
       const dates = cs.map(c=>c.date||'—');
+      const vwapLine = dates.map(dt => {
+        const dv = _vwapByDay[dt];
+        return (dv && dv.v>0) ? dv.tv/dv.v : null;
+      });
       if(ctype==='candle') {
         _ch.price = mkCandle(document.getElementById('tkr-c'), cs.map(c=>({open:c.open||c.close,high:c.high||c.close,low:c.low||c.close,close:c.close,date:c.date||'—'})));
       } else {
         const ds=[{label:'Close',data:cl,borderColor:'#00e5ff',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.04)',tension:.2}];
+        if(_ovs.has('vwap') && vwapLine.some(v=>v!=null))
+          ds.push({label:'VWAP',data:vwapLine,borderColor:'#ff8c00',borderWidth:1,borderDash:[4,3],pointRadius:0,fill:false,tension:0,spanGaps:true});
         _ch.price = mkLine(document.getElementById('tkr-c'), dates, ds);
       }
       // Chart hover → push OHLCV to status bar (both line and candle modes)
@@ -841,8 +864,13 @@ async function _loadTSETicker(ticker, days, ctype) {
     const raw  = obR.d;
     const bids = (raw.bids||raw.buy_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(b=>b.price>0);
     const asks = (raw.asks||raw.sell_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(a=>a.price>0);
+    // Normalise to renderOB-compatible shape
+    const obNorm = { bids, asks,
+      best_bid: bids.length ? bids.reduce((m,b)=>b.price>m?b.price:m,0) : raw.best_bid,
+      best_ask: asks.length ? asks.reduce((m,a)=>a.price<m?a.price:m,Infinity) : raw.best_ask,
+      mid: raw.mid || (bids.length&&asks.length ? (bids[0].price+asks[0].price)/2 : null) };
+    renderOB('tkr-ob', obNorm);
     _buildDepthChart(bids, asks);
-    _fillOBTable(bids, asks);
   }
 
   // ── Microstructure — computed from candles ────────────────────────────────
@@ -856,8 +884,8 @@ async function _loadTSETicker(ticker, days, ctype) {
     const lastVol2  = vols2[vols2.length-1]||0;
     const volSpike  = avgVol2>0 ? (lastVol2/avgVol2).toFixed(2) : '—';
     const obD   = (obR.ok && obR.d) ? obR.d : {};
-    const bids2 = (obD.bids||[]);
-    const asks2 = (obD.asks||[]);
+    const bids2 = (obD.bids||obD.buy_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(b=>b.price>0);
+    const asks2 = (obD.asks||obD.sell_orders||[]).map(l=>({price:parseFloat(l.price||l[0]||0),quantity:parseInt(l.quantity||l.size||l[1]||0)})).filter(a=>a.price>0);
     const bidQty= bids2.reduce((s,b)=>s+(b.quantity||0),0);
     const askQty= asks2.reduce((s,a)=>s+(a.quantity||0),0);
     const imbal = (bidQty+askQty)>0 ? ((bidQty-askQty)/(bidQty+askQty)*100).toFixed(1) : '—';
@@ -900,8 +928,12 @@ async function _loadTSETicker(ticker, days, ctype) {
 
   // ── Recent prints — TSE native trades endpoint ────────────────────────────
   const el = document.getElementById('tkr-prints'); if(!el) return;
-  if(tradesR.ok && Array.isArray(tradesR.d) && tradesR.d.length) {
-    const trades = tradesR.d;
+  const _tradesArr = Array.isArray(tradesR.d) ? tradesR.d
+    : Array.isArray(tradesR.d?.trades) ? tradesR.d.trades
+    : Array.isArray(tradesR.d?.data)   ? tradesR.d.data
+    : [];
+  if(tradesR.ok && _tradesArr.length) {
+    const trades = _tradesArr;
     document.getElementById('tkr-print-ct').textContent = ` — ${trades.length}`;
     const tot      = trades.reduce((s,t)=>s+(t.quantity||0),0);
     const vwapVal  = tot>0 ? trades.reduce((s,t)=>s+(t.price||0)*(t.quantity||0),0)/tot : 0;
