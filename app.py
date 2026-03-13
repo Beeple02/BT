@@ -1339,7 +1339,16 @@ def backtest():
     if status != 200:
         return jsonify(raw), status
 
-    candles = _norm_candles(raw.get("candles", []), days=days)
+    # For TSE tickers, Atlas candle dates may not be in plain YYYY-MM-DD format,
+    # so the days-cutoff string comparison in _norm_candles silently drops everything.
+    # Fix: normalize without cutoff (keeps all candles), then trim to last `days` by index.
+    if ticker.startswith("TSE:"):
+        candles = _norm_candles(raw.get("candles", []))  # no date-string cutoff
+        if len(candles) > days:
+            candles = candles[-days:]                     # keep most recent `days` candles
+    else:
+        candles = _norm_candles(raw.get("candles", []), days=days)
+
     if len(candles) < 3:
         return jsonify({"detail": f"Not enough data ({len(candles)} candles)"}), 400
 
@@ -1800,7 +1809,11 @@ def param_sensitivity():
     strategy = body.get("strategy", "sma_cross")
 
     _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=600)
-    cs = [c["close"] for c in _norm_candles(raw.get("candles", []), days=days)]
+    _all_candles = _norm_candles(raw.get("candles", []))
+    if ticker.upper().startswith("TSE:"):
+        cs = [c["close"] for c in (_all_candles[-days:] if len(_all_candles) > days else _all_candles)]
+    else:
+        cs = [c["close"] for c in _norm_candles(raw.get("candles", []), days=days)]
     n  = len(cs)
     if n < 8:
         return jsonify({"detail": f"Not enough data ({n} candles, need at least 8)"}), 404
