@@ -460,8 +460,16 @@ def ohlcv(ticker):
     s, d = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=120)
     if s != 200 or not isinstance(d, dict):
         return jsonify({"ticker": ticker, "candles": [], "detail": "No data"}), 200
+    # Debug: log raw candle shape for TSE tickers so we can see the date format
+    if ticker.startswith("TSE:"):
+        raw_candles = d.get("candles", [])
+        sample = raw_candles[:2] if raw_candles else []
+        print(f"[ohlcv debug] {ticker}: {len(raw_candles)} candles, keys={list(sample[0].keys()) if sample else []}, sample={sample}", flush=True)
     # Normalise candle dates
     d["candles"] = _norm_candles(d.get("candles", []))
+    if ticker.startswith("TSE:"):
+        normed = d["candles"]
+        print(f"[ohlcv debug] {ticker}: after norm, {len(normed)} candles, first_date={normed[0].get('date') if normed else None}", flush=True)
     return jsonify(d), 200
 
 @app.route("/api/portfolio")
