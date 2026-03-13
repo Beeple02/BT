@@ -214,15 +214,21 @@ window._onTkrExchChange = function(){
 
 // Infer exchange from BB.secs — if ticker only exists on one exchange, pick that
 function _inferExchange(ticker){
+  // Fast path: TSE prefix is definitive
+  if(ticker && ticker.startsWith('TSE:')) return 'TSE';
   if(!BB.secs) return 'NER';
   const matches = BB.secs.filter(s=>s.ticker===ticker);
-  if(matches.length===1) return matches[0].exchange||'NER';
+  if(matches.length===1) {
+    const ex = matches[0].exchange;
+    // Trust exchange field only if set; otherwise infer from ticker prefix
+    return ex || (ticker.startsWith('TSE:') ? 'TSE' : 'NER');
+  }
   return null; // dual-listed — don't force
 }
 
 window.PAGE_tkr_load = async function(ticker, exchange) {
   if(!ticker) return;
-  const exch = exchange || document.getElementById('tkr-exch').value || 'NER';
+  const exch = exchange || document.getElementById('tkr-exch').value || (ticker.startsWith('TSE:') ? 'TSE' : 'NER');
   document.getElementById('tkr-sel').value = ticker;
   document.getElementById('tkr-exch').value = exch;
   const days  = document.getElementById('tkr-rng').value;
@@ -924,7 +930,7 @@ document.addEventListener('keydown', e=>{
     const cur=document.getElementById('tkr-sel')?.value||'';
     const idx=secs.findIndex(s=>s.ticker===cur);
     const next=e.key==='.'?secs[(idx+1)%secs.length]:secs[(idx-1+secs.length)%secs.length];
-    if(next) PAGE_tkr_load(next.ticker, next.exchange||'NER');
+    if(next) PAGE_tkr_load(next.ticker, next.exchange||(next.ticker.startsWith('TSE:')?'TSE':'NER'));
   }
   if(e.key==='['||e.key===']'){
     e.preventDefault();
