@@ -2004,22 +2004,35 @@ def portfolio_analytics():
 # ── DEBUG — check raw NER shareholders response ───────────────────────────────
 @app.route("/api/debug/ohlcv/<path:ticker>")
 def debug_ohlcv(ticker):
-    """Debug: shows raw Atlas ohlcv response shape — bypasses all caching."""
+    """Debug: shows raw Atlas ohlcv + price_history response shape — bypasses all caching."""
     import requests as _req
     try:
-        r = _req.get(f"{ATLAS_BASE}/analytics/ohlcv/{ticker}",
-                     headers=ATLAS_H, params={"days": 7}, timeout=10)
-        raw = r.json()
-        candles = raw.get("candles", [])
-        sample = candles[:3] if candles else []
+        r1 = _req.get(f"{ATLAS_BASE}/analytics/ohlcv/{ticker}",
+                      headers=ATLAS_H, params={"days": 7}, timeout=10)
+        raw1 = r1.json()
+        candles = raw1.get("candles", []) if isinstance(raw1, dict) else []
+        sample1 = candles[:2] if candles else []
+
+        r2 = _req.get(f"{ATLAS_BASE}/history/{ticker}",
+                      headers=ATLAS_H, params={"days": 7, "limit": 5}, timeout=10)
+        raw2 = r2.json()
+        pts = raw2.get("data", raw2) if isinstance(raw2, dict) else raw2
+        sample2 = pts[:2] if isinstance(pts, list) else []
+
         return jsonify({
-            "status": r.status_code,
-            "top_level_keys": list(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
-            "candle_count": len(candles),
-            "sample_candles": sample,
-            "first_candle_keys": list(sample[0].keys()) if sample else [],
-            "date_field_type": type(sample[0].get("date", sample[0].get("timestamp", "MISSING"))).__name__ if sample else "no_candles",
-            "date_field_value": sample[0].get("date", sample[0].get("timestamp", "MISSING")) if sample else None,
+            "ohlcv": {
+                "status": r1.status_code,
+                "top_level_keys": list(raw1.keys()) if isinstance(raw1, dict) else str(type(raw1)),
+                "candle_count": len(candles),
+                "sample": sample1,
+            },
+            "price_history": {
+                "status": r2.status_code,
+                "type": str(type(raw2)),
+                "top_level_keys": list(raw2.keys()) if isinstance(raw2, dict) else "list",
+                "count": len(pts) if isinstance(pts, list) else "?",
+                "sample": sample2,
+            },
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
