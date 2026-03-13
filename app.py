@@ -198,7 +198,11 @@ def atlas_get(path, params=None, ttl=30):
     return cached_get(path, params=params, ttl=ttl)
 
 def _norm_candles(candles, days=None):
-    """Sort candles oldest-first, fix Atlas DD-MM-YY dates, enforce days cutoff.
+    """Sort candles oldest-first, fix Atlas date formats, enforce days cutoff.
+    Handles:
+      - DD-MM-YY strings  (e.g. "30-12-25")
+      - Unix timestamp ints in "date" or "timestamp" field
+      - ISO datetime strings (e.g. "2025-12-30T00:00:00")
     Atlas ignores the days param and returns all candles — we filter here."""
     from datetime import datetime, timedelta, timezone
     cutoff = None
@@ -206,11 +210,21 @@ def _norm_candles(candles, days=None):
         cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
     out = []
     for cv in candles:
-        d = cv.get("date", "")
+        d = cv.get("date") or cv.get("timestamp") or cv.get("ts") or ""
+        # Unix timestamp int → YYYY-MM-DD
+        if isinstance(d, (int, float)):
+            try:
+                d = datetime.fromtimestamp(d, tz=timezone.utc).strftime("%Y-%m-%d")
+            except Exception:
+                d = ""
+        d = str(d) if d else ""
         # Fix DD-MM-YY → YYYY-MM-DD (e.g. "30-12-25" → "2025-12-30")
         if d and len(d) == 8 and d[2] == "-" and d[5] == "-":
             p = d.split("-")
             d = f"20{p[2]}-{p[1]}-{p[0]}"
+        # Truncate ISO datetime to date only (e.g. "2025-12-30T00:00:00" → "2025-12-30")
+        if d and len(d) > 10 and "T" in d:
+            d = d[:10]
         if cutoff and d and d < cutoff:
             continue
         out.append({**cv, "date": d})
