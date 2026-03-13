@@ -664,22 +664,44 @@ async function _loadTSETicker(ticker, days, ctype) {
   if(window._tkrDepthC){window._tkrDepthC.destroy();window._tkrDepthC=null;}
   Object.values(_ch).forEach(c=>c&&c.destroy()); _ch={};
 
-  // /api/ticker_stats does not exist for TSE tickers (404s in logs).
-  // /api/tse/candles does not exist at all (never appears in logs).
-  // /api/analytics/ohlcv/TSE:TICKER?days=N is the confirmed working endpoint —
-  // same one used by market.html momentum matrix. Returns { candles: [...] }.
-  const [ohlcvR, obR, tradesR] = await Promise.all([
-    api(`/api/analytics/ohlcv/${atlasTicker}?days=${days}`),
+  // Atlas /analytics/ohlcv returns empty candles for TSE tickers.
+  // Use /api/analytics/price_history instead — returns [{timestamp, price}, ...]
+  // which is confirmed working (used by market page mini-charts).
+  const [phR, obR, tradesR] = await Promise.all([
+    api(`/api/analytics/price_history/${atlasTicker}?days=${days}`),
     api(`/api/orderbook/${atlasTicker}`),
     api(`/api/tse/trades/${sym}?limit=50`),
   ]);
 
-  // ── Build candle array from ohlcv response ────────────────────────────────
+  // ── Build synthetic OHLCV candles from price_history points ───────────────
+  // price_history returns [{timestamp: "ISO-or-unix", price: float}, ...]
+  // sorted oldest-first (Flask sorts them). We group by day → daily OHLCV.
   let rawCandles = [];
   let statsD = {};
-  if(ohlcvR.ok && Array.isArray(ohlcvR.d?.candles) && ohlcvR.d.candles.length >= 1) {
-    rawCandles = ohlcvR.d.candles;
-    statsD     = ohlcvR.d;
+  if(phR.ok && Array.isArray(phR.d) && phR.d.length >= 1) {
+    // Group price points by date
+    const byDay = {};
+    phR.d.forEach(pt => {
+      let dateStr = '';
+      if(pt.timestamp) {
+        // Handle ISO string or unix int
+        const ts = typeof pt.timestamp === 'number'
+          ? new Date(pt.timestamp * (pt.timestamp > 1e10 ? 1 : 1000))
+          : new Date(pt.timestamp);
+        if(!isNaN(ts)) dateStr = ts.toISOString().slice(0, 10);
+      }
+      if(!dateStr) return;
+      const px = parseFloat(pt.price || 0);
+      if(!px) return;
+      if(!byDay[dateStr]) byDay[dateStr] = { open: px, high: px, low: px, close: px, volume: 0, date: dateStr };
+      else {
+        byDay[dateStr].high   = Math.max(byDay[dateStr].high, px);
+        byDay[dateStr].low    = Math.min(byDay[dateStr].low,  px);
+        byDay[dateStr].close  = px;
+        byDay[dateStr].volume += pt.volume || pt.quantity || 0;
+      }
+    });
+    rawCandles = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
   }
 
   // Live price: last candle close
