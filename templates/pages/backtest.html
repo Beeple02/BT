@@ -585,8 +585,8 @@ window.runMulti = async function () {
   const strat   = document.getElementById('mt-str').value;
   const days    = +document.getElementById('mt-days').value;
   const rankBy  = document.getElementById('mt-rank').value;
-  // Filter to NER-only: TSE tickers have no OHLCV history compatible with our backtest engine
-  const tickers = (BB.secs || []).filter(s => !s.ticker.startsWith('TSE:')).map(s => s.ticker);
+  // Multi-ticker sweep — all exchanges now supported (TSE uses price_history on backend)
+  const tickers = (BB.secs || []).map(s => s.ticker);
   const tb      = document.getElementById('mt-tbody');
 
   tb.innerHTML = `<tr><td colspan="11" class="loading">RUNNING ON ${tickers.length} TICKERS…</td></tr>`;
