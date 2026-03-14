@@ -232,10 +232,43 @@ window.loadHM = async function() {
   const priceResults = await Promise.all(filteredSecs.map(async s => {
     const key = s.ticker + days;
     if (_cache[key]) return _cache[key];
-    const r = await api(`/api/analytics/ohlcv/${s.ticker}?days=${days}`);
-    if (!r.ok || !r.d.candles?.length) return null;
-    const cs = r.d.candles, closes = cs.map(c => c.close), vols = cs.map(c => c.volume);
-    const first = cs[0].open || closes[0], last = closes[closes.length - 1];
+
+    // TSE tickers: ohlcv returns empty — use price_history instead
+    let closes, vols;
+    if (s.ticker.startsWith('TSE:')) {
+      const ph = await api(`/api/analytics/price_history/${s.ticker}?days=365`);
+      const pts = Array.isArray(ph.d) ? ph.d : Array.isArray(ph.d?.data) ? ph.d.data : [];
+      if (!ph.ok || pts.length < 2) return null;
+      // Dedupe by id, group into daily candles
+      const seen = new Set();
+      const byDay = {};
+      pts.forEach(pt => {
+        if (pt.id !== undefined) { if (seen.has(pt.id)) return; seen.add(pt.id); }
+        const ts = typeof pt.timestamp === 'number'
+          ? new Date(pt.timestamp * (pt.timestamp > 1e10 ? 1 : 1000))
+          : new Date(pt.timestamp);
+        if (isNaN(ts)) return;
+        const ds = ts.toISOString().slice(0, 10);
+        const px = parseFloat(pt.price || 0), vol = pt.volume || 0;
+        if (!px) return;
+        if (!byDay[ds]) byDay[ds] = { open: px, high: px, low: px, close: px, volume: vol, date: ds };
+        else { byDay[ds].high = Math.max(byDay[ds].high, px); byDay[ds].low = Math.min(byDay[ds].low, px); byDay[ds].close = px; byDay[ds].volume += vol; }
+      });
+      // Trim to display window
+      const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - parseInt(days));
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      const cs = Object.values(byDay).sort((a,b) => a.date.localeCompare(b.date)).filter(c => c.date >= cutoffStr);
+      if (cs.length < 2) return null;
+      closes = cs.map(c => c.close);
+      vols   = cs.map(c => c.volume);
+    } else {
+      const r = await api(`/api/analytics/ohlcv/${s.ticker}?days=${days}`);
+      if (!r.ok || !r.d.candles?.length) return null;
+      const cs = r.d.candles;
+      closes = cs.map(c => c.close); vols = cs.map(c => c.volume);
+    }
+
+    const first = closes[0], last = closes[closes.length - 1];
     const chg = (last - first) / first * 100;
     const rets = closes.map((c, i) => i ? (c - closes[i-1]) / closes[i-1] : 0).slice(1);
     const avg = rets.reduce((s, v) => s + v, 0) / (rets.length || 1);
