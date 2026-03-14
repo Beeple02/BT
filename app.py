@@ -231,6 +231,56 @@ def _norm_candles(candles, days=None):
     out.sort(key=lambda x: x.get("date", ""))
     return out
 
+def _build_candles_from_history(pts, days=None):
+    """Convert Atlas price_history points [{id, price, timestamp, volume}]
+    into daily OHLCV candles, deduplicated and trimmed to `days`."""
+    from datetime import datetime, timezone, timedelta
+    # Deduplicate by id
+    seen_ids = set()
+    unique = []
+    for pt in (pts or []):
+        pid = pt.get("id")
+        if pid is not None:
+            if pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+        unique.append(pt)
+    # Group into daily candles
+    by_day = {}
+    for pt in unique:
+        ts_raw = pt.get("timestamp") or pt.get("ts") or ""
+        if not ts_raw:
+            continue
+        try:
+            if isinstance(ts_raw, (int, float)):
+                dt = datetime.fromtimestamp(ts_raw, tz=timezone.utc)
+            else:
+                dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y-%m-%d")
+        except Exception:
+            continue
+        px = float(pt.get("price") or 0)
+        vol = int(pt.get("volume") or 0)
+        if not px:
+            continue
+        if date_str not in by_day:
+            by_day[date_str] = {"date": date_str, "open": px, "high": px, "low": px, "close": px, "volume": vol}
+        else:
+            c = by_day[date_str]
+            c["high"]   = max(c["high"], px)
+            c["low"]    = min(c["low"],  px)
+            c["close"]  = px
+            c["volume"] += vol
+    candles = sorted(by_day.values(), key=lambda x: x["date"])
+    # Trim to requested days window
+    if days and candles:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
+        trimmed = [c for c in candles if c["date"] >= cutoff]
+        if trimmed:
+            candles = trimmed
+    return candles
+
+
 # Bulk orderbook cache — one call, filter by ticker in Python
 _ob_cache = {"ts": 0, "data": None}
 _OB_TTL = 10  # seconds
@@ -1357,18 +1407,18 @@ def backtest():
     if not ticker:
         return jsonify({"detail": "ticker required"}), 400
 
-    status, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
-    if status != 200:
-        return jsonify(raw), status
-
-    # For TSE tickers, Atlas candle dates may not be in plain YYYY-MM-DD format,
-    # so the days-cutoff string comparison in _norm_candles silently drops everything.
-    # Fix: normalize without cutoff (keeps all candles), then trim to last `days` by index.
+    # TSE tickers: Atlas /analytics/ohlcv returns empty candles.
+    # Use /history/{ticker} (price_history) instead — same source as market page.
     if ticker.startswith("TSE:"):
-        candles = _norm_candles(raw.get("candles", []))  # no date-string cutoff
-        if len(candles) > days:
-            candles = candles[-days:]                     # keep most recent `days` candles
+        s2, raw2 = atlas_get(f"/history/{ticker}", params={"days": 365, "limit": 5000}, ttl=60)
+        if s2 != 200:
+            return jsonify(raw2), s2
+        pts = raw2.get("data", []) if isinstance(raw2, dict) else raw2
+        candles = _build_candles_from_history(pts, days)
     else:
+        status, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
+        if status != 200:
+            return jsonify(raw), status
         candles = _norm_candles(raw.get("candles", []), days=days)
 
     if len(candles) < 3:
@@ -1775,8 +1825,13 @@ def monte_carlo():
     body = request.json or {}
     ticker = body.get("ticker",""); days = int(body.get("days",60))
     n_sims = min(int(body.get("sims",1000)),2000); horizon = int(body.get("horizon",30))
-    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
-    cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
+    if ticker.upper().startswith("TSE:"):
+        _, raw2 = atlas_get(f"/history/{ticker}", params={"days": 365, "limit": 5000}, ttl=60)
+        pts2 = raw2.get("data", []) if isinstance(raw2, dict) else raw2
+        cs = [c["close"] for c in _build_candles_from_history(pts2, days)]
+    else:
+        _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days":days}, ttl=60)
+        cs = [c["close"] for c in _norm_candles(raw.get("candles",[]))]
     if len(cs) < 5: return jsonify({"detail":"Not enough data"}), 404
     rets = [(cs[i]-cs[i-1])/cs[i-1] for i in range(1,len(cs))]
     mu  = sum(rets)/len(rets)
@@ -1830,11 +1885,12 @@ def param_sensitivity():
     days     = int(body.get("days", 90))
     strategy = body.get("strategy", "sma_cross")
 
-    _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=600)
-    _all_candles = _norm_candles(raw.get("candles", []))
     if ticker.upper().startswith("TSE:"):
-        cs = [c["close"] for c in (_all_candles[-days:] if len(_all_candles) > days else _all_candles)]
+        _, raw2 = atlas_get(f"/history/{ticker}", params={"days": 365, "limit": 5000}, ttl=600)
+        pts2 = raw2.get("data", []) if isinstance(raw2, dict) else raw2
+        cs = [c["close"] for c in _build_candles_from_history(pts2, days)]
     else:
+        _, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=600)
         cs = [c["close"] for c in _norm_candles(raw.get("candles", []), days=days)]
     n  = len(cs)
     if n < 8:
