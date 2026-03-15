@@ -293,35 +293,71 @@ async function loadDashboard(){
 }
 
 // ── Per-portfolio page ────────────────────────────────────────────────────────
+// Portfolio HTML is fetched once and reused across all portfolio panels
+let _pfPageFetched = false;
+let _pfPageFetching = null; // Promise, prevents double-fetch
+
+async function _ensurePFPageLoaded(panel){
+  // If already injected into this panel, nothing to do
+  if(panel.dataset.loaded==='1') return true;
+  // Fetch portfolio.html once
+  if(!_pfPageFetching){
+    _pfPageFetching = fetch(`/enterprise/page/portfolio`).then(async r=>{
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    });
+  }
+  let html;
+  try { html = await _pfPageFetching; } catch(e){ console.error('portfolio page load failed',e); return false; }
+
+  const tmp=document.createElement('div');
+  tmp.innerHTML=html;
+  // Extract scripts and styles before setting innerHTML
+  const scripts=[...tmp.querySelectorAll('script')];
+  const styles=[...tmp.querySelectorAll('style')];
+  scripts.forEach(s=>s.remove());
+  styles.forEach(s=>s.remove());
+  panel.innerHTML=tmp.innerHTML;
+  // Inject styles into head (only once)
+  styles.forEach(s=>{
+    const ns=document.createElement('style');
+    ns.textContent=s.textContent;
+    document.head.appendChild(ns);
+  });
+  // Run scripts synchronously
+  for(const s of scripts){
+    const ns=document.createElement('script');
+    ns.textContent=s.textContent;
+    document.head.appendChild(ns);
+  }
+  panel.dataset.loaded='1';
+  return true;
+}
+
 async function loadPortfolioPage(pfid){
   const panel=document.getElementById(`ep-${pfid}`);
   if(!panel) return;
+
   if(panel.dataset.loaded==='1'){
-    // refresh data only
-    await refreshPortfolioPanel(pfid);
+    // Panel already has HTML — just reload data for this portfolio
+    if(window.ENT_PF_load) await ENT_PF_load(pfid);
     return;
   }
+
   panel.innerHTML='<div class="loading">LOADING PORTFOLIO…</div>';
-  await fetch(`/enterprise/page/portfolio`).then(async r=>{
-    if(!r.ok) return;
-    const html=await r.text();
-    const tmp=document.createElement('div');
-    tmp.innerHTML=html;
-    const scripts=[...tmp.querySelectorAll('script')];
-    scripts.forEach(s=>s.remove());
-    panel.innerHTML=tmp.innerHTML;
-    for(const s of scripts){
-      const ns=document.createElement('script');
-      ns.textContent=s.textContent;
-      document.head.appendChild(ns);
-    }
-  });
-  panel.dataset.loaded='1';
-  if(window.ENT_PF_load) ENT_PF_load(pfid);
+  const ok = await _ensurePFPageLoaded(panel);
+  if(!ok){ panel.innerHTML='<div class="err-banner">Failed to load portfolio page.</div>'; return; }
+
+  // Wait up to 1s for ENT_PF_load to be defined (scripts run sync but just in case)
+  let waited=0;
+  while(!window.ENT_PF_load && waited<1000){ await new Promise(r=>setTimeout(r,50)); waited+=50; }
+
+  if(window.ENT_PF_load) await ENT_PF_load(pfid);
+  else console.error('ENT_PF_load not defined after page inject');
 }
 
 async function refreshPortfolioPanel(pfid){
-  if(window.ENT_PF_load) ENT_PF_load(pfid);
+  if(window.ENT_PF_load) await ENT_PF_load(pfid);
 }
 
 // ── CRUD helpers ──────────────────────────────────────────────────────────────
