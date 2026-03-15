@@ -1,602 +1,789 @@
-<!-- Enterprise Portfolio Deep-Dive — loaded into enterprise.html panels -->
+<!-- F3: PORTFOLIO — Institutional analytics lab -->
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- KPI strip -->
+<div class="scards" style="grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--bdr)">
+  <div class="sc"><div class="sc-l">CASH</div><div class="sc-v wht" id="pf-cash">—</div></div>
+  <div class="sc"><div class="sc-l">RESERVED</div><div class="sc-v dim" id="pf-res">—</div></div>
+  <div class="sc"><div class="sc-l">TOTAL EQUITY</div><div class="sc-v wht" id="pf-eq">—</div></div>
+  <div class="sc"><div class="sc-l">AVAILABLE</div><div class="sc-v up" id="pf-av">—</div></div>
+  <div class="sc"><div class="sc-l">TOTAL P&L</div><div class="sc-v" id="pf-pnl-tot">—</div></div>
+  <div class="sc"><div class="sc-l">HEALTH SCORE</div><div class="sc-v cyn" id="pf-health">—</div></div>
+  <div class="sc"><div class="sc-l">EFF. HOLDINGS</div><div class="sc-v" id="pf-div">—</div></div>
+</div>
+
+<!-- Live P&L strip -->
+<div id="pf-live-strip" style="display:flex;align-items:center;gap:0;background:#0a0a0a;border-bottom:1px solid var(--bdr);flex-shrink:0;height:22px;overflow:hidden">
+  <div style="padding:0 10px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);border-right:1px solid var(--bdr);white-space:nowrap">LIVE P&amp;L</div>
+  <div id="pf-live-holds" style="display:flex;flex:1;overflow:hidden"></div>
+  <div style="padding:0 10px;font-size:9px;border-left:1px solid var(--bdr);white-space:nowrap">
+    UPDATED: <span id="pf-live-session" style="font-weight:700;color:var(--txt2)">—</span>
+  </div>
+  <div style="padding:0 10px;font-size:9px;border-left:1px solid var(--bdr);white-space:nowrap">
+    UNREALIZED: <span id="pf-live-unreal" style="font-weight:700">—</span>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span class="pf-tab active" data-t="overview" onclick="pfTab(this)">OVERVIEW</span>
+  <span class="pf-tab" data-t="risk"     onclick="pfTab(this)">RISK</span>
+  <span class="pf-tab" data-t="equity"   onclick="pfTab(this)">EQUITY CURVE</span>
+  <span class="pf-tab" data-t="liq"      onclick="pfTab(this)">LIQUIDITY</span>
+  <span class="pf-tab" data-t="stress"   onclick="pfTab(this)">STRESS TEST</span>
+  <span class="pf-tab" data-t="attr"     onclick="pfTab(this)">ATTRIBUTION</span>
+  <span style="margin-left:auto;display:flex;align-items:center;padding:0 10px">
+    <button class="btn btn-xs" onclick="loadPF()">REFRESH</button>
+  </span>
+</div>
+
+<div class="pf-view active" id="pv-overview" style="flex:1;overflow:hidden">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">HOLDINGS</span></div></div>
+      <div class="scroll" id="pf-holds"><div class="loading">LOADING</div></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">ALLOCATION</span></div></div>
+      <div class="chart-wrap"><canvas id="pf-pie"></canvas></div>
+    </div>
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">P&L BY HOLDING</span></div></div>
+      <div class="chart-wrap"><canvas id="pf-pnl"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="pf-view" id="pv-risk" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:230px;border-right:0;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION</span></div></div>
+      <div class="scroll" id="pf-risk-conc" style="flex:1;overflow-y:auto"><div class="loading">LOADING</div></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bdr)">
+      <div class="win" style="flex:1;border-bottom:1px solid var(--bdr)">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CORRELATION MATRIX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Pearson daily returns</div></div>
+        <div class="scroll" style="padding:8px" id="pf-corr"><div class="loading">LOADING</div></div>
+      </div>
+      <div class="win" style="height:160px;border-top:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">VAR CONTRIBUTION BY HOLDING</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">95% confidence, 1-day</div></div>
+        <div class="scroll" style="padding:6px" id="pf-var-contrib"><div class="loading">LOADING</div></div>
+      </div>
+    </div>
+    <div class="win" style="width:260px;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RISK METRICS</span></div></div>
+      <div class="scroll" style="padding:6px;flex:1" id="pf-risk-met"><div class="loading">LOADING</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="pf-view" id="pv-equity" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PORTFOLIO EQUITY CURVE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Reconstructed from holdings</div></div>
+      <div class="chart-wrap"><canvas id="pf-eq-c"></canvas></div>
+    </div>
+    <div class="wcol" style="flex:1">
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">DRAWDOWN</span></div></div>
+        <div class="chart-wrap"><canvas id="pf-dd-c"></canvas></div>
+      </div>
+      <div class="win" style="flex:1;min-height:40px">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERFORMANCE</span></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr" id="pf-perf-met"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pf-view" id="pv-liq" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">LIQUIDATION ANALYSIS</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">20% of orderbook depth per day</div></div>
+      <div class="scroll">
+        <table class="dt"><thead><tr>
+          <th>TICKER</th><th class="r">SHARES</th><th class="r">MKT VAL</th>
+          <th class="r">OB DEPTH</th><th class="r">DAYS TO LIQ</th>
+          <th class="r">SLIP%</th><th class="r">LIQ SCORE</th>
+        </tr></thead>
+        <tbody id="pf-liq-tbl"><tr><td colspan="7" class="loading">LOADING</td></tr></tbody></table>
+      </div>
+    </div>
+    <div class="win" style="width:250px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">LIQUIDITY SUMMARY</span></div></div>
+      <div style="padding:10px;font-size:11px" id="pf-liq-sum"><div class="loading">LOADING</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="pf-view" id="pv-stress" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SCENARIO ENGINE</span></div></div>
+      <div style="padding:10px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px">PRESETS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          <button class="btn btn-xs" onclick="applyPreset(-0.10)">-10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.20)">-20% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.50)">-50% CRASH</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.10)">+10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.20)">+20% ALL</button>
+        </div>
+        <div style="border-top:1px solid var(--bdr);padding-top:8px;font-size:9px;color:var(--txt3);letter-spacing:1.5px">CUSTOM PER HOLDING</div>
+        <div id="sc-rows" style="display:flex;flex-direction:column;gap:5px"></div>
+        <button class="btn btn-xs on" onclick="runScenario()" style="align-self:flex-start;margin-top:4px">RUN SIMULATION</button>
+      </div>
+    </div>
+    <div class="wcol" style="flex:1">
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SCENARIO RESULT</span></div></div>
+        <div style="padding:12px;font-size:11px" id="sc-result"><div class="loading">CONFIGURE AND RUN A SCENARIO</div></div>
+      </div>
+      <div class="win" style="flex:1;min-height:40px">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">IMPACT BY HOLDING</span></div></div>
+        <div class="chart-wrap"><canvas id="sc-bar-c"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ATTRIBUTION VIEW -->
+<div class="pf-view" id="pv-attr" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">P&amp;L CONTRIBUTION</span></div></div>
+      <div class="scroll" id="pf-attr-list"><div class="loading">LOADING</div></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CONTRIBUTION WATERFALL</span></div></div>
+      <div class="chart-wrap"><canvas id="pf-attr-c"></canvas></div>
+    </div>
+    <div class="win" style="width:220px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">ATTRIBUTION SUMMARY</span></div></div>
+      <div style="padding:8px;font-size:11px" id="pf-attr-sum"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+</div>
+
 <style>
-.ent-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
-.ent-tab{padding:6px 16px;font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr);transition:all .1s}
-.ent-tab:hover{color:var(--wht);background:var(--bg4)}
-.ent-tab.on{color:var(--org);background:var(--bg2);border-bottom:2px solid var(--org)}
-.ent-sub{flex:1;overflow:hidden;display:flex;flex-direction:column}
-.ent-sub-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
-.ent-sub-panel.on{display:flex}
-/* position add modal */
-.pos-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;display:flex;align-items:center;justify-content:center}
-.pos-modal-box{background:var(--bg2);border:1px solid var(--org);width:420px;font-size:11px}
-.pos-modal-hd{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bdr);font-size:10px;font-weight:700;letter-spacing:2px;color:var(--org);display:flex;justify-content:space-between}
-.pos-modal-body{padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.pos-modal-body .full{grid-column:1/-1}
-.prow{display:flex;flex-direction:column;gap:3px}
-.prow label{font-size:9px;color:var(--txt3);letter-spacing:1.5px}
-.prow input,.prow select{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
-.prow input:focus{border-color:var(--org)}
-.pos-modal-ft{padding:10px 14px;background:var(--bg3);border-top:1px solid var(--bdr);display:flex;gap:8px;justify-content:flex-end}
-/* cash modal */
-.cash-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;display:flex;align-items:center;justify-content:center}
-.cash-modal-box{background:var(--bg2);border:1px solid var(--cyn);width:340px}
+@keyframes pf-pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+.pf-live-pulse{animation:pf-pulse .6s ease-in-out}
+.pf-tab{padding:4px 14px;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:2px solid transparent}
+.pf-tab:hover{color:var(--txt);background:var(--bg4)}
+.pf-tab.active{color:var(--wht);border-bottom-color:var(--org);background:var(--bg4)}
+.rm{display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5)}
+.rm .k{color:var(--txt3);font-size:9px}.rm .v{font-weight:600;font-variant-numeric:tabular-nums}
 </style>
-
-<div style="display:flex;flex-direction:column;height:100%;overflow:hidden" id="ent-pf-root">
-  <!-- Portfolio header strip -->
-  <div class="sstrip" id="ent-pf-strip" style="flex-shrink:0">
-    <div class="ss"><div class="ss-l">CLIENT</div><div class="ss-v" id="epf-client" style="color:var(--org)">—</div></div>
-    <div class="ss"><div class="ss-l">PORTFOLIO</div><div class="ss-v" id="epf-name" style="color:var(--wht)">—</div></div>
-    <div class="ss"><div class="ss-l">MARKET VALUE</div><div class="ss-v" id="epf-value">—</div></div>
-    <div class="ss"><div class="ss-l">CASH</div><div class="ss-v" id="epf-cash" style="color:var(--cyn)">—</div></div>
-    <div class="ss"><div class="ss-l">TOTAL</div><div class="ss-v" id="epf-total">—</div></div>
-    <div class="ss"><div class="ss-l">P&L</div><div class="ss-v" id="epf-pnl">—</div></div>
-    <div class="ss"><div class="ss-l">P&L %</div><div class="ss-v" id="epf-pnlp">—</div></div>
-    <div class="ss"><div class="ss-l">POSITIONS</div><div class="ss-v" id="epf-npos">—</div></div>
-    <div class="ss"><div class="ss-l">CONCENTRATION</div><div class="ss-v" id="epf-conc">—</div></div>
-    <div class="ss" style="margin-left:auto;border-left:1px solid var(--bdr);gap:6px">
-      <button class="btn buy btn-xs" onclick="showAddPosModal()">+ POSITION</button>
-      <button class="btn btn-xs" style="color:var(--cyn);border-color:var(--cyn)" onclick="showCashModal()">± CASH</button>
-      <button class="btn btn-xs" onclick="ENT_PF_refresh()">↻</button>
-    </div>
-  </div>
-
-  <!-- Sub-tabs -->
-  <div class="ent-tabs">
-    <div class="ent-tab on"  onclick="epfTab('overview')">OVERVIEW</div>
-    <div class="ent-tab"     onclick="epfTab('positions')">POSITIONS</div>
-    <div class="ent-tab"     onclick="epfTab('analytics')">ANALYTICS</div>
-    <div class="ent-tab"     onclick="epfTab('risk')">RISK</div>
-    <div class="ent-tab"     onclick="epfTab('report')">REPORT</div>
-    <div class="ent-tab"     onclick="epfTab('cashlog')">CASH LOG</div>
-  </div>
-
-  <div class="ent-sub">
-    <!-- OVERVIEW -->
-    <div class="ent-sub-panel on" id="epf-overview">
-      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <!-- Allocation chart + positions summary -->
-        <div class="wrow" style="gap:0;flex-shrink:0;min-height:200px">
-          <div class="win" style="flex:1;border-right:0;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">π</span><span class="wtitle">ALLOCATION</span></div></div>
-            <div class="chart-wrap"><canvas id="epf-alloc-chart"></canvas></div>
-          </div>
-          <div class="win" style="flex:2;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">Σ</span><span class="wtitle">POSITION SUMMARY</span></div></div>
-            <div class="scroll" id="epf-pos-summary"></div>
-          </div>
-        </div>
-        <!-- P&L by position -->
-        <div class="win" style="flex-shrink:0">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">P&L BY POSITION</span></div></div>
-          <div style="padding:10px 14px" id="epf-pnl-bars"></div>
-        </div>
-        <!-- Notes -->
-        <div class="win" style="flex-shrink:0">
-          <div class="wbar">
-            <div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">PORTFOLIO NOTES</span></div>
-            <div class="wbar-r"><button class="wbtn" onclick="saveNotes()">SAVE</button></div>
-          </div>
-          <div style="padding:8px">
-            <textarea id="epf-notes-area" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:8px;outline:none;resize:vertical;min-height:60px"></textarea>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- POSITIONS -->
-    <div class="ent-sub-panel" id="epf-positions">
-      <div class="frow" style="justify-content:flex-end">
-        <button class="btn buy btn-xs" onclick="showAddPosModal()">+ ADD POSITION</button>
-      </div>
-      <div class="scroll">
-        <table class="dt" style="width:100%">
-          <thead><tr>
-            <th>TICKER</th><th>QTY</th><th class="r">ENTRY</th><th class="r">LIVE</th>
-            <th class="r">COST</th><th class="r">VALUE</th><th class="r">P&L</th><th class="r">P&L%</th>
-            <th class="r">WEIGHT</th><th class="r">ANN VOL</th><th class="r">SHARPE</th>
-            <th>ENTRY DATE</th><th>NOTES</th><th></th>
-          </tr></thead>
-          <tbody id="epf-pos-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ANALYTICS -->
-    <div class="ent-sub-panel" id="epf-analytics">
-      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <div class="wrow" style="gap:0;flex-shrink:0;min-height:220px">
-          <div class="win" style="flex:1;border-right:0;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">σ</span><span class="wtitle">VOLATILITY BY POSITION</span></div></div>
-            <div class="chart-wrap"><canvas id="epf-vol-chart"></canvas></div>
-          </div>
-          <div class="win" style="flex:1;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">α</span><span class="wtitle">SHARPE RATIO</span></div></div>
-            <div class="chart-wrap"><canvas id="epf-sharpe-chart"></canvas></div>
-          </div>
-        </div>
-        <div class="win" style="flex-shrink:0">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">Δ</span><span class="wtitle">PERFORMANCE METRICS</span></div></div>
-          <div id="epf-metrics-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--bdr)"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- RISK -->
-    <div class="ent-sub-panel" id="epf-risk">
-      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-risk-kpis"></div>
-        <div class="wrow" style="gap:0;flex-shrink:0">
-          <div class="win" style="flex:1;border-right:0;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">⚠</span><span class="wtitle">CONCENTRATION RISK</span></div></div>
-            <div style="padding:10px" id="epf-risk-conc"></div>
-          </div>
-          <div class="win" style="flex:1;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">K</span><span class="wtitle">KELLY SIZING</span></div></div>
-            <div style="padding:10px" id="epf-risk-kelly"></div>
-          </div>
-        </div>
-        <div class="win" style="flex-shrink:0">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">!</span><span class="wtitle">RISK FLAGS</span></div></div>
-          <div id="epf-risk-flags" style="padding:10px"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- REPORT -->
-    <div class="ent-sub-panel" id="epf-report">
-      <div class="scroll" style="padding:16px">
-        <div style="display:flex;gap:10px;margin-bottom:16px;flex-shrink:0">
-          <button class="btn on" onclick="generateReport()">GENERATE REPORT</button>
-          <button class="btn" onclick="printReport()">🖨 PRINT / EXPORT PDF</button>
-        </div>
-        <div id="epf-report-body" style="background:var(--bg);border:1px solid var(--bdr);padding:24px;font-size:11px;line-height:1.8;color:var(--txt)">
-          <div style="color:var(--txt3);text-align:center;padding:40px">Click GENERATE REPORT to build a client-ready portfolio report.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- CASH LOG -->
-    <div class="ent-sub-panel" id="epf-cashlog">
-      <div class="frow">
-        <button class="btn buy btn-xs" onclick="showCashModal(1)">+ DEPOSIT</button>
-        <button class="btn sell btn-xs" onclick="showCashModal(-1)">− WITHDRAWAL</button>
-      </div>
-      <div class="scroll">
-        <table class="dt" style="width:100%">
-          <thead><tr><th>DATE</th><th>AMOUNT</th><th>NOTE</th><th class="r">RUNNING BALANCE</th></tr></thead>
-          <tbody id="epf-cash-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Add Position Modal -->
-<div id="add-pos-modal" class="pos-modal" style="display:none">
-  <div class="pos-modal-box">
-    <div class="pos-modal-hd">ADD POSITION <span style="cursor:pointer;color:var(--txt2)" onclick="hideAddPosModal()">✕</span></div>
-    <div class="pos-modal-body">
-      <div class="prow full">
-        <label>TICKER</label>
-        <input id="apm-ticker" placeholder="e.g. SRI or TSE:ECO" style="text-transform:uppercase">
-      </div>
-      <div class="prow">
-        <label>QUANTITY (SHARES)</label>
-        <input id="apm-qty" type="number" placeholder="100">
-      </div>
-      <div class="prow">
-        <label>ENTRY PRICE ($)</label>
-        <input id="apm-price" type="number" step="0.0001" placeholder="78.2600">
-      </div>
-      <div class="prow">
-        <label>ENTRY DATE</label>
-        <input id="apm-date" type="date">
-      </div>
-      <div class="prow">
-        <label>TYPE</label>
-        <select id="apm-type"><option value="long">LONG</option><option value="short">SHORT</option></select>
-      </div>
-      <div class="prow full">
-        <label>NOTES</label>
-        <input id="apm-notes" placeholder="Optional notes">
-      </div>
-    </div>
-    <div class="pos-modal-ft">
-      <button class="btn" onclick="hideAddPosModal()">CANCEL</button>
-      <button class="btn buy" onclick="addPosition()">ADD POSITION →</button>
-    </div>
-  </div>
-</div>
-
-<!-- Cash Modal -->
-<div id="cash-modal" class="cash-modal" style="display:none">
-  <div class="cash-modal-box">
-    <div class="pos-modal-hd" style="border-color:var(--cyn)">CASH ADJUSTMENT <span style="cursor:pointer;color:var(--txt2)" onclick="hideCashModal()">✕</span></div>
-    <div class="pos-modal-body" style="grid-template-columns:1fr">
-      <div class="prow">
-        <label>AMOUNT ($) — negative for withdrawal</label>
-        <input id="cm-amount" type="number" step="0.01" placeholder="10000.00">
-      </div>
-      <div class="prow">
-        <label>NOTE</label>
-        <input id="cm-note" placeholder="e.g. Initial deposit">
-      </div>
-    </div>
-    <div class="pos-modal-ft">
-      <button class="btn" onclick="hideCashModal()">CANCEL</button>
-      <button class="btn" style="border-color:var(--cyn);color:var(--cyn)" onclick="adjustCash()">CONFIRM →</button>
-    </div>
-  </div>
-</div>
 
 <script>
 (function(){
-let _pfid = null;
-let _pfData = null;
-let _charts = {};
+let _pf=null,_histories={},_pie=null,_pnlC=null,_eqC=null,_ddC=null,_scBarC=null,_attrC=null,_livePrices={},_liveIv=null;
+const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
 
-// ── Expose to parent ──────────────────────────────────────────────────────────
-window.ENT_PF_load = async function(pfid){
-  _pfid = pfid;
-  await ENT_PF_refresh();
-};
-window.ENT_PF_refresh = async function(){
-  if(!_pfid) return;
-  const r = await api(`/api/enterprise/portfolios/${_pfid}/analytics`);
-  if(!r.ok){ return; }
-  _pfData = r.d;
-  renderHeader();
-  renderOverview();
-  renderPositions();
-  renderAnalytics();
-  renderRisk();
-  renderCashLog();
+window.PAGE_pf_onShow=function(){ loadPF(); };
+const round4=v=>Math.round(v*10000)/10000;
+
+window.pfTab=function(el){
+  document.querySelectorAll('.pf-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.pf-view').forEach(v=>v.style.display='none');
+  el.classList.add('active');
+  const v=document.getElementById('pv-'+el.dataset.t); if(v) v.style.display='flex';
+  if(_pf){
+    if(el.dataset.t==='equity') renderEquityCurve();
+    if(el.dataset.t==='liq')    renderLiquidity();
+    if(el.dataset.t==='risk')   renderRisk();
+    if(el.dataset.t==='stress') renderStress();
+    if(el.dataset.t==='attr')   renderAttribution();
+  }
 };
 
-// ── Tab switch ────────────────────────────────────────────────────────────────
-window.epfTab = function(tab){
-  document.querySelectorAll('.ent-tab').forEach((t,i)=>{
-    const tabs=['overview','positions','analytics','risk','report','cashlog'];
-    t.classList.toggle('on', tabs[i]===tab);
-  });
-  document.querySelectorAll('.ent-sub-panel').forEach(p=>{
-    p.classList.toggle('on', p.id===`epf-${tab}`);
-  });
+window.loadPF=async function(){
+  document.getElementById('pf-holds').innerHTML='<div class="loading">LOADING</div>';
+  const r=await api('/api/portfolio');
+  if(!r.ok){ document.getElementById('pf-holds').innerHTML=`<div class="alert err">${r.d.detail||'Auth failed'}</div>`; return; }
+  _pf=r.d;
+  const holds=_pf.holdings||[], bal=_pf.balance||0, res=_pf.reserved_balance||0;
+
+  await Promise.all(holds.map(async h=>{
+    const r2=await api(`/api/analytics/ohlcv/${h.ticker}?days=90`);
+    if(r2.ok&&r2.d.candles&&r2.d.candles.length){
+      _histories[h.ticker]=r2.d.candles.map(c=>({timestamp:c.date,price:c.close}));
+    }
+  }));
+
+  const S=(id,v,c)=>{ const e=document.getElementById(id); if(!e) return; e.textContent=v; if(c) e.style.color=c; };
+  S('pf-cash',f(bal)); S('pf-res',f(res)); S('pf-eq',f(_pf.total_equity)); S('pf-av',f(bal-res));
+  const totalPNL=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+  S('pf-pnl-tot',(totalPNL>=0?'+':'')+f(totalPNL),gc(totalPNL));
+  const health=calcHealth(holds,bal,_pf.total_equity);
+  S('pf-health',health+'/100',health>=70?'var(--up)':health>=40?'var(--yel)':'var(--dn)');
+  const weights=holds.map(h=>(h.market_value||0)/Math.max(_pf.total_equity,1));
+  const effN=weights.reduce((s,w)=>s+w*w,0)>0?(1/weights.reduce((s,w)=>s+w*w,0)).toFixed(1):'—';
+  S('pf-div',effN);
+
+  renderOverview(holds,bal);
+  startLivePnL(holds);
+  const at=document.querySelector('.pf-tab.active');
+  if(at) pfTab(at);
 };
 
-// ── Header strip ──────────────────────────────────────────────────────────────
-function renderHeader(){
-  const d=_pfData, s=d.summary;
-  const set=(id,v,col)=>{const e=document.getElementById(id);if(e){e.textContent=v;if(col)e.style.color=col;}};
-  set('epf-client', d.client||'—');
-  set('epf-name',   d.name||'—');
-  set('epf-value',  '$'+fk(s.total_value));
-  set('epf-cash',   '$'+fk(d.cash));
-  set('epf-total',  '$'+fk(s.total_with_cash));
-  set('epf-pnl',    (s.total_pnl>=0?'+':'')+f(s.total_pnl,2), s.total_pnl>=0?'var(--up)':'var(--dn)');
-  set('epf-pnlp',   (s.total_pnl_pct>=0?'+':'')+s.total_pnl_pct.toFixed(2)+'%', s.total_pnl_pct>=0?'var(--up)':'var(--dn)');
-  set('epf-npos',   s.num_positions);
-  set('epf-conc',   s.concentration, s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)');
-  // Load notes
-  const notesEl=document.getElementById('epf-notes-area');
-  if(notesEl && d.notes) notesEl.value=d.notes;
+function renderOverview(holds,bal){
+  document.getElementById('pf-holds').innerHTML=holds.length?holds.map((h,i)=>{
+    const pnl=(h.market_value||0)-(h.cost_basis||0),pp=h.cost_basis?pnl/h.cost_basis*100:0;
+    const avg=h.quantity?h.cost_basis/h.quantity:0,wt=_pf.total_equity?(h.market_value||0)/_pf.total_equity*100:0;
+    return `<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;font-weight:700;color:var(--wht)">${h.ticker}</span>
+        <div style="display:flex;gap:3px;align-items:center">
+          <button class="act-b" onclick="pfQuickOrder('${h.ticker}','buy')">B</button>
+          <button class="act-s" onclick="pfQuickOrder('${h.ticker}','sell')">S</button>
+          <span style="font-weight:700;color:${gc(pnl)};margin-left:6px">${f(h.market_value)}</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:2px">
+        <span>${h.quantity.toLocaleString()} × ${f(avg,4)}</span>
+        <span style="color:${gcI(pp)};font-weight:${gcIW(pp)}">${fp(pp)} (${pnl>=0?'+':''}${f(pnl)})</span>
+      </div>
+      <div style="font-size:9px;color:var(--txt3);margin-top:2px">WEIGHT ${f(wt,1)}%</div>
+      <div style="height:2px;background:${COLS[i%COLS.length]};width:${Math.min(wt,100)}%;opacity:.5;margin-top:3px"></div>
+    </div>`;
+  }).join(''):'<div class="loading">NO HOLDINGS</div>';
+
+  _pie=dc(_pie);
+  const vals=[...holds.map(h=>h.market_value||0),bal],lbls=[...holds.map(h=>h.ticker),'CASH'];
+  if(vals.some(v=>v>0)) _pie=mkDoughnut(document.getElementById('pf-pie'),lbls,vals,COLS.slice(0,vals.length));
+
+  _pnlC=dc(_pnlC);
+  if(holds.length){
+    const pnls=holds.map(h=>(h.market_value||0)-(h.cost_basis||0));
+    _pnlC=mkBar(document.getElementById('pf-pnl'),holds.map(h=>h.ticker),pnls,pnls.map(p=>p>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'));
+  }
 }
 
-// ── Overview ──────────────────────────────────────────────────────────────────
-function renderOverview(){
-  const d=_pfData;
-  // Allocation pie
-  const ctx=document.getElementById('epf-alloc-chart');
-  if(ctx){
-    if(_charts.alloc){_charts.alloc.destroy();}
-    const labels=d.positions.map(p=>p.ticker);
-    if(d.cash>0){labels.push('CASH');}
-    const vals=d.positions.map(p=>p.market_value);
-    if(d.cash>0) vals.push(d.cash);
-    const colors=['#ff8c00','#00e5ff','#00c853','#e040fb','#ffd600','#f44336','#534AB7','#00bfa5','#ff5252','#69f0ae','#555'];
-    _charts.alloc=new Chart(ctx,{
-      type:'doughnut',
-      data:{labels,datasets:[{data:vals,backgroundColor:colors.slice(0,vals.length),borderColor:'#111',borderWidth:2}]},
-      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:9},boxWidth:8,padding:4}},tooltip:{...TT,callbacks:{label:c=>{const total=c.dataset.data.reduce((a,b)=>a+b,0);return ` ${c.label}: $${fk(c.parsed)} (${(c.parsed/total*100).toFixed(1)}%)`;}}}}}
+function renderRisk(){
+  const holds=_pf.holdings||[];
+  if(!holds.length) return;
+  const sortedHolds=[...holds].sort((a,b)=>(b.market_value||0)-(a.market_value||0));
+  document.getElementById('pf-risk-conc').innerHTML=sortedHolds.map(h=>{
+    const w=((h.market_value||0)/Math.max(_pf.total_equity,1)*100);
+    const pnl=(h.market_value||0)-(h.cost_basis||0);
+    const pnlPct=h.cost_basis&&h.cost_basis>0?pnl/h.cost_basis*100:0;
+    const rc=w>50?'var(--dn)':w>30?'var(--org)':'var(--sel)';
+    const hist=_histories[h.ticker];
+    const dayChg=hist&&hist.length>=2?((hist[hist.length-1].price-hist[hist.length-2].price)/hist[hist.length-2].price*100):null;
+    return `<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
+        <span class="wht" style="font-weight:700;font-size:11px">${h.ticker}</span>
+        <span style="color:${gc(pnl)};font-size:10px;font-weight:700">${pnl>=0?'+':''}${f(pnl)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:9px;color:var(--txt3)">${h.quantity} × ${f(h.avg_price||0)}</span>
+        <span style="font-size:9px;color:${gc(pnlPct)}">${pnlPct>=0?'+':''}${pnlPct.toFixed(2)}%${dayChg!=null?' · 1D '+(dayChg>=0?'+':'')+dayChg.toFixed(2)+'%':''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:4px;background:var(--bdr)"><div style="height:100%;background:${rc};width:${Math.min(w,100).toFixed(1)}%"></div></div>
+        <span style="font-size:9px;color:var(--txt3);width:36px;text-align:right">${w.toFixed(1)}%</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Correlation matrix
+  const tickers=holds.map(h=>h.ticker).filter(t=>_histories[t]&&_histories[t].length>2);
+  if(tickers.length>=2){
+    function rets(t){ const h=_histories[t]; return h.map((p,i)=>i?((p.price-h[i-1].price)/h[i-1].price):0).slice(1); }
+    function pearson(a,b){
+      const n=Math.min(a.length,b.length); if(n<2) return null;
+      const am=a.slice(0,n).reduce((s,v)=>s+v,0)/n,bm=b.slice(0,n).reduce((s,v)=>s+v,0)/n;
+      const num=a.slice(0,n).reduce((s,v,i)=>s+(v-am)*(b[i]-bm),0);
+      const da=Math.sqrt(a.slice(0,n).reduce((s,v)=>s+(v-am)**2,0)),db=Math.sqrt(b.slice(0,n).reduce((s,v)=>s+(v-bm)**2,0));
+      return (da&&db)?Math.round(num/da/db*100)/100:null;
+    }
+    const r={}; tickers.forEach(t=>{r[t]=rets(t);});
+    const cc=v=>{if(v===null)return '#333';if(v>=0.8)return '#b71c1c';if(v>=0.5)return '#e65100';if(v>=0.2)return '#f9a825';if(v>=-0.2)return '#37474f';if(v>=-0.5)return '#0277bd';return '#1b5e20';};
+    let html=`<table style="border-collapse:collapse;font-size:11px"><tr><td></td>${tickers.map(t=>`<th style="padding:3px 8px;color:var(--txt3);font-size:9px">${t}</th>`).join('')}</tr>`;
+    tickers.forEach(t1=>{
+      html+=`<tr><td style="padding:3px 8px;color:var(--txt2);font-weight:700;font-size:9px;white-space:nowrap">${t1}</td>`;
+      tickers.forEach(t2=>{const v=t1===t2?1:pearson(r[t1],r[t2]); html+=`<td style="padding:5px 10px;text-align:center;background:${cc(v)};color:#fff;font-size:10px">${v!==null?v.toFixed(2):'—'}</td>`;});
+      html+='</tr>';
     });
+    html+='</table><div style="margin-top:6px;font-size:9px;color:var(--txt3)">Red=correlated risk · Blue=diversification benefit</div>';
+    document.getElementById('pf-corr').innerHTML=html;
+  } else {
+    document.getElementById('pf-corr').innerHTML='<span class="dim">Need 2+ holdings with price history</span>';
   }
-  // Position summary table
-  const tbody=document.getElementById('epf-pos-summary');
-  if(tbody) tbody.innerHTML=d.positions.length===0
-    ?'<div style="padding:16px;color:var(--txt3);font-size:10px">No positions. Click + POSITION to add one.</div>'
-    :`<table class="dt" style="width:100%"><thead><tr><th>TICKER</th><th class="r">VALUE</th><th class="r">WEIGHT</th><th class="r">P&L</th></tr></thead><tbody>
-      ${d.positions.map(p=>`<tr><td style="color:var(--cyn);font-weight:700">${p.ticker}</td><td class="r">$${fk(p.market_value)}</td><td class="r">${p.weight_pct.toFixed(1)}%</td><td class="r" style="color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${fk(Math.abs(p.pnl))}</td></tr>`).join('')}
-      ${d.cash>0?`<tr style="border-top:1px solid var(--bdr2)"><td style="color:var(--cyn)">CASH</td><td class="r">$${fk(d.cash)}</td><td class="r">${(d.cash/d.summary.total_with_cash*100).toFixed(1)}%</td><td class="r" style="color:var(--txt3)">—</td></tr>`:''}
-    </tbody></table>`;
-  // P&L bars
-  const barsEl=document.getElementById('epf-pnl-bars');
-  if(barsEl){
-    const maxAbs=Math.max(...d.positions.map(p=>Math.abs(p.pnl)),1);
-    barsEl.innerHTML=d.positions.map(p=>{
-      const w=(Math.abs(p.pnl)/maxAbs*100).toFixed(1);
-      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="width:72px;font-weight:700;color:var(--cyn);font-size:10px">${p.ticker}</span>
-        <div style="flex:1;height:8px;background:var(--bdr);border-radius:1px">
-          <div style="width:${w}%;height:100%;background:${p.pnl>=0?'var(--up)':'var(--dn)'};border-radius:1px"></div>
-        </div>
-        <span style="width:70px;text-align:right;font-size:10px;color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${f(p.pnl,2)}</span>
-        <span style="width:52px;text-align:right;font-size:9px;color:var(--txt2)">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</span>
+
+  const weights=holds.map(h=>(h.market_value||0)/Math.max(_pf.total_equity,1));
+  const hhi=weights.reduce((s,w)=>s+w*w,0), maxW=Math.max(...weights.filter(w=>w>0),0)*100;
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  const calcRets = hist => hist&&hist.length>=2
+    ? hist.map((p,i)=>i?((p.price-hist[i-1].price)/Math.max(hist[i-1].price,0.0001)):0).slice(1)
+    : null;
+
+  // Per-holding return arrays — use whatever history exists, no minimum cutoff
+  const holdRets = holds.map(h => calcRets(_histories[h.ticker]));
+
+  // Portfolio daily returns — only use holdings that HAVE history, weighted by their share of invested equity
+  const validIdx  = holds.map((_,i)=>i).filter(i=>holdRets[i]&&holdRets[i].length>=2);
+  const validLens = validIdx.map(i=>holdRets[i].length);
+  const portRets  = [];
+  if(validIdx.length){
+    const minLen2 = Math.min(...validLens);
+    const totalValidMV = validIdx.reduce((s,i)=>(s+(holds[i].market_value||0)),0)||1;
+    for(let di=0;di<minLen2;di++){
+      let r=0;
+      validIdx.forEach(i=>{
+        const w=(holds[i].market_value||0)/totalValidMV;
+        const arr=holdRets[i];
+        r+=w*(arr[arr.length-minLen2+di]||0);
+      });
+      portRets.push(r);
+    }
+  }
+
+  // ── stat helpers — all degrade gracefully to null with <2 points ─────────
+  const annVol = r => {
+    if(!r||r.length<2) return null;
+    const avg=r.reduce((s,v)=>s+v,0)/r.length;
+    return Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/r.length)*(252**.5)*100;
+  };
+  // VaR/CVaR: fall back to single point if only 1-2 obs
+  const var95 = r => {
+    if(!r||r.length<1) return null;
+    const s=[...r].sort((a,b)=>a-b);
+    return -s[Math.max(0,Math.floor(s.length*0.05)-1)]*100;
+  };
+  const cvar95 = r => {
+    if(!r||r.length<1) return null;
+    const s=[...r].sort((a,b)=>a-b);
+    const cut=Math.max(1,Math.floor(s.length*0.05));
+    return -(s.slice(0,cut).reduce((a,b)=>a+b,0)/cut)*100;
+  };
+  const sortino = r => {
+    if(!r||r.length<3) return null;
+    const neg=r.filter(v=>v<0); if(!neg.length) return null;
+    const dd=Math.sqrt(neg.reduce((s,v)=>s+v*v,0)/neg.length)*(252**.5);
+    const avg=r.reduce((s,v)=>s+v,0)/r.length*252;
+    return dd>0?(avg/dd).toFixed(2):null;
+  };
+  const skewKurt = r => {
+    if(!r||r.length<3) return {skew:null,kurt:null};
+    const n=r.length,avg=r.reduce((s,v)=>s+v,0)/n;
+    const std=Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/n);
+    if(!std) return {skew:null,kurt:null};
+    return {
+      skew:(r.reduce((s,v)=>s+((v-avg)/std)**3,0)/n).toFixed(2),
+      kurt:((r.reduce((s,v)=>s+((v-avg)/std)**4,0)/n)-3).toFixed(2)
+    };
+  };
+  const fmt = (v,suffix,decimals=2) => v!=null&&!isNaN(v) ? v.toFixed(decimals)+suffix : '—';
+  const gc2 = v => v===null||v===undefined||isNaN(+v)?'var(--txt)':(+v>=0?'var(--up)':'var(--dn)');
+
+  const portVolNum = annVol(portRets);
+  const pVaR       = var95(portRets);
+  const pCVaR      = cvar95(portRets);
+  const sortR      = sortino(portRets);
+  const {skew,kurt}= skewKurt(portRets);
+
+  // Sharpe
+  let portSharpe = null;
+  if(portRets.length>=3){
+    const avg=portRets.reduce((s,v)=>s+v,0)/portRets.length*252;
+    const std=annVol(portRets);
+    if(std&&std>0) portSharpe = avg/(std/100);
+  }
+
+  // Max drawdown
+  let peak3=(_pf.total_equity||10000), maxDD3=0;
+  portRets.forEach(r=>{ const v=peak3*(1+r); if(v>peak3) peak3=v; maxDD3=Math.max(maxDD3,(peak3-v)/peak3*100); });
+
+  // ── render metrics ────────────────────────────────────────────────────────
+  const sh = lbl=>`<div style="font-size:8px;letter-spacing:2px;color:var(--txt3);padding:8px 4px 3px;border-bottom:1px solid var(--bdr);margin-bottom:2px">${lbl}</div>`;
+  const rm2= (k,v,c)=>`<div class="rm"><span class="k">${k}</span><span class="v" style="color:${c||'var(--txt)'}">${v}</span></div>`;
+
+  document.getElementById('pf-risk-met').innerHTML =
+    sh('PORTFOLIO') +
+    rm2('HOLDINGS',        holds.length,                                          'var(--wht)') +
+    rm2('EFF. HOLDINGS',   (1/Math.max(hhi,0.0001)).toFixed(1),                  'var(--wht)') +
+    rm2('TOP WEIGHT',      maxW.toFixed(1)+'%',                                   maxW>50?'var(--dn)':maxW>30?'var(--yel)':'var(--up)') +
+    rm2('CASH RATIO',      fmt((_pf.balance||0)/Math.max(_pf.total_equity,1)*100,'%'), '') +
+    rm2('HEALTH',          calcHealth(holds,_pf.balance,_pf.total_equity)+'/100', 'var(--cyn)') +
+    sh('RETURN / RISK') +
+    rm2('ANN. VOLATILITY', fmt(portVolNum,'% pa',1),                              'var(--yel)') +
+    rm2('SHARPE RATIO',    fmt(portSharpe,'',2),                                  gc2(portSharpe)) +
+    rm2('SORTINO RATIO',   sortR||'—',                                            gc2(sortR)) +
+    rm2('MAX DRAWDOWN',    maxDD3>0?'-'+maxDD3.toFixed(2)+'%':'0.00%',            maxDD3>0?'var(--dn)':'var(--up)') +
+    sh('TAIL RISK') +
+    rm2('VAR 95% (1D)',    pVaR!=null?  '-'+pVaR.toFixed(2)+'%':'—',             'var(--dn)') +
+    rm2('CVAR 95% (1D)',   pCVaR!=null? '-'+pCVaR.toFixed(2)+'%':'—',            'var(--dn)') +
+    sh('DISTRIBUTION') +
+    rm2('SKEWNESS',        skew!=null?skew:'—',  skew&&+skew<-0.5?'var(--dn)':skew&&+skew>0.5?'var(--up)':'var(--txt)') +
+    rm2('EXCESS KURTOSIS', kurt!=null?kurt:'—',  kurt&&+kurt>1?'var(--yel)':'var(--txt)') +
+    sh('DATA') +
+    rm2('HISTORY PTS',     portRets.length||0,                                    'var(--txt3)') +
+    rm2('TICKERS W/ DATA', validIdx.length+'/'+holds.length,                      validIdx.length===holds.length?'var(--up)':'var(--yel)');
+
+  // ── VaR contribution — include ALL holdings, use vol proxy if <2 rets ────
+  const varContribs = holds.map((h,i)=>{
+    const r = holdRets[i];
+    const mv = h.market_value||0;
+    let varPct;
+    if(r&&r.length>=1){
+      varPct = var95(r);
+    } else {
+      // No history — use portfolio vol as proxy
+      varPct = portVolNum!=null ? portVolNum/100/Math.sqrt(252)*1.645 : null;
+    }
+    return { ticker:h.ticker, varPct, varDollar: varPct!=null?mv*varPct/100:null, weight:(weights[i]||0)*100, hasData:!!(r&&r.length>=1) };
+  }).filter(x=>x.varDollar!=null).sort((a,b)=>b.varDollar-a.varDollar);
+
+  const maxVarD = Math.max(...varContribs.map(x=>x.varDollar),1);
+  document.getElementById('pf-var-contrib').innerHTML = varContribs.length ? varContribs.map(x=>`
+    <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bdr)">
+      <span style="width:48px;font-size:9px;color:${x.hasData?'var(--wht)':'var(--txt3)'};font-weight:700">${x.ticker}${x.hasData?'':'*'}</span>
+      <div style="flex:1;height:6px;background:var(--bg3)">
+        <div style="width:${Math.min(100,(x.varDollar/maxVarD*100)).toFixed(1)}%;height:100%;background:${x.hasData?'rgba(244,67,54,.65)':'rgba(244,67,54,.25)'}"></div>
+      </div>
+      <span style="width:52px;text-align:right;font-size:9px;color:var(--dn)">-${x.varDollar.toFixed(0)}</span>
+      <span style="width:38px;text-align:right;font-size:9px;color:var(--txt3)">${x.varPct.toFixed(2)}%</span>
+    </div>`).join('') + (varContribs.some(x=>!x.hasData)?'<div style="font-size:8px;color:var(--txt3);padding:4px 2px">* estimated from portfolio vol</div>':'')
+  : '<div class="dim">Insufficient history</div>';
+}
+
+function renderEquityCurve(){
+  const holds=_pf.holdings||[]; if(!holds.length) return;
+  const validHolds=holds.filter(h=>_histories[h.ticker]&&_histories[h.ticker].length>=2);
+  const allH=validHolds.map(h=>_histories[h.ticker]);
+  if(!allH.length){
+    const cw=document.getElementById('pf-eq-c')?.closest('.chart-wrap');
+    if(cw) cw.innerHTML='<div class="loading">Insufficient price history — check back once more candles are available</div>';
+    return;
+  }
+  const minLen=Math.min(...allH.map(h=>h.length));
+  const dates=allH[0].slice(-minLen).map(p=>(p.timestamp||'').slice(0,10));
+  const cash=_pf.balance||0;
+  const eqSeries=dates.map((_,di)=>{
+    let mv=0;
+    validHolds.forEach(h=>{ const hist=_histories[h.ticker]; if(!hist) return; const off=hist.length-minLen; mv+=h.quantity*(hist[off+di]?.price??0); });
+    return round4(mv+cash);
+  });
+  let peak=eqSeries[0];
+  const ddSeries=eqSeries.map(v=>{ if(v>peak) peak=v; return peak>0?round4((v-peak)/peak*100):0; });
+  const startEq=eqSeries[0],endEq=eqSeries[eqSeries.length-1];
+  const totalRet=startEq?(endEq-startEq)/startEq*100:0;
+  const maxDD=Math.abs(Math.min(...ddSeries));
+  const rets=eqSeries.map((v,i)=>i?(v-eqSeries[i-1])/eqSeries[i-1]:0).slice(1);
+  const avgR=rets.reduce((s,v)=>s+v,0)/rets.length;
+  const stdR=Math.sqrt(rets.reduce((s,v)=>s+(v-avgR)**2,0)/rets.length);
+  const sharpe=stdR>0?(avgR/stdR*(252**.5)).toFixed(2):'—';
+  const calmar=maxDD>0?(totalRet/maxDD).toFixed(2):'—';
+
+  _eqC=dc(_eqC);
+  _eqC=mkLine(document.getElementById('pf-eq-c'),dates,[{data:eqSeries,borderColor:'#cc9900',borderWidth:2,pointRadius:0,fill:true,backgroundColor:'rgba(204,153,0,.06)',tension:.2}]);
+
+  _ddC=dc(_ddC);
+  _ddC=new Chart(document.getElementById('pf-dd-c'),{type:'line',data:{labels:dates,datasets:[{data:ddSeries,borderColor:'rgba(244,67,54,.8)',borderWidth:1.2,pointRadius:0,fill:true,backgroundColor:'rgba(244,67,54,.1)',tension:.2}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` DD: ${c.parsed.y.toFixed(2)}%`}}},
+    scales:{x:{grid:{color:'#1a1a1a'},ticks:{maxTicksLimit:6,maxRotation:0,color:'#444'}},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v.toFixed(1)+'%'}}}}});
+
+  document.getElementById('pf-perf-met').innerHTML=[
+    ['TOTAL RETURN',`${totalRet>=0?'+':''}${totalRet.toFixed(2)}%`,gc(totalRet)],
+    ['MAX DRAWDOWN',`-${maxDD.toFixed(2)}%`,'var(--dn)'],
+    ['SHARPE',sharpe,gc(parseFloat(sharpe))],
+    ['CALMAR',calmar,gc(parseFloat(calmar))],
+    ['START EQ',f(startEq),'var(--txt2)'],
+    ['END EQ',f(endEq),gc(totalRet)],
+  ].map(([k,v,c])=>`<div style="padding:5px 8px;border:1px solid var(--bdr);margin:-1px 0 0 -1px"><div style="font-size:9px;color:var(--txt3)">${k}</div><div style="font-size:12px;font-weight:700;color:${c};font-variant-numeric:tabular-nums">${v}</div></div>`).join('');
+}
+
+async function renderLiquidity(){
+  const holds=_pf.holdings||[]; if(!holds.length) return;
+  document.getElementById('pf-liq-tbl').innerHTML='<tr><td colspan="7" class="loading">LOADING ORDERBOOKS</td></tr>';
+  const results=await Promise.all(holds.map(async h=>{ const r=await api(`/api/liquidity/${h.ticker}`); return {h,ok:r.ok,d:r.d}; }));
+  const tb=document.getElementById('pf-liq-tbl'); tb.innerHTML='';
+  let illiqCount=0;
+  results.forEach(({h,ok,d})=>{
+    if(!ok){ tb.innerHTML+=`<tr><td>${h.ticker}</td><td colspan="6" class="dim">Unavailable</td></tr>`; return; }
+    const qty=h.quantity||0;
+    const totalDepth=(d.total_bid_qty||0)+(d.total_ask_qty||0);
+    const safeVol=totalDepth*0.20;
+    const dtl=safeVol>0?Math.ceil(qty/safeVol):999;
+    const slip=d.slippage_sell?.length?d.slippage_sell[Math.min(1,d.slippage_sell.length-1)]?.slippage_pct||0:0;
+    const rc=dtl>30?'dn':dtl>7?'yel':'up';
+    if(dtl>7) illiqCount++;
+    tb.innerHTML+=`<tr><td><strong class="wht">${h.ticker}</strong></td><td class="r">${qty.toLocaleString()}</td><td class="r">${f(h.market_value)}</td><td class="r dim">${fk(totalDepth)}</td><td class="r ${rc}" style="font-weight:700">${dtl>=999?'>999':dtl}d</td><td class="r ${slip>0.5?'dn':slip>0.1?'yel':'up'}">${slip.toFixed(3)}%</td><td class="r cyn">${(d.liquidity_score||0).toFixed(3)}</td></tr>`;
+  });
+  document.getElementById('pf-liq-sum').innerHTML=`
+    <div class="rm"><span class="k">HOLDINGS</span><span class="v wht">${results.length}</span></div>
+    <div class="rm"><span class="k">ILLIQUID &gt;7d</span><span class="v ${illiqCount>0?'dn':'up'}">${illiqCount}</span></div>
+    <div style="margin-top:10px;font-size:9px;color:var(--txt3);line-height:1.6">Days to liquidate at 20% of total orderbook depth per day, including estimated sell-side slippage.</div>`;
+}
+
+function renderStress(){
+  const holds=_pf.holdings||[];
+  document.getElementById('sc-rows').innerHTML=holds.map((h,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;font-size:10px">
+      <span style="width:52px;color:${COLS[i%COLS.length]};font-weight:700">${h.ticker}</span>
+      <input type="number" id="sc-${h.ticker}" value="0" step="1" style="width:58px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 4px">
+      <span class="dim">%</span>
+    </div>`).join('');
+}
+
+window.applyPreset=function(chg){
+  (_pf.holdings||[]).forEach(h=>{ const el=document.getElementById('sc-'+h.ticker); if(el) el.value=(chg*100).toFixed(0); });
+};
+
+window.runScenario=function(){
+  if(!_pf) return;
+  const holds=_pf.holdings||[]; if(!holds.length) return;
+  const impacts=holds.map(h=>{ const chg=parseFloat(document.getElementById('sc-'+h.ticker)?.value||0)/100; const orig=h.market_value||0; return {ticker:h.ticker,orig,newVal:orig*(1+chg),delta:orig*chg}; });
+  const origEq=_pf.total_equity||0,newEq=(_pf.balance||0)+impacts.reduce((s,x)=>s+x.newVal,0),delta=newEq-origEq;
+  const dpct=origEq?delta/origEq*100:0;
+  document.getElementById('sc-result').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:12px">
+      <div style="padding:8px;border:1px solid var(--bdr)"><div style="font-size:9px;color:var(--txt3)">ORIGINAL EQUITY</div><div style="font-size:18px;font-weight:700;color:var(--wht)">${f(origEq)}</div></div>
+      <div style="padding:8px;border:1px solid var(--bdr);border-left:0"><div style="font-size:9px;color:var(--txt3)">STRESSED EQUITY</div><div style="font-size:18px;font-weight:700;color:${gc(delta)}">${f(newEq)}</div></div>
+    </div>
+    <div style="font-size:12px;display:flex;gap:14px">
+      <span>DELTA <strong style="color:${gc(delta)}">${delta>=0?'+':''}${f(delta)}</strong></span>
+      <span>(<strong style="color:${gc(dpct)}">${dpct>=0?'+':''}${dpct.toFixed(2)}%</strong>)</span>
+    </div>
+    <div style="margin-top:10px">${impacts.map(x=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px"><span class="wht">${x.ticker}</span><span style="color:${gc(x.delta)}">${x.delta>=0?'+':''}${f(x.delta)}</span></div>`).join('')}</div>`;
+  _scBarC=dc(_scBarC);
+  _scBarC=mkBar(document.getElementById('sc-bar-c'),impacts.map(x=>x.ticker),impacts.map(x=>x.delta),impacts.map(x=>x.delta>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'));
+};
+
+// ── Live P&L strip ───────────────────────────────────────────────────────────
+function startLivePnL(holds) {
+  clearInterval(_liveIv);
+  if(!holds.length) return;
+  async function update() {
+    const secR = await api('/api/securities');
+    if(!secR.ok || !Array.isArray(secR.d)) return;
+    const sesEl = document.getElementById('pf-live-session');
+    if(sesEl) sesEl.textContent = new Date().toLocaleTimeString('en-GB',{hour12:false});
+    const prices = {};
+    secR.d.forEach(s => prices[s.ticker] = s.market_price);
+    _livePrices = prices;
+    let totalUnreal = 0, sessionStart = _pf ? (_pf.balance||0) : 0;
+    const el = document.getElementById('pf-live-holds');
+    if(!el) return;
+    el.innerHTML = holds.map(h => {
+      const liveP = prices[h.ticker];
+      if(liveP == null) return '';
+      const liveVal = liveP * h.quantity;
+      const pnl = liveVal - (h.cost_basis||0);
+      const pnlPct = h.cost_basis ? pnl/h.cost_basis*100 : 0;
+      totalUnreal += pnl;
+      return `<div style="padding:0 10px;border-right:1px solid var(--bdr);font-size:9px;white-space:nowrap;display:flex;gap:5px;align-items:center">
+        <span style="color:var(--org);font-weight:700">${h.ticker}</span>
+        <span style="color:${gcI(pnlPct)};font-weight:${gcIW(pnlPct)}">${pnl>=0?'+':''}${f(pnl,0)}</span>
+        <span style="color:${gcI(pnlPct)};font-size:8px">${fp(pnlPct)}</span>
       </div>`;
     }).join('');
+    const unEl = document.getElementById('pf-live-unreal');
+    if(unEl) {
+      const pct = _pf?.total_equity ? totalUnreal/_pf.total_equity*100 : 0;
+      const newVal = (totalUnreal>=0?'+':'')+f(totalUnreal,0);
+      if(unEl.textContent && unEl.textContent !== newVal) {
+        // Value changed — pulse the strip
+        const strip = document.getElementById('pf-live-strip');
+        if(strip) { strip.classList.remove('pnl-updated'); void strip.offsetWidth; strip.classList.add('pnl-updated'); }
+      }
+      unEl.textContent = newVal;
+      unEl.style.color = gcI(pct);
+    }
+    // Pulse the strip on each update
+    const strip = document.getElementById('pf-live-strip');
+    if(strip){ strip.classList.remove('pf-live-pulse'); void strip.offsetWidth; strip.classList.add('pf-live-pulse'); }
   }
+  update();
+  _liveIv = setInterval(update, 60000);
 }
 
-// ── Positions table ───────────────────────────────────────────────────────────
-function renderPositions(){
-  const tbody=document.getElementById('epf-pos-tbody');
-  if(!tbody) return;
-  const d=_pfData;
-  tbody.innerHTML=d.positions.map(p=>`
-    <tr>
-      <td style="color:var(--cyn);font-weight:700">${p.ticker}</td>
-      <td>${p.qty.toLocaleString()}</td>
-      <td class="r">$${f(p.entry_price,4)}</td>
-      <td class="r" style="color:var(--wht)">$${p.live_price!=null?f(p.live_price,4):'—'}</td>
-      <td class="r" style="color:var(--txt2)">$${fk(p.cost)}</td>
-      <td class="r">$${fk(p.market_value)}</td>
-      <td class="r" style="color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${f(p.pnl,2)}</td>
-      <td class="r" style="color:${p.pnl_pct>=0?'var(--up)':'var(--dn)'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</td>
-      <td class="r">${p.weight_pct.toFixed(1)}%</td>
-      <td class="r" style="color:var(--yel)">${p.ann_vol!=null?p.ann_vol.toFixed(1)+'%':'—'}</td>
-      <td class="r" style="color:${(p.sharpe||0)>0?'var(--up)':'var(--dn)'}">${p.sharpe!=null?p.sharpe.toFixed(2):'—'}</td>
-      <td style="color:var(--txt2)">${p.entry_date||'—'}</td>
-      <td style="color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis">${p.notes||''}</td>
-      <td><span style="color:var(--dn);cursor:pointer;font-size:11px" onclick="removePosition('${p.id}','${p.ticker}')">✕</span></td>
-    </tr>`).join('')||'<tr><td colspan="14" style="color:var(--txt3);padding:16px;text-align:center">No positions</td></tr>';
-}
+// ── Attribution rendering ─────────────────────────────────────────────────────
+function renderAttribution() {
+  if(!_pf) return;
+  const holds = _pf.holdings || [];
+  if(!holds.length) { document.getElementById('pf-attr-list').innerHTML='<div class="loading">NO HOLDINGS</div>'; return; }
 
-// ── Analytics charts ──────────────────────────────────────────────────────────
-function renderAnalytics(){
-  const d=_pfData;
-  const poss=d.positions.filter(p=>p.ann_vol!=null||p.sharpe!=null);
-  // Vol chart
-  const vCtx=document.getElementById('epf-vol-chart');
-  if(vCtx&&poss.length){
-    if(_charts.vol)_charts.vol.destroy();
-    _charts.vol=new Chart(vCtx,{
-      type:'bar',
-      data:{labels:poss.map(p=>p.ticker),datasets:[{data:poss.map(p=>p.ann_vol??0),backgroundColor:poss.map(p=>(p.ann_vol||0)>50?'rgba(244,67,54,.6)':'rgba(255,214,0,.6)'),borderWidth:0}]},
-      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{...TT}},scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444'}},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v.toFixed(0)+'%'}}}}
-    });
-  }
-  // Sharpe chart
-  const sCtx=document.getElementById('epf-sharpe-chart');
-  if(sCtx&&poss.length){
-    if(_charts.sharpe)_charts.sharpe.destroy();
-    _charts.sharpe=new Chart(sCtx,{
-      type:'bar',
-      data:{labels:poss.map(p=>p.ticker),datasets:[{data:poss.map(p=>p.sharpe??0),backgroundColor:poss.map(p=>(p.sharpe||0)>0?'rgba(0,200,83,.6)':'rgba(244,67,54,.6)'),borderWidth:0}]},
-      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{...TT}},scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444'}},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v.toFixed(2)}}}}
-    });
-  }
-  // Metrics grid
-  const grid=document.getElementById('epf-metrics-grid');
-  if(grid){
-    const s=d.summary;
-    const avgVol=d.positions.filter(p=>p.ann_vol).reduce((a,p)=>a+p.ann_vol,0)/Math.max(d.positions.filter(p=>p.ann_vol).length,1);
-    const avgSharpe=d.positions.filter(p=>p.sharpe).reduce((a,p)=>a+p.sharpe,0)/Math.max(d.positions.filter(p=>p.sharpe).length,1);
-    const mets=[
-      {l:'TOTAL RETURN',v:(s.total_pnl_pct>=0?'+':'')+s.total_pnl_pct.toFixed(2)+'%',c:s.total_pnl_pct>=0?'var(--up)':'var(--dn)'},
-      {l:'AVG ANN VOL',v:isNaN(avgVol)?'—':avgVol.toFixed(1)+'%',c:'var(--yel)'},
-      {l:'AVG SHARPE',v:isNaN(avgSharpe)?'—':avgSharpe.toFixed(2),c:avgSharpe>0?'var(--up)':'var(--dn)'},
-      {l:'HHI',v:s.hhi.toFixed(0),c:s.hhi>3000?'var(--dn)':s.hhi>1500?'var(--yel)':'var(--up)'},
-      {l:'NUM POSITIONS',v:s.num_positions,c:'var(--wht)'},
-      {l:'CASH',v:'$'+fk(d.cash),c:'var(--cyn)'},
-      {l:'INVESTED',v:'$'+fk(s.total_value),c:'var(--wht)'},
-      {l:'TOTAL AUM',v:'$'+fk(s.total_with_cash),c:'var(--org)'},
-    ];
-    grid.innerHTML=mets.map(m=>`<div style="background:var(--bg2);padding:10px 14px;border-right:1px solid var(--bdr)">
-      <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:4px">${m.l}</div>
-      <div style="font-size:16px;font-weight:700;color:${m.c}">${m.v}</div>
-    </div>`).join('');
-  }
-}
+  // Build attribution data: unrealized P&L, weight, contribution to total
+  const totalEq = _pf.total_equity || 1;
+  const totalPnl = holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0), 0);
+  const items = holds.map(h => {
+    const pnl = (h.market_value||0) - (h.cost_basis||0);
+    const pnlPct = h.cost_basis ? pnl/h.cost_basis*100 : 0;
+    const weight = (h.market_value||0)/totalEq*100;
+    const contrib = totalPnl ? pnl/totalPnl*100 : 0;  // % of total P&L
+    const contribPts = totalEq ? pnl/totalEq*100 : 0; // percentage points of equity
+    return { ticker:h.ticker, pnl, pnlPct, weight, contrib, contribPts, mv:h.market_value||0, cost:h.cost_basis||0 };
+  }).sort((a,b) => Math.abs(b.pnl)-Math.abs(a.pnl));
 
-// ── Risk panel ────────────────────────────────────────────────────────────────
-function renderRisk(){
-  const d=_pfData, s=d.summary;
-  // KPI strip
-  const kpis=document.getElementById('epf-risk-kpis');
-  if(kpis) kpis.innerHTML=`
-    <div class="sc"><div class="sc-l">CONCENTRATION</div><div class="sc-v" style="color:${s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)'}">${s.concentration}</div><div class="sc-s">HHI ${s.hhi.toFixed(0)}</div></div>
-    <div class="sc"><div class="sc-l">LARGEST POSITION</div><div class="sc-v" style="color:var(--org)">${d.positions.length?d.positions.slice().sort((a,b)=>b.weight_pct-a.weight_pct)[0].ticker:'—'}</div><div class="sc-s">${d.positions.length?d.positions.slice().sort((a,b)=>b.weight_pct-a.weight_pct)[0].weight_pct.toFixed(1)+'%':''}</div></div>
-    <div class="sc"><div class="sc-l">WORST P&L</div><div class="sc-v" style="color:var(--dn)">${d.positions.length?d.positions.slice().sort((a,b)=>a.pnl_pct-b.pnl_pct)[0].ticker:'—'}</div><div class="sc-s">${d.positions.length?d.positions.slice().sort((a,b)=>a.pnl_pct-b.pnl_pct)[0].pnl_pct.toFixed(2)+'%':''}</div></div>
-    <div class="sc"><div class="sc-l">CASH BUFFER</div><div class="sc-v" style="color:var(--cyn)">${s.total_with_cash>0?(d.cash/s.total_with_cash*100).toFixed(1)+'%':'—'}</div><div class="sc-s">$${fk(d.cash)}</div></div>`;
-  // Concentration bars
-  const concEl=document.getElementById('epf-risk-conc');
-  if(concEl) concEl.innerHTML=d.positions.slice().sort((a,b)=>b.weight_pct-a.weight_pct).map(p=>`
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
-      <span style="width:72px;font-weight:700;font-size:10px;color:var(--cyn)">${p.ticker}</span>
-      <div style="flex:1;height:6px;background:var(--bdr)">
-        <div style="width:${p.weight_pct.toFixed(1)}%;height:100%;background:${p.weight_pct>30?'var(--dn)':p.weight_pct>15?'var(--yel)':'var(--up)'}"></div>
-      </div>
-      <span style="width:36px;text-align:right;font-size:9px;color:var(--txt2)">${p.weight_pct.toFixed(1)}%</span>
-      ${p.weight_pct>30?'<span style="font-size:7px;color:var(--dn);letter-spacing:1px">HIGH</span>':''}
-    </div>`).join('');
-  // Kelly
-  const kellyEl=document.getElementById('epf-risk-kelly');
-  if(kellyEl) kellyEl.innerHTML=d.positions.filter(p=>p.ann_vol).map(p=>{
-    const vol=(p.ann_vol||50)/100;
-    const ret=(p.pnl_pct||0)/100;
-    const kelly=vol>0?Math.max(0,Math.min((ret/(vol*vol))*100,100)).toFixed(1):'—';
-    return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
-      <span style="color:var(--cyn)">${p.ticker}</span>
-      <span style="color:var(--txt2)">Current ${p.weight_pct.toFixed(1)}%</span>
-      <span style="color:var(--yel)">Kelly ~${kelly}%</span>
-    </div>`;
-  }).join('')||'<span style="color:var(--txt3);font-size:10px">Need price history for Kelly calculation.</span>';
-  // Flags
-  const flagsEl=document.getElementById('epf-risk-flags');
-  const flags=[];
-  if(s.concentration==='HIGH') flags.push({t:'HIGH CONCENTRATION',d:`HHI ${s.hhi.toFixed(0)} — portfolio is heavily concentrated. Consider diversifying.`,c:'var(--dn)'});
-  d.positions.forEach(p=>{ if(p.weight_pct>30) flags.push({t:`OVERWEIGHT: ${p.ticker}`,d:`${p.weight_pct.toFixed(1)}% of portfolio in single position.`,c:'var(--yel)'}); });
-  if(d.cash/s.total_with_cash<0.05&&d.positions.length>0) flags.push({t:'LOW CASH BUFFER',d:`Only ${(d.cash/s.total_with_cash*100).toFixed(1)}% cash. Limited dry powder for opportunities.`,c:'var(--yel)'});
-  d.positions.forEach(p=>{ if(p.pnl_pct<-20) flags.push({t:`LARGE DRAWDOWN: ${p.ticker}`,d:`${p.pnl_pct.toFixed(2)}% below entry. Review stop-loss.`,c:'var(--dn)'}); });
-  if(flagsEl) flagsEl.innerHTML=flags.length===0
-    ?'<div style="color:var(--up);font-size:10px">✓ No major risk flags detected.</div>'
-    :flags.map(fl=>`<div style="border-left:3px solid ${fl.c};padding:6px 10px;background:rgba(0,0,0,.2);margin-bottom:6px"><div style="font-size:9px;font-weight:700;color:${fl.c};letter-spacing:1px;margin-bottom:2px">${fl.t}</div><div style="font-size:10px;color:var(--txt2)">${fl.d}</div></div>`).join('');
-}
-
-// ── Report generator ──────────────────────────────────────────────────────────
-window.generateReport = function(){
-  if(!_pfData) return;
-  const d=_pfData, s=d.summary;
-  const date=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
-  document.getElementById('epf-report-body').innerHTML=`
-    <div style="font-family:'Courier New',monospace;color:var(--txt)">
-      <div style="border-bottom:2px solid var(--org);padding-bottom:12px;margin-bottom:20px">
-        <div style="font-size:18px;font-weight:700;color:var(--wht);letter-spacing:2px">PORTFOLIO REPORT</div>
-        <div style="font-size:11px;color:var(--txt2);margin-top:4px">${date} · BLOOMBERG / NER ENTERPRISE</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-        <div>
-          <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">CLIENT INFORMATION</div>
-          <div><b style="color:var(--org)">Client:</b> ${d.client||'—'}</div>
-          <div><b style="color:var(--org)">Portfolio:</b> ${d.name||'—'}</div>
-          <div><b style="color:var(--org)">Report Date:</b> ${date}</div>
-        </div>
-        <div>
-          <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">PORTFOLIO SUMMARY</div>
-          <div><b style="color:var(--org)">Market Value:</b> $${fk(s.total_value)}</div>
-          <div><b style="color:var(--org)">Cash:</b> $${fk(d.cash)}</div>
-          <div><b style="color:var(--org)">Total AUM:</b> <span style="color:var(--wht);font-weight:700">$${fk(s.total_with_cash)}</span></div>
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">PERFORMANCE</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-          <div style="background:var(--bg3);padding:10px;text-align:center">
-            <div style="font-size:9px;color:var(--txt3)">TOTAL P&L</div>
-            <div style="font-size:18px;font-weight:700;color:${s.total_pnl>=0?'var(--up)':'var(--dn)'}">${s.total_pnl>=0?'+':''}$${fk(Math.abs(s.total_pnl))}</div>
+  // Render list with sparklines
+  document.getElementById('pf-attr-list').innerHTML = items.map((it,idx) => {
+    const barW = Math.min(Math.abs(it.contribPts)/Math.max(...items.map(x=>Math.abs(x.contribPts)),0.01)*100, 100);
+    return `<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5);cursor:pointer"
+                 onclick="pfGoTicker('${it.ticker}')">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+        <span style="font-size:13px;font-weight:700;color:var(--wht);width:44px">${it.ticker}</span>
+        <canvas id="pf-attr-spark-${idx}" width="80" height="22" style="flex-shrink:0"></canvas>
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:1px">
+            <span style="color:var(--txt3)">W:${f(it.weight,1)}%</span>
+            <span style="color:${gcI(it.pnlPct)};font-weight:700">${fp(it.pnlPct)}</span>
+            <span style="font-weight:700;color:${gcI(it.pnl)}">${it.pnl>=0?'+':''}${f(it.pnl,2)}</span>
           </div>
-          <div style="background:var(--bg3);padding:10px;text-align:center">
-            <div style="font-size:9px;color:var(--txt3)">RETURN</div>
-            <div style="font-size:18px;font-weight:700;color:${s.total_pnl_pct>=0?'var(--up)':'var(--dn)'}">${s.total_pnl_pct>=0?'+':''}${s.total_pnl_pct.toFixed(2)}%</div>
+          <div style="height:3px;background:var(--bdr);border-radius:1px">
+            <div style="height:100%;width:${barW.toFixed(0)}%;background:${gcI(it.pnl)};border-radius:1px;transition:width .3s"></div>
           </div>
-          <div style="background:var(--bg3);padding:10px;text-align:center">
-            <div style="font-size:9px;color:var(--txt3)">CONCENTRATION</div>
-            <div style="font-size:18px;font-weight:700;color:${s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)'}">${s.concentration}</div>
+          <div style="font-size:8px;color:var(--txt3);margin-top:2px">
+            Contrib: <span style="color:${gcI(it.contribPts)};font-weight:700">${it.contribPts>=0?'+':''}${it.contribPts.toFixed(2)} pp</span>
+            &nbsp;|&nbsp; ${(it.mv||0)>0?'MV $'+f(it.mv,0):''}
           </div>
         </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">HOLDINGS</div>
-        <table style="width:100%;border-collapse:collapse;font-size:10px">
-          <thead><tr style="border-bottom:1px solid var(--bdr)">
-            <th style="text-align:left;padding:6px 4px;color:var(--txt2)">TICKER</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">QTY</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">ENTRY</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">LIVE</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">VALUE</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L%</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">WEIGHT</th>
-          </tr></thead>
-          <tbody>
-            ${d.positions.map(p=>`<tr style="border-bottom:1px solid rgba(46,46,46,.3)">
-              <td style="padding:5px 4px;color:var(--cyn);font-weight:700">${p.ticker}</td>
-              <td style="padding:5px 4px;text-align:right">${p.qty.toLocaleString()}</td>
-              <td style="padding:5px 4px;text-align:right">$${f(p.entry_price,4)}</td>
-              <td style="padding:5px 4px;text-align:right">$${p.live_price!=null?f(p.live_price,4):'—'}</td>
-              <td style="padding:5px 4px;text-align:right">$${fk(p.market_value)}</td>
-              <td style="padding:5px 4px;text-align:right;color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${f(p.pnl,2)}</td>
-              <td style="padding:5px 4px;text-align:right;color:${p.pnl_pct>=0?'var(--up)':'var(--dn)'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</td>
-              <td style="padding:5px 4px;text-align:right">${p.weight_pct.toFixed(1)}%</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      ${d.notes?`<div style="margin-bottom:20px"><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">NOTES</div><div style="background:var(--bg3);padding:10px;color:var(--txt2)">${d.notes}</div></div>`:''}
-      <div style="border-top:1px solid var(--bdr);padding-top:10px;font-size:9px;color:var(--txt3);text-align:center">
-        Generated by BLOOMBERG / NER ENTERPRISE · ${date} · Confidential
       </div>
     </div>`;
-};
+  }).join('');
 
-window.printReport = function(){
-  const content=document.getElementById('epf-report-body').innerHTML;
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Portfolio Report</title><style>body{background:#111;color:#bbb;font-family:'Courier New',monospace;padding:30px}*{box-sizing:border-box}</style></head><body>${content}</body></html>`);
-  w.document.close();
-  w.print();
-};
+  // Draw sparklines async
+  setTimeout(async () => {
+    for(let idx=0; idx<items.length; idx++) {
+      const it = items[idx];
+      const canvas = document.getElementById('pf-attr-spark-'+idx);
+      if(!canvas) continue;
+      // Use cached history or fetch
+      if(!_histories[it.ticker]) {
+        const r = await api(`/api/analytics/price_history/${it.ticker}?days=30`);
+        if(r.ok && Array.isArray(r.d)) _histories[it.ticker] = r.d;
+      }
+      const hist = _histories[it.ticker];
+      if(!hist || hist.length < 2) continue;
+      const pts = hist.map(p=>p.price);
+      const ctx = canvas.getContext('2d');
+      const W=canvas.width, H=canvas.height;
+      ctx.clearRect(0,0,W,H);
+      const mn=Math.min(...pts), mx=Math.max(...pts), rng=mx-mn||1;
+      const x=i=>(i/(pts.length-1))*(W-2)+1;
+      const y=v=>H-2-((v-mn)/rng)*(H-4);
+      const up = pts[pts.length-1]>=pts[0];
+      ctx.strokeStyle = up?'rgba(0,200,83,.85)':'rgba(244,67,54,.85)';
+      ctx.lineWidth=1.2;
+      ctx.beginPath();
+      pts.forEach((p,i)=>i?ctx.lineTo(x(i),y(p)):ctx.moveTo(x(i),y(p)));
+      ctx.stroke();
+      ctx.fillStyle=up?'rgba(0,200,83,.1)':'rgba(244,67,54,.1)';
+      ctx.lineTo(x(pts.length-1),H);ctx.lineTo(1,H);ctx.closePath();ctx.fill();
+    }
+  }, 0);
 
-// ── Cash log ──────────────────────────────────────────────────────────────────
-function renderCashLog(){
-  const tbody=document.getElementById('epf-cash-tbody');
-  if(!tbody) return;
-  const log=(_pfData.cash_log||[]).slice().reverse();
-  let running=0;
-  const rows=log.map(entry=>{running+=entry.amount;return{...entry,running};});
-  tbody.innerHTML=rows.map(r=>`<tr>
-    <td style="color:var(--txt2)">${r.ts?new Date(r.ts).toLocaleString('en-GB'):'—'}</td>
-    <td style="color:${r.amount>=0?'var(--up)':'var(--dn)';font-weight:700}">${r.amount>=0?'+':''}$${f(r.amount,2)}</td>
-    <td>${r.note||'—'}</td>
-    <td class="r" style="color:var(--wht)">$${f(r.running,2)}</td>
-  </tr>`).join('')||'<tr><td colspan="4" style="padding:16px;color:var(--txt3);text-align:center">No cash transactions yet.</td></tr>';
+  // Waterfall chart — floating bars [base, top] so each bar starts where the last ended
+  _attrC = dc(_attrC);
+  const wfLabels = [...items.map(it=>it.ticker), 'TOTAL'];
+  const wfPnls   = items.map(it=>it.pnl);
+
+  // Build floating [from, to] pairs for each segment
+  const wfData = [];
+  let running = 0;
+  for (let i = 0; i < wfPnls.length; i++) {
+    const v = wfPnls[i];
+    wfData.push([running, running + v]);
+    running += v;
+  }
+  // TOTAL bar always starts from 0
+  wfData.push([0, totalPnl]);
+
+  const wfColors = wfData.map(([a,b], i) => {
+    if (i === wfData.length - 1) return totalPnl >= 0 ? 'rgba(255,214,0,.85)' : 'rgba(244,67,54,.85)';
+    return (b - a) >= 0 ? 'rgba(0,200,83,.75)' : 'rgba(244,67,54,.75)';
+  });
+  const wfBorders = wfColors.map(c => c.replace(/[\d.]+\)$/, '1)'));
+
+  _attrC = new Chart(document.getElementById('pf-attr-c'), {
+    type: 'bar',
+    data: {
+      labels: wfLabels,
+      datasets: [{
+        data: wfData,
+        backgroundColor: wfColors,
+        borderColor: wfBorders,
+        borderWidth: 1,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const [a, b] = ctx.raw;
+              const v = b - a;
+              return ` ${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+            }
+          },
+          backgroundColor: '#1a1a1a',
+          borderColor: '#333',
+          borderWidth: 1,
+          titleColor: '#fff',
+          bodyColor: '#ccc',
+          titleFont: { family: 'inherit', size: 10 },
+          bodyFont:  { family: 'inherit', size: 10 },
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,.04)' },
+          ticks: { color: '#737373', font: { family: 'inherit', size: 9 } },
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,.06)' },
+          ticks: {
+            color: '#737373',
+            font: { family: 'inherit', size: 9 },
+            callback: v => (v >= 0 ? '+' : '') + v.toFixed(0),
+          }
+        }
+      }
+    }
+  });
+
+  // Summary
+  const winners = items.filter(it=>it.pnl>0), losers = items.filter(it=>it.pnl<0);
+  const bigWin = winners.reduce((a,b)=>b.pnl>a.pnl?b:a, {pnl:-Infinity,ticker:'—'});
+  const bigLos = losers.reduce((a,b)=>b.pnl<a.pnl?b:a, {pnl:Infinity,ticker:'—'});
+  document.getElementById('pf-attr-sum').innerHTML = `
+    <div class="rm"><span class="k">TOTAL P&amp;L</span><span class="v" style="color:${gcI(totalPnl/totalEq*100)}">${totalPnl>=0?'+':''}${f(totalPnl,2)}</span></div>
+    <div class="rm"><span class="k">WINNERS</span><span class="v up">${winners.length}</span></div>
+    <div class="rm"><span class="k">LOSERS</span><span class="v dn">${losers.length}</span></div>
+    <div class="rm"><span class="k">WIN RATE</span><span class="v">${items.length?((winners.length/items.length)*100).toFixed(0):'—'}%</span></div>
+    <div class="rm"><span class="k">TOP GAINER</span><span class="v up">${bigWin.ticker!=='—'?bigWin.ticker:'—'}</span></div>
+    <div class="rm"><span class="k">TOP LOSER</span><span class="v dn">${bigLos.ticker!=='—'?bigLos.ticker:'—'}</span></div>
+    <div class="rm" style="margin-top:6px"><span class="k">TOTAL EQUITY</span><span class="v wht">${f(totalEq)}</span></div>
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">
+      "pp" = percentage points of equity. A +2pp contribution means that holding added 2% to your total portfolio value.
+    </div>`;
 }
 
-// ── Notes save ────────────────────────────────────────────────────────────────
-window.saveNotes = async function(){
-  if(!_pfid||!_pfData) return;
-  const notes=document.getElementById('epf-notes-area')?.value||'';
-  _pfData.notes=notes;
-  const pf=ENT.portfolios.find(p=>p.id===_pfid)||{};
-  await apiPost('/api/enterprise/portfolios',{...pf,id:_pfid,notes});
-  const bar=document.getElementById('cmd-st');if(bar){bar.textContent='Notes saved';setTimeout(()=>bar.textContent='ENTERPRISE SPACE',1500);}
+window.pfQuickOrder = function(ticker, side) {
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  }, 300);
 };
 
-// ── Add position ──────────────────────────────────────────────────────────────
-window.showAddPosModal = function(){ document.getElementById('add-pos-modal').style.display='flex'; };
-window.hideAddPosModal = function(){ document.getElementById('add-pos-modal').style.display='none'; };
-
-window.addPosition = async function(){
-  const ticker=(document.getElementById('apm-ticker').value||'').trim().toUpperCase();
-  const qty=parseFloat(document.getElementById('apm-qty').value)||0;
-  const price=parseFloat(document.getElementById('apm-price').value)||0;
-  const date=document.getElementById('apm-date').value;
-  const notes=document.getElementById('apm-notes').value;
-  if(!ticker||!qty||!price){ alert('Ticker, quantity and entry price are required.'); return; }
-  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/positions`,{ticker,qty,entry_price:price,entry_date:date,notes});
-  if(!r.ok){ alert('Error adding position'); return; }
-  hideAddPosModal();
-  ['apm-ticker','apm-qty','apm-price','apm-notes'].forEach(id=>document.getElementById(id).value='');
-  await ENT_PF_refresh();
-  epfTab('positions');
-};
-
-window.removePosition = async function(posId, ticker){
-  if(!confirm(`Remove ${ticker} from portfolio?`)) return;
-  await api(`/api/enterprise/portfolios/${_pfid}/positions/${posId}`,{method:'DELETE'});
-  await ENT_PF_refresh();
-};
-
-// ── Cash modal ────────────────────────────────────────────────────────────────
-window.showCashModal = function(sign){
-  const inp=document.getElementById('cm-amount');
-  if(sign&&inp) inp.value=sign>0?'':'-';
-  document.getElementById('cash-modal').style.display='flex';
-};
-window.hideCashModal = function(){ document.getElementById('cash-modal').style.display='none'; };
-
-window.adjustCash = async function(){
-  const amount=parseFloat(document.getElementById('cm-amount').value);
-  const note=document.getElementById('cm-note').value;
-  if(isNaN(amount)){ alert('Enter a valid amount'); return; }
-  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/cash`,{amount,note});
-  if(!r.ok){ alert('Error updating cash'); return; }
-  hideCashModal();
-  document.getElementById('cm-amount').value='';
-  document.getElementById('cm-note').value='';
-  await ENT_PF_refresh();
-  epfTab('cashlog');
-};
+function calcHealth(holds,cash,totalEq){
+  if(!holds.length) return 50; let s=100;
+  const w=holds.map(h=>((h.market_value||0)/(totalEq||1))*100),mW=Math.max(...w,0);
+  if(mW>70) s-=30; else if(mW>50) s-=15; else if(mW>30) s-=5;
+  const cr=cash/(totalEq||1)*100; if(cr<5) s-=10; else if(cr>80) s-=10;
+  if(holds.length<2) s-=15; else if(holds.length>=5) s+=5;
+  if(holds.reduce((t,h)=>t+(h.market_value||0)-(h.cost_basis||0),0)<0) s-=10;
+  return Math.max(0,Math.min(100,s));
+}
 })();
 </script>
