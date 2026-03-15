@@ -2,12 +2,17 @@
 """
 Bloomberg Terminal — NER Exchange
 Architecture: Flask proxy backend + split HTML page files
-Run: python app.py → http://localhost:5000
+Modules: quant_utils.py, data_utils.py, enterprise_store.py, enterprise_api.py
 """
-import os, time, math, statistics, json, queue, threading
+import os, time, math, statistics, json, queue, threading, uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from flask import Flask, jsonify, request, render_template, Response, stream_with_context
+
+# ── Local modules ─────────────────────────────────────────────────────────────
+import quant_utils as Q   # pure math — sma/ema/rsi/sharpe/bt_run etc.
+import data_utils   as D  # candle normalization, fetch helpers
+import enterprise_store as ES  # portfolio persistence
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
@@ -15,36 +20,23 @@ _STAT_DIR  = os.path.join(_BASE_DIR, "static")
 print(f"[NER Terminal] Base dir : {_BASE_DIR}")
 print(f"[NER Terminal] Templates: {_TMPL_DIR}  exists={os.path.isdir(_TMPL_DIR)}")
 print(f"[NER Terminal] Static   : {_STAT_DIR}  exists={os.path.isdir(_STAT_DIR)}")
-app = Flask(
-    __name__,
-    template_folder=_TMPL_DIR,
-    static_folder=_STAT_DIR,
-)
+
+app = Flask(__name__, template_folder=_TMPL_DIR, static_folder=_STAT_DIR)
 
 NER_BASE   = "http://150.230.117.88:8082"
 TSE_BASE   = "https://market.installe.us"
 ATLAS_BASE = os.environ.get("ATLAS_URL", "https://atlas-production-1438.up.railway.app").rstrip("/")
 ATLAS_KEY  = os.environ.get("ATLAS_API_KEY") or ""
 ATLAS_H    = {"X-Atlas-Key": ATLAS_KEY, "Content-Type": "application/json"}
-TSE_KEY  = os.environ.get("TSE_API_KEY") or ""
-TSE_H    = {"X-API-Key": TSE_KEY}
+TSE_KEY    = os.environ.get("TSE_API_KEY") or ""
+TSE_H      = {"X-API-Key": TSE_KEY}
 
-# ── Delisted securities — hidden from all terminal pages ──────────────────────
-# These tickers are no longer traded. Filter them out at the API layer so no
-# HTML pages need individual changes.
 _DELISTED = {"RNHC", "CGF", "RNC-B", "RDS"}
 
 def _is_active(ticker: str) -> bool:
-    """Return False if the ticker (or its bare symbol) is delisted."""
     bare = ticker[4:] if ticker.startswith("TSE:") else ticker
     return bare not in _DELISTED and ticker not in _DELISTED
 
-# ── Holder display-name registry ─────────────────────────────────────────────
-# Set env vars on Railway like:
-#   HOLDER_NAME_67660296 = "Nexalin Capital"
-#   HOLDER_NAME_84775988 = "Whop Global Markets"
-# The suffix is the LAST 8 characters of the user_id (case-insensitive match).
-# Full user_id keys are also supported for exact matches.
 _HOLDER_NAMES: dict = {}
 for _k, _v in os.environ.items():
     if _k.startswith("HOLDER_NAME_"):
@@ -52,334 +44,172 @@ for _k, _v in os.environ.items():
         _HOLDER_NAMES[_suffix] = _v.strip()
 
 def _resolve_holder(user_id: str) -> str:
-    """Return display name for a user_id, or '…XXXXXXXX' fallback."""
-    if not user_id:
-        return "—"
+    if not user_id: return "—"
     uid_lower = user_id.lower()
-    # Try exact match first, then last-8-char suffix
-    return (
-        _HOLDER_NAMES.get(uid_lower)
-        or _HOLDER_NAMES.get(uid_lower[-8:])
-        or f"…{user_id[-8:]}"
-    )
+    return (_HOLDER_NAMES.get(uid_lower) or _HOLDER_NAMES.get(uid_lower[-8:]) or f"…{user_id[-8:]}")
 
-# TSE cache — separate from NER cache
 _tse_cache: dict = {}
 
 def tse_get(path, params=None, ttl=60):
-    """GET from TSE API with caching. No auth required for market data."""
     key = path + str(params or {})
     e = _tse_cache.get(key)
-    if e and time.time() - e["ts"] < ttl:
-        return e["s"], e["d"]
+    if e and time.time() - e["ts"] < ttl: return e["s"], e["d"]
     try:
-        r = _session.get(f"{TSE_BASE}{path}", headers=TSE_H,
-                         params=params, timeout=8)
+        r = _session.get(f"{TSE_BASE}{path}", headers=TSE_H, params=params, timeout=8)
         if r.status_code == 200:
-            d = r.json()
-            _tse_cache[key] = {"ts": time.time(), "s": 200, "d": d}
-            return 200, d
+            d = r.json(); _tse_cache[key] = {"ts": time.time(), "s": 200, "d": d}; return 200, d
         return r.status_code, {}
     except Exception as ex:
         print(f"[TSE] {path} error: {ex}")
-        # Return stale if available
-        if e:
-            return e["s"], e["d"]
+        if e: return e["s"], e["d"]
         return 503, {}
 
-# Connection pool — reuse TCP connections, cap pool size to avoid
-# thread starvation when NER is slow (all threads waiting on timeout)
 _session = requests.Session()
-_session.mount("http://", requests.adapters.HTTPAdapter(
-    pool_connections=4,
-    pool_maxsize=8,
-    max_retries=0   # retries handled manually
-))
-API_KEY  = os.environ.get("NER_API_KEY") or ""
-AUTH_H   = {"Content-Type": "application/json", "X-API-Key": API_KEY}
-PUB_H    = {"Content-Type": "application/json"}
+_session.mount("http://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8, max_retries=0))
+API_KEY = os.environ.get("NER_API_KEY") or ""
+AUTH_H  = {"Content-Type": "application/json", "X-API-Key": API_KEY}
+PUB_H   = {"Content-Type": "application/json"}
 _cache: dict = {}
 
-# ── SSE / Webhook state ───────────────────────────────────────────────────────
-# _sse_queues: set of active queue.Queue objects, one per connected SSE client
-# _sse_state:  latest known data per ticker, pushed to new subscribers immediately
 _sse_queues: set = set()
 _sse_lock = threading.Lock()
-_sse_state: dict = {}   # ticker → {market_price, frozen, orderbook, updated_at}
+_sse_state: dict = {}
 
 def sse_broadcast(event_type: str, data: dict):
-    """Push an SSE event to all connected clients."""
     payload = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
     dead = set()
     with _sse_lock:
         for q in _sse_queues:
-            try:
-                q.put_nowait(payload)
-            except queue.Full:
-                dead.add(q)
-        for q in dead:
-            _sse_queues.discard(q)
+            try: q.put_nowait(payload)
+            except queue.Full: dead.add(q)
+        for q in dead: _sse_queues.discard(q)
 
-# ── Cache helpers ─────────────────────────────────────────────────────────────
-# Only caches 200 responses — errors are never stored so stale 404s can't persist.
-# Auth endpoints (orders, funds, transactions) use ttl=0 to always bypass cache
-# and hit NER live — these are user-specific real-time state.
 def cached_get(path, params=None, auth=False, ttl=15):
     if ttl == 0:
-        # Live/uncached path — always hit NER directly
         try:
-            r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
-                             params=params, timeout=8)
-            if r.status_code == 429:
-                return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
+            r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H, params=params, timeout=8)
+            if r.status_code == 429: return 429, {"detail": "Rate limited by NER"}
             return r.status_code, r.json()
-        except Exception as ex:
-            return 503, {"detail": str(ex)}
+        except Exception as ex: return 503, {"detail": str(ex)}
     key = path + str(params) + str(auth)
     e = _cache.get(key)
-    if e and time.time() - e["ts"] < ttl:
-        return e["s"], e["d"]
+    if e and time.time() - e["ts"] < ttl: return e["s"], e["d"]
     try:
-        r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H,
-                         params=params, timeout=8)
+        r = _session.get(f"{NER_BASE}{path}", headers=AUTH_H if auth else PUB_H, params=params, timeout=8)
         if r.status_code == 429:
-            # 429 — return stale cache if available, else propagate
-            if e:
-                print(f"[cache] 429 from NER on {path} — serving stale (age {int(time.time()-e['ts'])}s)")
-                return e["s"], e["d"]
-            return 429, {"detail": "Rate limited by NER — please wait a moment and retry."}
+            if e: return e["s"], e["d"]
+            return 429, {"detail": "Rate limited by NER"}
         result = (r.status_code, r.json())
-    except Exception as ex:
-        result = (503, {"detail": str(ex)})
-    if result[0] == 200:
-        _cache[key] = {"ts": time.time(), "s": result[0], "d": result[1]}
+    except Exception as ex: result = (503, {"detail": str(ex)})
+    if result[0] == 200: _cache[key] = {"ts": time.time(), "s": result[0], "d": result[1]}
     return result
 
-# ── Atlas helper ──────────────────────────────────────────────────────────────
 _atlas_cache: dict = {}
 _atlas_cache_lock = threading.Lock()
-
-_ATLAS_ONLY_PREFIXES = (
-    "/market/", "/analytics/", "/history/", "/ohlcv/",
-    "/orderbook", "/securities", "/derived", "/shareholders/",
-    "/price/", "/holder_intel/",
-)
+_ATLAS_ONLY_PREFIXES = ("/market/","/analytics/","/history/","/ohlcv/","/orderbook","/securities","/derived","/shareholders/","/price/","/holder_intel/")
 
 def atlas_get(path, params=None, ttl=30):
     key = path + str(params or {})
     with _atlas_cache_lock:
         e = _atlas_cache.get(key)
-        if e and time.time() - e["ts"] < ttl:
-            return e["s"], e["d"]
+        if e and time.time() - e["ts"] < ttl: return e["s"], e["d"]
         stale = e
     try:
         r = _session.get(f"{ATLAS_BASE}{path}", headers=ATLAS_H, params=params, timeout=6)
-        try:
-            d = r.json()
-        except Exception:
-            d = {}
+        try: d = r.json()
+        except: d = {}
         if r.status_code == 200:
-            with _atlas_cache_lock:
-                _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
+            with _atlas_cache_lock: _atlas_cache[key] = {"ts": time.time(), "s": 200, "d": d}
             return 200, d
         print(f"[atlas] {path} → HTTP {r.status_code}")
-        # Stale cache is better than error
         if stale: return stale["s"], stale["d"]
-        # Only fall back to NER for paths it handles; never fall back for Atlas-only routes
         atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
-        if atlas_only:
-            return r.status_code, d
+        if atlas_only: return r.status_code, d
     except Exception as ex:
         print(f"[atlas] {path} exception: {ex}")
         if e: return e["s"], e["d"]
         atlas_only = any(path.startswith(p) for p in _ATLAS_ONLY_PREFIXES)
-        if atlas_only:
-            return 503, {"detail": str(ex)}
+        if atlas_only: return 503, {"detail": str(ex)}
     return cached_get(path, params=params, ttl=ttl)
 
-def _norm_candles(candles, days=None):
-    """Sort candles oldest-first, fix Atlas date formats, enforce days cutoff.
-    Handles:
-      - DD-MM-YY strings  (e.g. "30-12-25")
-      - Unix timestamp ints in "date" or "timestamp" field
-      - ISO datetime strings (e.g. "2025-12-30T00:00:00")
-    Atlas ignores the days param and returns all candles — we filter here."""
-    from datetime import datetime, timedelta, timezone
-    cutoff = None
-    if days:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
-    out = []
-    for cv in candles:
-        d = cv.get("date") or cv.get("timestamp") or cv.get("ts") or ""
-        # Unix timestamp int → YYYY-MM-DD
-        if isinstance(d, (int, float)):
-            try:
-                d = datetime.fromtimestamp(d, tz=timezone.utc).strftime("%Y-%m-%d")
-            except Exception:
-                d = ""
-        d = str(d) if d else ""
-        # Fix DD-MM-YY → YYYY-MM-DD (e.g. "30-12-25" → "2025-12-30")
-        if d and len(d) == 8 and d[2] == "-" and d[5] == "-":
-            p = d.split("-")
-            d = f"20{p[2]}-{p[1]}-{p[0]}"
-        # Truncate ISO datetime to date only (e.g. "2025-12-30T00:00:00" → "2025-12-30")
-        if d and len(d) > 10 and "T" in d:
-            d = d[:10]
-        if cutoff and d and d < cutoff:
-            continue
-        out.append({**cv, "date": d})
-    out.sort(key=lambda x: x.get("date", ""))
-    return out
+# Wire data_utils atlas_get
+D._atlas_get = atlas_get  # pass through so data_utils can call it
 
-def _build_candles_from_history(pts, days=None):
-    """Convert Atlas price_history points [{id, price, timestamp, volume}]
-    into daily OHLCV candles, deduplicated and trimmed to `days`."""
-    from datetime import datetime, timezone, timedelta
-    # Deduplicate by id
-    seen_ids = set()
-    unique = []
-    for pt in (pts or []):
-        pid = pt.get("id")
-        if pid is not None:
-            if pid in seen_ids:
-                continue
-            seen_ids.add(pid)
-        unique.append(pt)
-    # Group into daily candles
-    by_day = {}
-    for pt in unique:
-        ts_raw = pt.get("timestamp") or pt.get("ts") or ""
-        if not ts_raw:
-            continue
-        try:
-            if isinstance(ts_raw, (int, float)):
-                dt = datetime.fromtimestamp(ts_raw, tz=timezone.utc)
-            else:
-                dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-            date_str = dt.strftime("%Y-%m-%d")
-        except Exception:
-            continue
-        px = float(pt.get("price") or 0)
-        vol = int(pt.get("volume") or 0)
-        if not px:
-            continue
-        if date_str not in by_day:
-            by_day[date_str] = {"date": date_str, "open": px, "high": px, "low": px, "close": px, "volume": vol}
-        else:
-            c = by_day[date_str]
-            c["high"]   = max(c["high"], px)
-            c["low"]    = min(c["low"],  px)
-            c["close"]  = px
-            c["volume"] += vol
-    candles = sorted(by_day.values(), key=lambda x: x["date"])
-    # Trim to requested days window
-    if days and candles:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).strftime("%Y-%m-%d")
-        trimmed = [c for c in candles if c["date"] >= cutoff]
-        if trimmed:
-            candles = trimmed
-    return candles
-
-
-# Bulk orderbook cache — one call, filter by ticker in Python
 _ob_cache = {"ts": 0, "data": None}
-_OB_TTL = 10  # seconds
+_OB_TTL = 10
 
 def get_all_orderbooks():
-    """Single /orderbook call that returns all tickers. Shared across all routes."""
     global _ob_cache
-    if time.time() - _ob_cache["ts"] < _OB_TTL and _ob_cache["data"] is not None:
-        return _ob_cache["data"]
+    if time.time() - _ob_cache["ts"] < _OB_TTL and _ob_cache["data"] is not None: return _ob_cache["data"]
     try:
         r = _session.get(f"{ATLAS_BASE}/orderbook", headers=ATLAS_H, timeout=10)
         if r.status_code == 200:
-            data = r.json()
-            _ob_cache = {"ts": time.time(), "data": data}
-            return data
-    except Exception:
-        pass
-    return _ob_cache["data"]  # stale is better than nothing
+            data = r.json(); _ob_cache = {"ts": time.time(), "data": data}; return data
+    except: pass
+    return _ob_cache["data"]
 
 def get_ticker_orderbook(ticker):
-    """Get single-ticker orderbook from the bulk cache."""
     all_ob = get_all_orderbooks()
-    if not isinstance(all_ob, list):
-        return all_ob  # might be a dict already (single ticker response)
+    if not isinstance(all_ob, list): return all_ob
     return next((o for o in all_ob if o.get("ticker") == ticker), None)
 
-# Bulk shareholders cache — one call covers all tickers
-# Per-ticker shareholders cache — NER requires ticker param, no bulk endpoint
 _sh_ticker_cache: dict = {}
-   # ticker → {"ts": float, "data": list}
-_SH_TICKER_TTL = 600          # seconds — shareholders change rarely
-
-_sh_last_fetch: float = 0.0  # timestamp of last actual NER shareholders call
+_SH_TICKER_TTL = 600
 
 def get_ticker_shareholders(ticker):
-    """Fetch shareholders for one ticker, with per-ticker cache."""
-    global _sh_last_fetch
     e = _sh_ticker_cache.get(ticker)
-    if e and time.time() - e["ts"] < _SH_TICKER_TTL:
-        return e["data"]
-    # Throttling now handled by semaphore in caller — no sleep here
+    if e and time.time() - e["ts"] < _SH_TICKER_TTL: return e["data"]
     try:
-        # Try with X-API-Key for better compatibility
         s_atl, data_atl = atlas_get(f"/shareholders/{ticker}", ttl=600)
         if s_atl == 200 and isinstance(data_atl, list):
-            _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data_atl}
-            return data_atl
-        r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H,
-                         params={"ticker": ticker}, timeout=6)
+            _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data_atl}; return data_atl
+        r = _session.get(f"{NER_BASE}/shareholders", headers=AUTH_H, params={"ticker": ticker}, timeout=6)
         if r.status_code == 200:
             data = r.json()
             if isinstance(data, list):
-                _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data}
-                return data
-            # NER returned non-list (e.g. {"detail":...}) — log and skip
-            print(f"[shareholders/{ticker}] unexpected response: {str(data)[:120]}")
-        else:
-            print(f"[shareholders/{ticker}] HTTP {r.status_code}: {r.text[:120]}")
-    except Exception as ex:
-        print(f"[shareholders/{ticker}] exception: {ex}")
-    # Return stale data if available rather than nothing
+                _sh_ticker_cache[ticker] = {"ts": time.time(), "data": data}; return data
+            print(f"[shareholders/{ticker}] unexpected: {str(data)[:120]}")
+        else: print(f"[shareholders/{ticker}] HTTP {r.status_code}: {r.text[:120]}")
+    except Exception as ex: print(f"[shareholders/{ticker}] exception: {ex}")
     return _sh_ticker_cache.get(ticker, {}).get("data", [])
 
 def ner_post(path, payload, _retries=2):
-    """POST to NER with 429 retry (up to _retries times, 2s backoff)."""
     for attempt in range(_retries + 1):
         try:
             r = _session.post(f"{NER_BASE}{path}", headers=AUTH_H, json=payload, timeout=(4, 10))
             if r.status_code == 429 and attempt < _retries:
                 retry_after = int(r.headers.get("Retry-After", 2))
-                print(f"[ner_post] 429 on {path} — retrying in {retry_after}s (attempt {attempt+1})")
-                time.sleep(min(retry_after, 5))
-                continue
+                print(f"[ner_post] 429 on {path} — retrying in {retry_after}s")
+                time.sleep(min(retry_after, 5)); continue
             return r.status_code, r.json()
         except Exception as e:
-            if attempt < _retries:
-                time.sleep(1)
-                continue
+            if attempt < _retries: time.sleep(1); continue
             return 503, {"detail": str(e)}
-    return 429, {"detail": "Order rate limited by NER — please wait and retry."}
+    return 429, {"detail": "Order rate limited by NER"}
 
 def _tse_stock_to_sec(stk):
-    """Normalize TSE StockResponse to NER securities format."""
     px = stk.get("current_price")
-    try:
-        px = float(px) if px else None
-    except (ValueError, TypeError):
-        px = None
-    return {
-        "ticker":        stk.get("symbol", ""),
-        "full_name":     stk.get("company_name", stk.get("symbol", "")),
-        "market_price":  px,
-        "change_pct":    None,
-        "frozen":        stk.get("status") == "halted",
-        "total_shares":  stk.get("total_shares", 0),
-        "sector":        stk.get("sector", ""),
-        "exchange":      "TSE",
-        "_tse_id":       stk.get("stock_id", ""),
-    }
+    try: px = float(px) if px else None
+    except: px = None
+    return {"ticker":stk.get("symbol",""),"full_name":stk.get("company_name",stk.get("symbol","")),"market_price":px,"change_pct":None,"frozen":stk.get("status")=="halted","total_shares":stk.get("total_shares",0),"sector":stk.get("sector",""),"exchange":"TSE","_tse_id":stk.get("stock_id","")}
+
+def _parallel_ohlcv(tickers, days, ttl=600):
+    results = {}
+    def fetch(t):
+        s, d = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=ttl)
+        return t, (d if s==200 and isinstance(d,dict) else None)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(fetch, t): t for t in tickers}
+        for f in as_completed(futures): t, d = f.result(); results[t] = d
+    return results
+
+# ── Alias old private names → quant_utils (keeps existing routes working) ─────
+_sma  = Q.sma;  _ema  = Q.ema;  _rsi  = Q.rsi;  _atr  = Q.atr
+_bollinger = Q.bollinger; _macd = Q.macd; _vwap_series = Q.vwap_series
+_ann_vol   = Q.ann_vol;   _max_drawdown = Q.max_drawdown; _sharpe = Q.sharpe
+_mean_reversion = Q.mean_reversion_score; _downside_vol = Q.downside_vol
+_bt_run    = Q.bt_run;    _bt_metrics   = Q.bt_metrics
+_norm_candles = D.norm_candles; _build_candles_from_history = D.build_candles_from_history
 
 # ─── TSE market data proxy routes ──────────────────────────────────────────
 
@@ -1300,6 +1130,7 @@ def holder_intel_ticker(ticker):
 # ── BACKTEST ──────────────────────────────────────────────────────────────────
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # BACKTEST ENGINE v2  —  clean rewrite
 # Core invariant: buy_hold equity curve MUST track price * (10000/price[0])
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1656,281 +1487,304 @@ def atlas_proxy():
     s, d   = atlas_get(path, params=params or None, ttl=10)
     return jsonify(d), s
 
+
+
+# ── PAGES ─────────────────────────────────────────────────────────────────────
+@app.route("/api/atlas-proxy")
+def atlas_proxy():
+    path   = request.args.get("path", "/status")
+    params = {k: v for k, v in request.args.items() if k != "path"}
+    s, d   = atlas_get(path, params=params or None, ttl=10)
+    return jsonify(d), s
+
 @app.route("/")
-def index():           return render_template("terminal.html")
+def index(): return render_template("terminal.html")
+
 @app.route("/enterprise")
 def enterprise():
-    try:
-        return render_template("enterprise.html")
-    except Exception as e:
-        return f"<pre>Enterprise space not yet deployed. Deploy enterprise.html to templates/. Error: {e}</pre>", 500
+    return render_template("enterprise/shell.html")
+
+@app.route("/enterprise/page/<name>")
+def enterprise_page(n):
+    allowed = ["portfolio", "dashboard"]
+    if n not in allowed: return "Not found", 404
+    return render_template(f"enterprise/{n}.html")
+
 @app.route("/page/<n>")
 def page(n):
-    name = n
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug","enterprise_portfolio"]
-    if name not in allowed: return "Not found", 404
-    return render_template(f"pages/{name}.html")
+    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist",
+               "heatmap","exchange","liquidity","holders","screener","alerts",
+               "fundamentals","transactions","news","debug"]
+    if n not in allowed: return "Not found", 404
+    return render_template(f"pages/{n}.html")
 
-# ── ENTERPRISE — Portfolio CRUD ───────────────────────────────────────────────
-from datetime import datetime as _dt, timezone as _tz
-_ENT_FILE = os.path.join(os.path.dirname(__file__), "enterprise_state.json")
 
-def _load_ent():
-    try:
-        if os.path.exists(_ENT_FILE):
-            with open(_ENT_FILE) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"portfolios": []}
-
-def _save_ent(data):
-    try:
-        with open(_ENT_FILE, "w") as f:
-            json.dump(data, f)
-    except Exception as ex:
-        print(f"[ent] save error: {ex}")
+# ── ENTERPRISE API — Portfolio CRUD + Analytics ────────────────────────────────
+# All persistence via enterprise_store.py, math via quant_utils.py
 
 @app.route("/api/enterprise/portfolios", methods=["GET"])
 def ent_portfolios_get():
-    return jsonify(_load_ent().get("portfolios", [])), 200
+    return jsonify(ES.get_all_portfolios()), 200
 
 @app.route("/api/enterprise/portfolios", methods=["POST"])
 def ent_portfolios_post():
     body = request.get_json(silent=True) or {}
-    data = _load_ent()
-    # Upsert by id
-    pf_id = body.get("id")
-    if not pf_id:
-        import uuid as _uuid
-        body["id"] = str(_uuid.uuid4())[:8]
-    existing = next((i for i,p in enumerate(data["portfolios"]) if p["id"]==body["id"]), None)
-    if existing is not None:
-        data["portfolios"][existing] = body
-    else:
-        data["portfolios"].append(body)
-    _save_ent(data)
-    return jsonify(body), 200
+    return jsonify(ES.upsert_portfolio(body)), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>", methods=["GET"])
+def ent_portfolio_get(pf_id):
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Not found"}), 404
+    return jsonify(pf), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>", methods=["PATCH"])
+def ent_portfolio_patch(pf_id):
+    body = request.get_json(silent=True) or {}
+    pf = ES.update_portfolio_meta(pf_id, body)
+    if not pf: return jsonify({"detail": "Not found"}), 404
+    return jsonify(pf), 200
 
 @app.route("/api/enterprise/portfolios/<pf_id>", methods=["DELETE"])
 def ent_portfolios_delete(pf_id):
-    data = _load_ent()
-    before = len(data["portfolios"])
-    data["portfolios"] = [p for p in data["portfolios"] if p["id"] != pf_id]
-    _save_ent(data)
-    return jsonify({"ok": True, "removed": before - len(data["portfolios"])}), 200
+    removed = ES.delete_portfolio(pf_id)
+    return jsonify({"ok": True, "removed": removed}), 200
 
 @app.route("/api/enterprise/portfolios/<pf_id>/positions", methods=["POST"])
 def ent_add_position(pf_id):
-    """Add a position to a portfolio. body: {ticker, qty, entry_price, entry_date, notes}"""
     body = request.get_json(silent=True) or {}
-    import uuid as _uuid
-    data = _load_ent()
-    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
-    if not pf:
-        return jsonify({"detail": "Portfolio not found"}), 404
-    if "positions" not in pf:
-        pf["positions"] = []
-    if "cash" not in pf:
-        pf["cash"] = 0.0
-    pos_id = str(_uuid.uuid4())[:8]
-    position = {
-        "id": pos_id,
-        "ticker": body.get("ticker", "").upper(),
-        "qty": float(body.get("qty", 0)),
-        "entry_price": float(body.get("entry_price", 0)),
-        "entry_date": body.get("entry_date", ""),
-        "notes": body.get("notes", ""),
-        "added_at": _dt.now(_tz.utc).isoformat()
-    }
-    pf["positions"].append(position)
-    _save_ent(data)
-    return jsonify(position), 200
+    pos  = ES.add_position(pf_id, body)
+    if pos is None: return jsonify({"detail": "Portfolio not found"}), 404
+    return jsonify(pos), 200
 
 @app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>", methods=["DELETE"])
 def ent_remove_position(pf_id, pos_id):
-    data = _load_ent()
-    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
-    if not pf:
-        return jsonify({"detail": "Portfolio not found"}), 404
-    before = len(pf.get("positions", []))
-    pf["positions"] = [p for p in pf.get("positions", []) if p["id"] != pos_id]
-    _save_ent(data)
-    return jsonify({"ok": True, "removed": before - len(pf["positions"])}), 200
+    removed = ES.remove_position(pf_id, pos_id)
+    return jsonify({"ok": True, "removed": removed}), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>", methods=["PATCH"])
+def ent_update_position(pf_id, pos_id):
+    body = request.get_json(silent=True) or {}
+    pos  = ES.update_position(pf_id, pos_id, body)
+    if pos is None: return jsonify({"detail": "Not found"}), 404
+    return jsonify(pos), 200
 
 @app.route("/api/enterprise/portfolios/<pf_id>/cash", methods=["POST"])
 def ent_cash_adjustment(pf_id):
-    """Add or remove cash. body: {amount, note}  (negative = withdrawal)"""
-    body = request.get_json(silent=True) or {}
-    data = _load_ent()
-    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
-    if not pf:
-        return jsonify({"detail": "Portfolio not found"}), 404
-    pf["cash"] = float(pf.get("cash", 0)) + float(body.get("amount", 0))
-    if "cash_log" not in pf:
-        pf["cash_log"] = []
-    pf["cash_log"].append({
-        "amount": float(body.get("amount", 0)),
-        "note": body.get("note", ""),
-        "ts": _dt.now(_tz.utc).isoformat()
-    })
-    _save_ent(data)
-    return jsonify({"cash": pf["cash"]}), 200
+    body   = request.get_json(silent=True) or {}
+    result = ES.adjust_cash(pf_id, float(body.get("amount", 0)), body.get("note",""))
+    if result is None: return jsonify({"detail": "Portfolio not found"}), 404
+    return jsonify(result), 200
 
 @app.route("/api/enterprise/portfolios/<pf_id>/analytics")
 def ent_portfolio_analytics(pf_id):
-    """Enrich a portfolio's positions with live prices + compute analytics."""
-    data = _load_ent()
-    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
-    if not pf:
-        return jsonify({"detail": "Portfolio not found"}), 404
+    """Enrich positions with live prices + per-position risk metrics."""
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Portfolio not found"}), 404
 
     positions = pf.get("positions", [])
-    enriched = []
-    total_cost = 0.0
-    total_value = 0.0
+    enriched  = []
+    total_cost = 0.0; total_value = 0.0
 
     for pos in positions:
-        ticker = pos["ticker"]
+        ticker      = pos["ticker"]
         entry_price = float(pos.get("entry_price") or 0)
-        qty = float(pos.get("qty") or 0)
-        cost = entry_price * qty
+        qty         = float(pos.get("qty") or 0)
+        cost        = entry_price * qty
 
-        # Get live price from securities list (already cached by atlas)
-        s_sec, sec_data = atlas_get(f"/securities/{ticker}", ttl=60)
-        live_px = None
-        if s_sec == 200:
-            live_px = sec_data.get("market_price")
-        if live_px is None:
-            s_px, px_data = atlas_get(f"/price/{ticker}", ttl=15)
-            if s_px == 200:
-                live_px = px_data.get("market_price")
+        # Live price via data_utils
+        live_px = D.fetch_live_price(ticker, atlas_get)
 
         mkt_value = (live_px or entry_price) * qty
-        pnl = mkt_value - cost
-        pnl_pct = (pnl / cost * 100) if cost > 0 else 0
+        pnl       = mkt_value - cost
+        pnl_pct   = (pnl/cost*100) if cost > 0 else 0
 
-        # 30d ohlcv for vol/sharpe — use history for TSE
-        vol, sharpe = None, None
-        if ticker.startswith("TSE:"):
-            _, raw_h = atlas_get(f"/history/{ticker}", params={"days": 30, "limit": 500}, ttl=120)
-            pts = raw_h.get("data", []) if isinstance(raw_h, dict) else raw_h
-            cs = _build_candles_from_history(pts, 30) if pts else []
-        else:
-            _, raw_o = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": 30}, ttl=120)
-            cs = _norm_candles(raw_o.get("candles", []), days=30) if isinstance(raw_o, dict) else []
+        # 30d risk metrics
+        cs    = D.fetch_candles(ticker, 30, atlas_get)
+        vol   = None; shr = None; sor = None; mdd = None
         if len(cs) >= 5:
-            cl = [c["close"] for c in cs]
-            vol = _ann_vol(cl)
-            sharpe = _sharpe(cl)
+            cl  = [c["close"] for c in cs]
+            vol = Q.ann_vol(cl); shr = Q.sharpe(cl)
+            sor = Q.sortino(cl); mdd = Q.max_drawdown(cl)
 
         total_cost  += cost
         total_value += mkt_value
         enriched.append({
             **pos,
-            "live_price":  round(live_px, 4) if live_px else None,
-            "cost":        round(cost, 2),
+            "live_price":   round(live_px, 4) if live_px else None,
+            "cost":         round(cost, 2),
             "market_value": round(mkt_value, 2),
-            "pnl":         round(pnl, 2),
-            "pnl_pct":     round(pnl_pct, 2),
-            "weight_pct":  0,  # filled below
-            "ann_vol":     vol,
-            "sharpe":      sharpe,
+            "pnl":          round(pnl, 2),
+            "pnl_pct":      round(pnl_pct, 2),
+            "weight_pct":   0,
+            "ann_vol":      vol, "sharpe": shr,
+            "sortino":      sor, "max_dd": mdd,
         })
 
-    # Weights
     for e in enriched:
-        e["weight_pct"] = round(e["market_value"] / total_value * 100, 2) if total_value > 0 else 0
+        e["weight_pct"] = round(e["market_value"]/total_value*100, 2) if total_value > 0 else 0
 
-    cash = float(pf.get("cash", 0))
+    cash            = float(pf.get("cash", 0))
     total_with_cash = total_value + cash
-    total_pnl = total_value - total_cost
-
-    # Simple concentration (HHI)
-    hhi = round(sum((e["weight_pct"] / 100) ** 2 for e in enriched) * 10000, 1) if enriched else 0
+    total_pnl       = total_value - total_cost
+    weights         = [e["weight_pct"]/100 for e in enriched]
+    concentration_hhi = Q.hhi(weights) if weights else 0
 
     return jsonify({
-        "id": pf_id,
-        "name": pf.get("name", ""),
-        "client": pf.get("client", ""),
+        "id":       pf_id,
+        "name":     pf.get("name",""),
+        "client":   pf.get("client",""),
+        "notes":    pf.get("notes",""),
+        "strategy": pf.get("strategy",""),
         "positions": enriched,
-        "cash": cash,
+        "cash":     cash,
         "cash_log": pf.get("cash_log", []),
         "summary": {
-            "total_cost":      round(total_cost, 2),
-            "total_value":     round(total_value, 2),
-            "total_with_cash": round(total_with_cash, 2),
-            "total_pnl":       round(total_pnl, 2),
-            "total_pnl_pct":   round(total_pnl / total_cost * 100, 2) if total_cost > 0 else 0,
-            "num_positions":   len(enriched),
-            "hhi":             hhi,
-            "concentration":   "HIGH" if hhi > 3000 else "MEDIUM" if hhi > 1500 else "LOW",
+            "total_cost":       round(total_cost, 2),
+            "total_value":      round(total_value, 2),
+            "total_with_cash":  round(total_with_cash, 2),
+            "total_pnl":        round(total_pnl, 2),
+            "total_pnl_pct":    round(total_pnl/total_cost*100, 2) if total_cost > 0 else 0,
+            "num_positions":    len(enriched),
+            "hhi":              concentration_hhi,
+            "concentration":    "HIGH" if concentration_hhi>3000 else "MEDIUM" if concentration_hhi>1500 else "LOW",
+            "cash_pct":         round(cash/total_with_cash*100, 2) if total_with_cash > 0 else 100,
         }
     }), 200
+
+
+@app.route("/api/enterprise/portfolios/<pf_id>/full_analytics")
+def ent_portfolio_full_analytics(pf_id):
+    """Deep analytics: portfolio-level VaR, beta, correlation, attribution."""
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Portfolio not found"}), 404
+
+    positions = pf.get("positions", [])
+    days      = int(request.args.get("days", 60))
+
+    # Fetch closes for all positions
+    closes_map = {}
+    for pos in positions:
+        cs = D.fetch_candles(pos["ticker"], days, atlas_get)
+        if len(cs) >= 5:
+            closes_map[pos["ticker"]] = [c["close"] for c in cs]
+
+    if not closes_map:
+        return jsonify({"detail": "Insufficient price history", "var95":None, "attribution":[]}), 200
+
+    # Align lengths
+    min_len = min(len(v) for v in closes_map.values())
+    aligned = {t: v[-min_len:] for t,v in closes_map.items()}
+
+    # Weights from current positions
+    total_cost = sum(float(p.get("qty",0))*float(p.get("entry_price",0)) for p in positions)
+    weights = {}
+    for p in positions:
+        t = p["ticker"]
+        if t in aligned:
+            cost = float(p.get("qty",0))*float(p.get("entry_price",0))
+            weights[t] = cost/total_cost if total_cost > 0 else 1/len(aligned)
+
+    # Daily portfolio returns
+    port_rets = []
+    for i in range(1, min_len):
+        day = sum(weights.get(t,0) * (aligned[t][i]-aligned[t][i-1])/aligned[t][i-1]
+                  for t in aligned if aligned[t][i-1] > 0)
+        port_rets.append(round(day, 6))
+
+    # VaR
+    var95, cvar95, var99 = Q.portfolio_var(port_rets) if hasattr(Q, 'portfolio_var') else (
+        round(Q.var_hist(port_rets)*100, 3) if port_rets else None,
+        round(Q.cvar_hist(port_rets)*100, 3) if port_rets else None,
+        round(Q.var_hist(port_rets, 0.99)*100, 3) if len(port_rets)>=100 else None
+    )
+
+    # Portfolio-level metrics
+    port_closes = [10000.0]
+    for r in port_rets: port_closes.append(port_closes[-1]*(1+r))
+
+    # Attribution
+    attribution = []
+    for t, cl in aligned.items():
+        if len(cl) < 2 or not cl[0]: continue
+        ret  = (cl[-1]-cl[0])/cl[0]*100
+        cont = round(weights.get(t,0)*ret, 3)
+        attribution.append({"ticker":t, "return_pct":round(ret,2), "weight_pct":round(weights.get(t,0)*100,2), "contribution_pct":cont})
+    attribution.sort(key=lambda x: x["contribution_pct"], reverse=True)
+
+    # Correlation matrix
+    tickers = list(aligned.keys())
+    rets_map = {}
+    for t, cl in aligned.items():
+        rets_map[t] = [(cl[i]-cl[i-1])/cl[i-1] for i in range(1, len(cl))]
+    corr = {}
+    for t1 in tickers:
+        corr[t1] = {}
+        for t2 in tickers:
+            if t1==t2: corr[t1][t2]=1.0; continue
+            a,b = rets_map[t1], rets_map[t2]
+            n = min(len(a),len(b)); a,b = a[:n],b[:n]
+            am,bm = sum(a)/n,sum(b)/n
+            num = sum((a[i]-am)*(b[i]-bm) for i in range(n))
+            da = (sum((x-am)**2 for x in a))**0.5; db=(sum((x-bm)**2 for x in b))**0.5
+            corr[t1][t2] = round(num/da/db, 4) if da*db>0 else 0
+
+    return jsonify({
+        "var95_pct":    var95,
+        "cvar95_pct":   cvar95,
+        "var99_pct":    var99,
+        "sharpe":       Q.sharpe(port_closes),
+        "sortino":      Q.sortino(port_closes),
+        "max_drawdown": Q.max_drawdown(port_closes),
+        "ann_vol":      Q.ann_vol(port_closes),
+        "attribution":  attribution,
+        "correlation":  corr,
+        "tickers":      tickers,
+        "port_rets":    port_rets,
+        "n_obs":        len(port_rets),
+        "days":         days,
+    }), 200
+
 
 @app.route("/api/enterprise/dashboard")
 def ent_dashboard():
     """Aggregate analytics across all portfolios."""
-    data = _load_ent()
-    portfolios = data.get("portfolios", [])
-    results = []
-    grand_value = 0.0
-    grand_cost  = 0.0
-    ticker_exposure = {}
+    portfolios = ES.get_all_portfolios()
+    results = []; grand_value = 0.0; grand_cost = 0.0; ticker_exposure = {}
 
     for pf in portfolios:
-        positions = pf.get("positions", [])
-        pf_value, pf_cost = 0.0, 0.0
-        for pos in positions:
-            ticker = pos["ticker"]
+        pf_value = 0.0; pf_cost = 0.0
+        for pos in pf.get("positions",[]):
+            ticker      = pos["ticker"]
             entry_price = float(pos.get("entry_price") or 0)
-            qty = float(pos.get("qty") or 0)
-            cost = entry_price * qty
-            s_sec, sec_data = atlas_get(f"/securities/{ticker}", ttl=60)
-            live_px = sec_data.get("market_price") if s_sec == 200 else None
-            if live_px is None:
-                _, px_d = atlas_get(f"/price/{ticker}", ttl=15)
-                live_px = px_d.get("market_price")
-            mkt_value = (live_px or entry_price) * qty
-            pf_value += mkt_value
-            pf_cost  += cost
-            ticker_exposure[ticker] = ticker_exposure.get(ticker, 0) + mkt_value
+            qty         = float(pos.get("qty") or 0)
+            cost        = entry_price * qty
+            live_px     = D.fetch_live_price(ticker, atlas_get)
+            mkt_value   = (live_px or entry_price) * qty
+            pf_value   += mkt_value; pf_cost += cost
+            ticker_exposure[ticker] = ticker_exposure.get(ticker,0) + mkt_value
 
-        cash = float(pf.get("cash", 0))
-        pnl  = pf_value - pf_cost
+        cash = float(pf.get("cash",0)); pnl = pf_value - pf_cost
         results.append({
-            "id":          pf["id"],
-            "name":        pf.get("name", ""),
-            "client":      pf.get("client", ""),
-            "value":       round(pf_value, 2),
-            "cash":        round(cash, 2),
-            "total":       round(pf_value + cash, 2),
-            "cost":        round(pf_cost, 2),
-            "pnl":         round(pnl, 2),
-            "pnl_pct":     round(pnl / pf_cost * 100, 2) if pf_cost > 0 else 0,
-            "positions":   len(positions),
+            "id": pf["id"], "name": pf.get("name",""), "client": pf.get("client",""),
+            "value": round(pf_value,2), "cash": round(cash,2),
+            "total": round(pf_value+cash,2), "cost": round(pf_cost,2),
+            "pnl": round(pnl,2),
+            "pnl_pct": round(pnl/pf_cost*100,2) if pf_cost>0 else 0,
+            "positions": len(pf.get("positions",[])),
         })
-        grand_value += pf_value
-        grand_cost  += pf_cost
+        grand_value += pf_value; grand_cost += pf_cost
 
-    # Top exposures
     top_exp = sorted(ticker_exposure.items(), key=lambda x: x[1], reverse=True)[:10]
-
     return jsonify({
         "portfolios": results,
         "summary": {
-            "total_aum":    round(grand_value, 2),
-            "total_pnl":    round(grand_value - grand_cost, 2),
-            "total_pnl_pct": round((grand_value - grand_cost) / grand_cost * 100, 2) if grand_cost > 0 else 0,
+            "total_aum":      round(grand_value, 2),
+            "total_pnl":      round(grand_value-grand_cost, 2),
+            "total_pnl_pct":  round((grand_value-grand_cost)/grand_cost*100,2) if grand_cost>0 else 0,
             "num_portfolios": len(results),
-            "top_exposures": [{"ticker": t, "value": round(v, 2)} for t, v in top_exp],
+            "top_exposures":  [{"ticker":t,"value":round(v,2)} for t,v in top_exp],
         }
     }), 200
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VERSION 4 ENDPOINTS — Rolling correlation, pairs, Monte Carlo, VaR, fundamentals
-# ══════════════════════════════════════════════════════════════════════════════
 
 # ── FUNDAMENTALS (uses /securities/{ticker}/stats) ────────────────────────────
 @app.route("/api/fundamentals/<ticker>")
