@@ -17,7 +17,7 @@ import enterprise_store as ES  # portfolio persistence
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
 _STAT_DIR  = os.path.join(_BASE_DIR, "static")
-print(f"[NER Terminal] Base dir : {_BASE_DIR}")
+print(f"[NER Terminal v3.1] Base dir : {_BASE_DIR}")
 print(f"[NER Terminal] Templates: {_TMPL_DIR}  exists={os.path.isdir(_TMPL_DIR)}")
 print(f"[NER Terminal] Static   : {_STAT_DIR}  exists={os.path.isdir(_STAT_DIR)}")
 
@@ -1485,18 +1485,18 @@ def index(): return render_template("terminal.html")
 def enterprise():
     return render_template("enterprise/shell.html")
 
-@app.route("/enterprise/page/<name>")
-def enterprise_page(n):
+@app.route("/enterprise/page/<page_name>")
+def enterprise_page(page_name):
     allowed = ["portfolio", "dashboard"]
-    if n not in allowed: return "Not found", 404
-    return render_template(f"enterprise/{n}.html")
+    if page_name not in allowed: return "Not found", 404
+    return render_template(f"enterprise/{page_name}.html")
 
 @app.route("/page/<n>")
 def page(n):
     allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist",
                "heatmap","exchange","liquidity","holders","screener","alerts",
                "fundamentals","transactions","news","debug"]
-    if n not in allowed: return "Not found", 404
+    if page_name not in allowed: return "Not found", 404
     return render_template(f"pages/{n}.html")
 
 
