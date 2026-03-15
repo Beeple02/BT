@@ -132,9 +132,6 @@ def atlas_get(path, params=None, ttl=30):
         if atlas_only: return 503, {"detail": str(ex)}
     return cached_get(path, params=params, ttl=ttl)
 
-# Wire data_utils atlas_get
-D._atlas_get = atlas_get  # pass through so data_utils can call it
-
 _ob_cache = {"ts": 0, "data": None}
 _OB_TTL = 10
 
@@ -193,15 +190,6 @@ def _tse_stock_to_sec(stk):
     except: px = None
     return {"ticker":stk.get("symbol",""),"full_name":stk.get("company_name",stk.get("symbol","")),"market_price":px,"change_pct":None,"frozen":stk.get("status")=="halted","total_shares":stk.get("total_shares",0),"sector":stk.get("sector",""),"exchange":"TSE","_tse_id":stk.get("stock_id","")}
 
-def _parallel_ohlcv(tickers, days, ttl=600):
-    results = {}
-    def fetch(t):
-        s, d = atlas_get(f"/analytics/ohlcv/{t}", params={"days": days}, ttl=ttl)
-        return t, (d if s==200 and isinstance(d,dict) else None)
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(fetch, t): t for t in tickers}
-        for f in as_completed(futures): t, d = f.result(); results[t] = d
-    return results
 
 # ── Alias old private names → quant_utils (keeps existing routes working) ─────
 _sma  = Q.sma;  _ema  = Q.ema;  _rsi  = Q.rsi;  _atr  = Q.atr
@@ -1479,13 +1467,6 @@ def sse_state():
     return jsonify({"tickers": list(_sse_state.values())}), 200
 
 
-# ── PAGES ─────────────────────────────────────────────────────────────────────
-@app.route("/api/atlas-proxy")
-def atlas_proxy():
-    path   = request.args.get("path", "/status")
-    params = {k: v for k, v in request.args.items() if k != "path"}
-    s, d   = atlas_get(path, params=params or None, ttl=10)
-    return jsonify(d), s
 
 
 
