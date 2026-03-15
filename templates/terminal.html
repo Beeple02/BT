@@ -50,7 +50,7 @@
 <div id="app">
 
 <div id="topbar">
-  <div class="tb-brand">BLOOMBERG</div>
+  <div class="tb-brand" style="cursor:pointer" title="Enterprise Space" onclick="window.location.href='/enterprise'">BLOOMBERG</div>
   <div class="tb-seg" style="cursor:pointer;user-select:none" title="Click to cycle tape filter: ALL → NER → TSE" onclick="_cycleExchFilter()"><span class="l">EXCH</span>&nbsp;<span id="tb-exch-lbl" class="v" style="color:var(--org)">ALL</span></div>
   <div class="tb-seg" style="gap:5px"><span class="l">TAPE</span><select id="exch-filter" onchange="BB.exchFilter=this.value;buildTape(BB.secs)"><option value="ALL">ALL</option><option value="NER">NER</option><option value="TSE">TSE</option></select></div>
   <div class="tb-seg"><span class="tb-dot dead" id="tb-dot"></span><span class="v" id="tb-conn">CONNECTING</span></div>
@@ -240,14 +240,14 @@ function buildTape(newList){
   const inner=document.getElementById('tape-inner');
   // Apply exchange filter
   const filt=(BB.exchFilter||'ALL');
-  const filtered = filt==='ALL' ? newList : newList.filter(s=>(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER'))===filt);
+  const filtered = filt==='ALL' ? newList : newList.filter(s=>(s.exchange||'NER')===filt);
   // detect changes from previous render and flash those tickers
   const prev=window._tapePrev||{};
-  const changed=new Set(filtered.filter(s=>prev[s.ticker+':'+(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER'))]&&prev[s.ticker+':'+(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER'))]!==s.market_price).map(s=>s.ticker+':'+(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER'))));
-  window._tapePrev=Object.fromEntries(filtered.map(s=>[s.ticker+':'+(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER')),s.market_price]));
+  const changed=new Set(filtered.filter(s=>prev[s.ticker+':'+(s.exchange||'NER')]&&prev[s.ticker+':'+(s.exchange||'NER')]!==s.market_price).map(s=>s.ticker+':'+(s.exchange||'NER')));
+  window._tapePrev=Object.fromEntries(filtered.map(s=>[s.ticker+':'+(s.exchange||'NER'),s.market_price]));
   const chg=s=>s.change_pct??0;
-  const exLabel=s=>{const ex=(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER'));return `<span class="ti-exch ${ex.toLowerCase()}">${ex}</span>`;};
-  inner.innerHTML=filtered.map(s=>`<span class="ti${changed.has(s.ticker+':'+(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER')))?' flash':''}" data-tk="${s.ticker}" data-ex="${s.exchange||'NER'}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_onShow&&PAGE_tkr_onShow('${s.ticker}','${s.exchange||'NER'}'),200)">
+  const exLabel=s=>{const ex=(s.exchange||'NER');return `<span class="ti-exch ${ex.toLowerCase()}">${ex}</span>`;};
+  inner.innerHTML=filtered.map(s=>`<span class="ti${changed.has(s.ticker+':'+(s.exchange||'NER'))?' flash':''}" data-tk="${s.ticker}" data-ex="${s.exchange||'NER'}" onclick="sw('tkr');setTimeout(()=>PAGE_tkr_onShow&&PAGE_tkr_onShow('${s.ticker}','${s.exchange||'NER'}'),200)">
     ${exLabel(s)}<span class="ti-s">${s.ticker}</span>
     <span class="ti-p" style="color:${gcI(chg(s))}">${f(s.market_price,4)}</span>
     <span class="ti-chg" style="color:${gcI(chg(s))}">${chg(s)>=0?'+':''}${chg(s).toFixed(2)}%</span>
