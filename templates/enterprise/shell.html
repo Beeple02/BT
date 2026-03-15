@@ -43,7 +43,7 @@
 
 /* Main content area */
 #ent-panels{flex:1;overflow:hidden;position:relative}
-.ent-panel{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.ent-panel{position:absolute;inset:0;display:none;flex-direction:column;overflow:auto}
 .ent-panel.active{display:flex}
 
 /* Command bar */
@@ -348,12 +348,23 @@ async function loadPortfolioPage(pfid){
   const ok = await _ensurePFPageLoaded(panel);
   if(!ok){ panel.innerHTML='<div class="err-banner">Failed to load portfolio page.</div>'; return; }
 
-  // Wait up to 1s for ENT_PF_load to be defined (scripts run sync but just in case)
+  // Wait up to 2s for ENT_PF_load to be defined
   let waited=0;
-  while(!window.ENT_PF_load && waited<1000){ await new Promise(r=>setTimeout(r,50)); waited+=50; }
+  while(!window.ENT_PF_load && waited<2000){ await new Promise(r=>setTimeout(r,50)); waited+=50; }
 
-  if(window.ENT_PF_load) await ENT_PF_load(pfid);
-  else console.error('ENT_PF_load not defined after page inject');
+  if(window.ENT_PF_load){
+    try { await ENT_PF_load(pfid); }
+    catch(e){
+      console.error('ENT_PF_load threw:', e);
+      panel.innerHTML=`<div style="padding:20px;color:var(--dn);font-family:var(--font);font-size:11px">Portfolio load error: ${e.message}</div>`;
+    }
+  } else {
+    console.error('ENT_PF_load not defined after 2s wait');
+    panel.innerHTML=`<div style="padding:20px;color:var(--dn);font-family:var(--font);font-size:11px">
+      Portfolio page script failed to initialize.<br>
+      <span style="color:var(--txt3)">Check browser console for details.</span>
+    </div>`;
+  }
 }
 
 async function refreshPortfolioPanel(pfid){
