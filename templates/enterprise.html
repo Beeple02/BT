@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BLOOMBERG / ENTERPRISE</title>
+<link rel="stylesheet" href="/static/bb.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/static/bb.js"></script>
+<style>
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+/* topbar identical to retail */
+#topbar{display:flex;align-items:center;height:26px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0;font-size:10px}
+.tb-brand{padding:0 14px;font-size:11px;font-weight:700;letter-spacing:2px;color:var(--org);border-right:1px solid var(--bdr);cursor:pointer;height:100%;display:flex;align-items:center}
+.tb-brand:hover{color:#fff}
+.tb-seg{display:flex;align-items:center;gap:4px;padding:0 10px;border-right:1px solid var(--bdr);height:100%;white-space:nowrap}
+.tb-seg .l{font-size:9px;letter-spacing:1.5px;color:var(--txt3)}
+.tb-seg .v{font-size:10px;font-weight:700;color:var(--wht)}
+.tb-dot{width:6px;height:6px;border-radius:50%;background:var(--dn)}
+.tb-dot.live{background:var(--up);animation:pulse-dot 1.4s infinite}
+.tb-right{margin-left:auto;border-right:none;padding-right:16px}
+#tape{height:20px;background:#000;border-bottom:1px solid var(--bdr);overflow:hidden;position:relative;flex-shrink:0}
+#tape::before,#tape::after{content:'';position:absolute;top:0;bottom:0;width:40px;z-index:2;pointer-events:none}
+#tape::before{left:0;background:linear-gradient(90deg,#000,transparent)}
+#tape::after{right:0;background:linear-gradient(-90deg,#000,transparent)}
+#tape-inner{display:flex;white-space:nowrap}
+.ti{display:inline-flex;align-items:center;gap:5px;padding:0 12px;font-size:9px;border-right:1px solid var(--bdr);height:20px}
+.ti-exch{font-size:7px;font-weight:700;padding:0 3px;background:var(--org2);color:var(--org)}
+.ti-exch.tse{background:rgba(0,229,255,.08);color:var(--cyn)}
+.ti-s{color:var(--wht);font-weight:700}
+.ti-p{font-variant-numeric:tabular-nums}
+
+/* Portfolio tab bar */
+#pfbar{display:flex;align-items:stretch;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0;overflow-x:auto;height:32px}
+#pfbar::-webkit-scrollbar{height:2px}
+.pf-tab{display:flex;align-items:center;gap:6px;padding:0 16px;font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--txt2);border-right:1px solid var(--bdr);cursor:pointer;white-space:nowrap;user-select:none;flex-shrink:0;transition:background .1s}
+.pf-tab:hover{background:var(--bg4);color:var(--txt)}
+.pf-tab.active{background:var(--bg2);color:var(--org);border-bottom:2px solid var(--org)}
+.pf-tab.dashboard{color:var(--cyn)}
+.pf-tab.dashboard.active{color:var(--cyn);border-bottom-color:var(--cyn)}
+.pf-tab-key{font-size:7px;color:var(--txt3);background:var(--bg4);padding:1px 4px;border:1px solid var(--bdr2)}
+.pf-add-btn{display:flex;align-items:center;justify-content:center;padding:0 14px;font-size:16px;color:var(--txt3);cursor:pointer;border-right:1px solid var(--bdr);transition:all .1s;flex-shrink:0}
+.pf-add-btn:hover{color:var(--org);background:var(--bg4)}
+
+/* Main content area */
+#ent-panels{flex:1;overflow:hidden;position:relative}
+.ent-panel{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.ent-panel.active{display:flex}
+
+/* Command bar */
+#cmdbar{display:flex;align-items:center;height:22px;background:#000;border-top:1px solid var(--bdr);flex-shrink:0}
+.cmd-p{padding:0 8px;font-size:10px;color:var(--org);border-right:1px solid var(--bdr);height:100%;display:flex;align-items:center}
+#cmd-in{flex:1;background:transparent;border:none;outline:none;color:var(--wht);font-family:var(--font);font-size:11px;padding:0 8px;caret-color:var(--wht)}
+#cmd-st{padding:0 10px;font-size:10px;color:var(--txt3);border-left:1px solid var(--bdr);white-space:nowrap;min-width:180px;text-align:right}
+
+/* New portfolio modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--bg2);border:1px solid var(--org);min-width:380px;max-width:480px;font-size:11px}
+.modal-hd{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bdr);font-size:10px;font-weight:700;letter-spacing:2px;color:var(--org);display:flex;justify-content:space-between;align-items:center}
+.modal-body{padding:16px}
+.modal-row{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+.modal-row label{font-size:9px;color:var(--txt3);letter-spacing:1.5px}
+.modal-row input,.modal-row select,.modal-row textarea{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
+.modal-row input:focus,.modal-row textarea:focus{border-color:var(--org)}
+.modal-footer{padding:10px 14px;background:var(--bg3);border-top:1px solid var(--bdr);display:flex;gap:8px;justify-content:flex-end}
+</style>
+</head>
+<body>
+<div id="app">
+
+<div id="topbar">
+  <div class="tb-brand" onclick="window.location.href='/'" title="Back to retail terminal">BLOOMBERG</div>
+  <div class="tb-seg"><span class="l">SPACE</span>&nbsp;<span class="v" style="color:var(--mag)">ENTERPRISE</span></div>
+  <div class="tb-seg"><span class="tb-dot dead" id="tb-dot"></span><span class="v" id="tb-conn">CONNECTING</span></div>
+  <div class="tb-seg"><span class="l">TIER</span><span class="v" style="color:var(--mag)">ENTERPRISE</span></div>
+  <div class="tb-seg"><span class="l">AUM</span><span class="v" id="tb-aum">—</span></div>
+  <div class="tb-seg"><span class="l">PORTFOLIOS</span><span class="v" id="tb-npf">—</span></div>
+  <div class="tb-seg"><span class="l">TOTAL P&amp;L</span><span class="v" id="tb-pnl">—</span></div>
+  <div class="tb-seg tb-right">
+    <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
+    &nbsp;<span style="color:var(--txt3);font-size:9px">LCL</span>
+    &nbsp;<span id="tb-date" style="color:var(--txt2);font-size:10px"></span>
+  </div>
+</div>
+
+<div id="tape"><div id="tape-inner"><span class="loading" style="height:auto;font-size:10px">LOADING…</span></div></div>
+
+<div id="pfbar">
+  <div class="pf-tab dashboard active" data-pfid="__dash__" onclick="swPF('__dash__')">
+    <span class="pf-tab-key">F1</span>
+    DASHBOARD
+  </div>
+  <!-- portfolio tabs injected here -->
+  <div class="pf-add-btn" id="pf-add-btn" onclick="showNewPFModal()" title="New portfolio">＋</div>
+</div>
+
+<div id="ent-panels">
+  <div class="ent-panel active" id="ep-__dash__"></div>
+</div>
+
+<div id="cmdbar">
+  <div class="cmd-p">ENT&gt;</div>
+  <input id="cmd-in" placeholder="NEW · DEL [id] · TICKER · HELP" autocomplete="off">
+  <div id="cmd-st">ENTERPRISE SPACE</div>
+</div>
+</div>
+
+<!-- New Portfolio Modal -->
+<div id="new-pf-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-hd">
+      NEW PORTFOLIO
+      <span style="cursor:pointer;color:var(--txt2);font-size:14px" onclick="hideNewPFModal()">✕</span>
+    </div>
+    <div class="modal-body">
+      <div class="modal-row">
+        <label>PORTFOLIO NAME</label>
+        <input id="npf-name" placeholder="e.g. Growth Portfolio">
+      </div>
+      <div class="modal-row">
+        <label>CLIENT NAME</label>
+        <input id="npf-client" placeholder="e.g. Nexalin Capital">
+      </div>
+      <div class="modal-row">
+        <label>INITIAL CASH ($)</label>
+        <input id="npf-cash" type="number" placeholder="0.00" value="0">
+      </div>
+      <div class="modal-row">
+        <label>STRATEGY / NOTES</label>
+        <textarea id="npf-notes" rows="2" placeholder="e.g. Long-only NER equities, moderate risk"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="hideNewPFModal()">CANCEL</button>
+      <button class="btn buy" onclick="createPortfolio()">CREATE →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+window.ENT = { portfolios: [], activePF: '__dash__', secs: [] };
+const _pfPanels = {};  // pfid → loaded flag
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+(function tick(){ 
+  const n=new Date();
+  const el=document.getElementById('tb-clock');if(el)el.textContent=n.toLocaleTimeString('en-GB');
+  const de=document.getElementById('tb-date');
+  if(de)de.textContent=n.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'}).toUpperCase();
+  setTimeout(tick,1000);
+})();
+
+// ── Tape ──────────────────────────────────────────────────────────────────────
+function buildTape(secs){
+  const inner=document.getElementById('tape-inner');
+  inner.innerHTML=secs.map(s=>{
+    const ex=(s.exchange||(s.ticker.startsWith('TSE:')?'TSE':'NER'));
+    const chg=s.change_pct??0;
+    return `<span class="ti"><span class="ti-exch ${ex.toLowerCase()}">${ex}</span><span class="ti-s">${s.ticker}</span><span class="ti-p" style="color:${gcI(chg)}">${f(s.market_price,4)}</span><span style="color:${gcI(chg)};font-size:9px">${chg>=0?'+':''}${chg.toFixed(2)}%</span></span>`;
+  }).join('');
+  inner.innerHTML+=inner.innerHTML;
+  let pos=0;clearInterval(window._tape);
+  window._tape=setInterval(()=>{pos-=.4;if(-pos>=inner.scrollWidth/2)pos=0;inner.style.transform=`translateX(${pos}px)`;},16);
+}
+
+// ── Portfolio tab management ──────────────────────────────────────────────────
+function renderPFTabs(){
+  const bar=document.getElementById('pfbar');
+  // Remove old portfolio tabs (keep dashboard + add btn)
+  bar.querySelectorAll('.pf-tab:not(.dashboard)').forEach(t=>t.remove());
+  const addBtn=document.getElementById('pf-add-btn');
+  ENT.portfolios.forEach((pf,i)=>{
+    const tab=document.createElement('div');
+    tab.className='pf-tab'+(ENT.activePF===pf.id?' active':'');
+    tab.dataset.pfid=pf.id;
+    tab.innerHTML=`<span class="pf-tab-key">F${i+2}</span>${pf.name||'Portfolio'}<span style="font-size:8px;color:var(--txt3);margin-left:2px">${pf.client?'·'+pf.client:''}</span>`;
+    tab.onclick=()=>swPF(pf.id);
+    bar.insertBefore(tab,addBtn);
+    // Create panel if missing
+    if(!document.getElementById(`ep-${pf.id}`)){
+      const panel=document.createElement('div');
+      panel.className='ent-panel';
+      panel.id=`ep-${pf.id}`;
+      document.getElementById('ent-panels').appendChild(panel);
+    }
+  });
+  // Keybinds F1=dash, F2..FN=portfolios
+  document.getElementById('tb-npf').textContent=ENT.portfolios.length;
+}
+
+async function swPF(pfid){
+  ENT.activePF=pfid;
+  // Update tabs
+  document.querySelectorAll('.pf-tab').forEach(t=>t.classList.toggle('active',t.dataset.pfid===pfid));
+  // Switch panels
+  document.querySelectorAll('.ent-panel').forEach(p=>p.classList.remove('active'));
+  const panel=document.getElementById(`ep-${pfid}`);
+  if(panel) panel.classList.add('active');
+
+  if(pfid==='__dash__'){
+    await loadDashboard();
+  } else {
+    await loadPortfolioPage(pfid);
+  }
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard(){
+  const panel=document.getElementById('ep-__dash__');
+  panel.innerHTML='<div class="loading">LOADING DASHBOARD…</div>';
+  const r=await api('/api/enterprise/dashboard');
+  if(!r.ok){ panel.innerHTML='<div class="err-banner">Failed to load dashboard</div>'; return; }
+  const d=r.d;
+  const s=d.summary;
+  ENT.portfolios=d.portfolios; // refresh
+  renderPFTabs();
+  // Update topbar
+  document.getElementById('tb-aum').textContent='$'+fk(s.total_aum);
+  const pnlEl=document.getElementById('tb-pnl');
+  pnlEl.textContent=(s.total_pnl>=0?'+':'')+f(s.total_pnl,0)+' ('+s.total_pnl_pct.toFixed(2)+'%)';
+  pnlEl.style.color=s.total_pnl>=0?'var(--up)':'var(--dn)';
+
+  panel.innerHTML=`
+  <div class="scroll" style="padding:16px;gap:12px;display:flex;flex-direction:column">
+    <!-- KPI strip -->
+    <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr)">
+      <div class="sc"><div class="sc-l">TOTAL AUM</div><div class="sc-v">$${fk(s.total_aum)}</div></div>
+      <div class="sc"><div class="sc-l">TOTAL P&L</div><div class="sc-v" style="color:${s.total_pnl>=0?'var(--up)':'var(--dn)'}">${s.total_pnl>=0?'+':''}$${fk(Math.abs(s.total_pnl))} (${s.total_pnl_pct.toFixed(2)}%)</div></div>
+      <div class="sc"><div class="sc-l">PORTFOLIOS</div><div class="sc-v">${s.num_portfolios}</div></div>
+      <div class="sc"><div class="sc-l">TOP EXPOSURE</div><div class="sc-v" style="color:var(--cyn)">${s.top_exposures[0]?.ticker||'—'}</div><div class="sc-s">$${fk(s.top_exposures[0]?.value||0)}</div></div>
+    </div>
+
+    <!-- Portfolio table -->
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">Σ</span><span class="wtitle">ALL PORTFOLIOS</span></div></div>
+      <table class="dt" style="width:100%">
+        <thead><tr>
+          <th>CLIENT</th><th>NAME</th><th class="r">VALUE</th><th class="r">CASH</th>
+          <th class="r">COST</th><th class="r">P&L</th><th class="r">P&L %</th>
+          <th class="r">POSITIONS</th><th></th>
+        </tr></thead>
+        <tbody>
+          ${d.portfolios.map(pf=>`<tr onclick="swPF('${pf.id}')" style="cursor:pointer">
+            <td style="color:var(--org)">${pf.client||'—'}</td>
+            <td style="color:var(--wht);font-weight:600">${pf.name||'—'}</td>
+            <td class="r">$${fk(pf.value)}</td>
+            <td class="r" style="color:var(--cyn)">$${fk(pf.cash)}</td>
+            <td class="r" style="color:var(--txt2)">$${fk(pf.cost)}</td>
+            <td class="r" style="color:${pf.pnl>=0?'var(--up)':'var(--dn)'}">${pf.pnl>=0?'+':''}$${fk(Math.abs(pf.pnl))}</td>
+            <td class="r" style="color:${pf.pnl_pct>=0?'var(--up)':'var(--dn)'}">${pf.pnl_pct>=0?'+':''}${pf.pnl_pct.toFixed(2)}%</td>
+            <td class="r">${pf.positions}</td>
+            <td><span style="color:var(--org);font-size:9px;cursor:pointer" onclick="event.stopPropagation();deletePF('${pf.id}','${(pf.name||'').replace(/'/g,"\\'")}')">✕</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Top exposures + distribution -->
+    <div class="wrow" style="gap:0;flex-shrink:0">
+      <div class="win" style="flex:1;border-right:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">↑</span><span class="wtitle">TOP EXPOSURES</span></div></div>
+        <div style="padding:8px">
+          ${s.top_exposures.map(e=>{
+            const pct=(e.value/s.total_aum*100).toFixed(1);
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="color:var(--cyn);font-weight:700;width:72px;font-size:10px">${e.ticker}</span>
+              <div style="flex:1;height:5px;background:var(--bdr)"><div style="width:${pct}%;height:100%;background:var(--org)"></div></div>
+              <span style="font-size:9px;color:var(--txt2);width:40px;text-align:right">$${fk(e.value)}</span>
+              <span style="font-size:9px;color:var(--txt3);width:32px;text-align:right">${pct}%</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      <div class="win" style="flex:1">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">π</span><span class="wtitle">P&L BY PORTFOLIO</span></div></div>
+        <div style="padding:8px">
+          ${d.portfolios.map(pf=>{
+            const bar=s.total_pnl!==0?Math.abs(pf.pnl/s.total_aum*100).toFixed(1):'0';
+            return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="color:var(--wht);font-size:9px;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pf.name}</span>
+              <div style="flex:1;height:5px;background:var(--bdr)"><div style="width:${bar}%;height:100%;background:${pf.pnl>=0?'var(--up)':'var(--dn)'}"></div></div>
+              <span style="font-size:9px;color:${pf.pnl>=0?'var(--up)':'var(--dn)'};width:60px;text-align:right">${pf.pnl>=0?'+':''}$${fk(Math.abs(pf.pnl))}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+
+    ${d.portfolios.length===0?`<div style="text-align:center;padding:40px;color:var(--txt3);font-size:11px">
+      No portfolios yet. Click <span style="color:var(--org)">＋</span> to create your first one.
+    </div>`:''}
+  </div>`;
+}
+
+// ── Per-portfolio page ────────────────────────────────────────────────────────
+async function loadPortfolioPage(pfid){
+  const panel=document.getElementById(`ep-${pfid}`);
+  if(!panel) return;
+  if(panel.dataset.loaded==='1'){
+    // refresh data only
+    await refreshPortfolioPanel(pfid);
+    return;
+  }
+  panel.innerHTML='<div class="loading">LOADING PORTFOLIO…</div>';
+  await fetch(`/page/enterprise_portfolio`).then(async r=>{
+    if(!r.ok) return;
+    const html=await r.text();
+    const tmp=document.createElement('div');
+    tmp.innerHTML=html;
+    const scripts=[...tmp.querySelectorAll('script')];
+    scripts.forEach(s=>s.remove());
+    panel.innerHTML=tmp.innerHTML;
+    for(const s of scripts){
+      const ns=document.createElement('script');
+      ns.textContent=s.textContent;
+      document.head.appendChild(ns);
+    }
+  });
+  panel.dataset.loaded='1';
+  if(window.ENT_PF_load) ENT_PF_load(pfid);
+}
+
+async function refreshPortfolioPanel(pfid){
+  if(window.ENT_PF_load) ENT_PF_load(pfid);
+}
+
+// ── CRUD helpers ──────────────────────────────────────────────────────────────
+function showNewPFModal(){ document.getElementById('new-pf-modal').style.display='flex'; }
+function hideNewPFModal(){ document.getElementById('new-pf-modal').style.display='none'; }
+
+async function createPortfolio(){
+  const name=document.getElementById('npf-name').value.trim();
+  if(!name){ alert('Name required'); return; }
+  const body={
+    name, 
+    client: document.getElementById('npf-client').value.trim(),
+    cash:   parseFloat(document.getElementById('npf-cash').value)||0,
+    notes:  document.getElementById('npf-notes').value.trim(),
+    positions: [],
+    cash_log: []
+  };
+  const r=await apiPost('/api/enterprise/portfolios', body);
+  if(!r.ok){ alert('Error creating portfolio'); return; }
+  hideNewPFModal();
+  // Reset form
+  ['npf-name','npf-client','npf-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('npf-cash').value='0';
+  // Reload dashboard + switch to new portfolio
+  const newPF=r.d;
+  ENT.portfolios.push(newPF);
+  renderPFTabs();
+  swPF(newPF.id);
+}
+
+async function deletePF(pfid, name){
+  if(!confirm(`Delete portfolio "${name}"? This cannot be undone.`)) return;
+  await api(`/api/enterprise/portfolios/${pfid}`, {method:'DELETE'});
+  ENT.portfolios=ENT.portfolios.filter(p=>p.id!==pfid);
+  const panel=document.getElementById(`ep-${pfid}`);
+  if(panel) panel.remove();
+  renderPFTabs();
+  swPF('__dash__');
+}
+
+// ── Keyboard ──────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e=>{
+  const cmd=document.getElementById('cmd-in');
+  if(document.activeElement===cmd) return;
+  if(e.key==='F1'){e.preventDefault();swPF('__dash__');return;}
+  ENT.portfolios.forEach((pf,i)=>{
+    if(e.key===`F${i+2}`){e.preventDefault();swPF(pf.id);}
+  });
+  if(e.key==='Escape') hideNewPFModal();
+});
+
+// ── Command bar ───────────────────────────────────────────────────────────────
+(function(){
+  const inp=document.getElementById('cmd-in');
+  const bar=document.getElementById('cmd-st');
+  const st=(msg,cls='')=>{bar.textContent=msg;bar.style.color=cls==='err'?'var(--dn)':cls==='ok'?'var(--up)':'var(--txt3)';};
+  inp.addEventListener('keydown',async e=>{
+    if(e.key!=='Enter') return;
+    const raw=inp.value.trim(); inp.value='';
+    const parts=raw.toUpperCase().split(/\s+/);
+    const cmd=parts[0];
+    if(cmd==='NEW'){ showNewPFModal(); st('NEW PORTFOLIO'); }
+    else if(cmd==='DEL'&&parts[1]){ await api(`/api/enterprise/portfolios/${parts[1].toLowerCase()}`,{method:'DELETE'}); st('DELETED '+parts[1]); await loadDashboard(); }
+    else if(cmd==='DASH'||cmd==='F1'){ swPF('__dash__'); st('DASHBOARD'); }
+    else if(cmd==='HELP'){ st('NEW · DEL [id] · DASH · F1-FN · portfolio name to jump'); }
+    else {
+      // Try matching portfolio name
+      const match=ENT.portfolios.find(p=>p.name.toUpperCase()===raw.toUpperCase()||p.id.toUpperCase()===raw.toUpperCase());
+      if(match){ swPF(match.id); st(match.name); }
+      else st('Unknown command. Type HELP.','err');
+    }
+  });
+})();
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init(){
+  // Load securities for tape
+  const sr=await api('/api/securities');
+  if(sr.ok){
+    ENT.secs=sr.d;
+    buildTape(sr.d);
+    const dot=document.getElementById('tb-dot'),conn=document.getElementById('tb-conn');
+    dot.className='tb-dot live'; conn.textContent='LIVE';
+  }
+  // Load portfolios
+  const pr=await api('/api/enterprise/portfolios');
+  if(pr.ok) ENT.portfolios=pr.d;
+  renderPFTabs();
+  // Load dashboard
+  await loadDashboard();
+  // Refresh tape periodically
+  setInterval(async()=>{
+    const r=await api('/api/securities');
+    if(r.ok){ ENT.secs=r.d; buildTape(r.d); }
+  }, 90000);
+}
+init();
+</script>
+</body>
+</html>
