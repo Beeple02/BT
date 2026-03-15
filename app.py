@@ -1658,12 +1658,269 @@ def atlas_proxy():
 
 @app.route("/")
 def index():           return render_template("terminal.html")
+@app.route("/enterprise")
+def enterprise():      return render_template("enterprise.html")
 @app.route("/page/<n>")
 def page(n):
     name = n
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug"]
+    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist","heatmap","exchange","liquidity","holders","screener","alerts","fundamentals","transactions","news","debug","enterprise_portfolio"]
     if name not in allowed: return "Not found", 404
     return render_template(f"pages/{name}.html")
+
+# ── ENTERPRISE — Portfolio CRUD ───────────────────────────────────────────────
+_ENT_FILE = os.path.join(os.path.dirname(__file__), "enterprise_state.json")
+
+def _load_ent():
+    try:
+        if os.path.exists(_ENT_FILE):
+            with open(_ENT_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"portfolios": []}
+
+def _save_ent(data):
+    try:
+        with open(_ENT_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as ex:
+        print(f"[ent] save error: {ex}")
+
+@app.route("/api/enterprise/portfolios", methods=["GET"])
+def ent_portfolios_get():
+    return jsonify(_load_ent().get("portfolios", [])), 200
+
+@app.route("/api/enterprise/portfolios", methods=["POST"])
+def ent_portfolios_post():
+    body = request.get_json(silent=True) or {}
+    data = _load_ent()
+    # Upsert by id
+    pf_id = body.get("id")
+    if not pf_id:
+        import uuid as _uuid
+        body["id"] = str(_uuid.uuid4())[:8]
+    existing = next((i for i,p in enumerate(data["portfolios"]) if p["id"]==body["id"]), None)
+    if existing is not None:
+        data["portfolios"][existing] = body
+    else:
+        data["portfolios"].append(body)
+    _save_ent(data)
+    return jsonify(body), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>", methods=["DELETE"])
+def ent_portfolios_delete(pf_id):
+    data = _load_ent()
+    before = len(data["portfolios"])
+    data["portfolios"] = [p for p in data["portfolios"] if p["id"] != pf_id]
+    _save_ent(data)
+    return jsonify({"ok": True, "removed": before - len(data["portfolios"])}), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>/positions", methods=["POST"])
+def ent_add_position(pf_id):
+    """Add a position to a portfolio. body: {ticker, qty, entry_price, entry_date, notes}"""
+    body = request.get_json(silent=True) or {}
+    import uuid as _uuid
+    data = _load_ent()
+    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
+    if not pf:
+        return jsonify({"detail": "Portfolio not found"}), 404
+    if "positions" not in pf:
+        pf["positions"] = []
+    if "cash" not in pf:
+        pf["cash"] = 0.0
+    pos_id = str(_uuid.uuid4())[:8]
+    position = {
+        "id": pos_id,
+        "ticker": body.get("ticker", "").upper(),
+        "qty": float(body.get("qty", 0)),
+        "entry_price": float(body.get("entry_price", 0)),
+        "entry_date": body.get("entry_date", ""),
+        "notes": body.get("notes", ""),
+        "added_at": __import__("datetime").datetime.utcnow().isoformat()
+    }
+    pf["positions"].append(position)
+    _save_ent(data)
+    return jsonify(position), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>", methods=["DELETE"])
+def ent_remove_position(pf_id, pos_id):
+    data = _load_ent()
+    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
+    if not pf:
+        return jsonify({"detail": "Portfolio not found"}), 404
+    before = len(pf.get("positions", []))
+    pf["positions"] = [p for p in pf.get("positions", []) if p["id"] != pos_id]
+    _save_ent(data)
+    return jsonify({"ok": True, "removed": before - len(pf["positions"])}), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>/cash", methods=["POST"])
+def ent_cash_adjustment(pf_id):
+    """Add or remove cash. body: {amount, note}  (negative = withdrawal)"""
+    body = request.get_json(silent=True) or {}
+    data = _load_ent()
+    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
+    if not pf:
+        return jsonify({"detail": "Portfolio not found"}), 404
+    pf["cash"] = float(pf.get("cash", 0)) + float(body.get("amount", 0))
+    if "cash_log" not in pf:
+        pf["cash_log"] = []
+    pf["cash_log"].append({
+        "amount": float(body.get("amount", 0)),
+        "note": body.get("note", ""),
+        "ts": __import__("datetime").datetime.utcnow().isoformat()
+    })
+    _save_ent(data)
+    return jsonify({"cash": pf["cash"]}), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>/analytics")
+def ent_portfolio_analytics(pf_id):
+    """Enrich a portfolio's positions with live prices + compute analytics."""
+    data = _load_ent()
+    pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
+    if not pf:
+        return jsonify({"detail": "Portfolio not found"}), 404
+
+    positions = pf.get("positions", [])
+    enriched = []
+    total_cost = 0.0
+    total_value = 0.0
+
+    for pos in positions:
+        ticker = pos["ticker"]
+        entry_price = float(pos.get("entry_price") or 0)
+        qty = float(pos.get("qty") or 0)
+        cost = entry_price * qty
+
+        # Get live price from securities list (already cached by atlas)
+        s_sec, sec_data = atlas_get(f"/securities/{ticker}", ttl=60)
+        live_px = None
+        if s_sec == 200:
+            live_px = sec_data.get("market_price")
+        if live_px is None:
+            s_px, px_data = atlas_get(f"/price/{ticker}", ttl=15)
+            if s_px == 200:
+                live_px = px_data.get("market_price")
+
+        mkt_value = (live_px or entry_price) * qty
+        pnl = mkt_value - cost
+        pnl_pct = (pnl / cost * 100) if cost > 0 else 0
+
+        # 30d ohlcv for vol/sharpe — use history for TSE
+        vol, sharpe = None, None
+        if ticker.startswith("TSE:"):
+            _, raw_h = atlas_get(f"/history/{ticker}", params={"days": 30, "limit": 500}, ttl=120)
+            pts = raw_h.get("data", []) if isinstance(raw_h, dict) else raw_h
+            cs = _build_candles_from_history(pts, 30) if pts else []
+        else:
+            _, raw_o = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": 30}, ttl=120)
+            cs = _norm_candles(raw_o.get("candles", []), days=30) if isinstance(raw_o, dict) else []
+        if len(cs) >= 5:
+            cl = [c["close"] for c in cs]
+            vol = _ann_vol(cl)
+            sharpe = _sharpe(cl)
+
+        total_cost  += cost
+        total_value += mkt_value
+        enriched.append({
+            **pos,
+            "live_price":  round(live_px, 4) if live_px else None,
+            "cost":        round(cost, 2),
+            "market_value": round(mkt_value, 2),
+            "pnl":         round(pnl, 2),
+            "pnl_pct":     round(pnl_pct, 2),
+            "weight_pct":  0,  # filled below
+            "ann_vol":     vol,
+            "sharpe":      sharpe,
+        })
+
+    # Weights
+    for e in enriched:
+        e["weight_pct"] = round(e["market_value"] / total_value * 100, 2) if total_value > 0 else 0
+
+    cash = float(pf.get("cash", 0))
+    total_with_cash = total_value + cash
+    total_pnl = total_value - total_cost
+
+    # Simple concentration (HHI)
+    hhi = round(sum((e["weight_pct"] / 100) ** 2 for e in enriched) * 10000, 1) if enriched else 0
+
+    return jsonify({
+        "id": pf_id,
+        "name": pf.get("name", ""),
+        "client": pf.get("client", ""),
+        "positions": enriched,
+        "cash": cash,
+        "cash_log": pf.get("cash_log", []),
+        "summary": {
+            "total_cost":      round(total_cost, 2),
+            "total_value":     round(total_value, 2),
+            "total_with_cash": round(total_with_cash, 2),
+            "total_pnl":       round(total_pnl, 2),
+            "total_pnl_pct":   round(total_pnl / total_cost * 100, 2) if total_cost > 0 else 0,
+            "num_positions":   len(enriched),
+            "hhi":             hhi,
+            "concentration":   "HIGH" if hhi > 3000 else "MEDIUM" if hhi > 1500 else "LOW",
+        }
+    }), 200
+
+@app.route("/api/enterprise/dashboard")
+def ent_dashboard():
+    """Aggregate analytics across all portfolios."""
+    data = _load_ent()
+    portfolios = data.get("portfolios", [])
+    results = []
+    grand_value = 0.0
+    grand_cost  = 0.0
+    ticker_exposure = {}
+
+    for pf in portfolios:
+        positions = pf.get("positions", [])
+        pf_value, pf_cost = 0.0, 0.0
+        for pos in positions:
+            ticker = pos["ticker"]
+            entry_price = float(pos.get("entry_price") or 0)
+            qty = float(pos.get("qty") or 0)
+            cost = entry_price * qty
+            s_sec, sec_data = atlas_get(f"/securities/{ticker}", ttl=60)
+            live_px = sec_data.get("market_price") if s_sec == 200 else None
+            if live_px is None:
+                _, px_d = atlas_get(f"/price/{ticker}", ttl=15)
+                live_px = px_d.get("market_price")
+            mkt_value = (live_px or entry_price) * qty
+            pf_value += mkt_value
+            pf_cost  += cost
+            ticker_exposure[ticker] = ticker_exposure.get(ticker, 0) + mkt_value
+
+        cash = float(pf.get("cash", 0))
+        pnl  = pf_value - pf_cost
+        results.append({
+            "id":          pf["id"],
+            "name":        pf.get("name", ""),
+            "client":      pf.get("client", ""),
+            "value":       round(pf_value, 2),
+            "cash":        round(cash, 2),
+            "total":       round(pf_value + cash, 2),
+            "cost":        round(pf_cost, 2),
+            "pnl":         round(pnl, 2),
+            "pnl_pct":     round(pnl / pf_cost * 100, 2) if pf_cost > 0 else 0,
+            "positions":   len(positions),
+        })
+        grand_value += pf_value
+        grand_cost  += pf_cost
+
+    # Top exposures
+    top_exp = sorted(ticker_exposure.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    return jsonify({
+        "portfolios": results,
+        "summary": {
+            "total_aum":    round(grand_value, 2),
+            "total_pnl":    round(grand_value - grand_cost, 2),
+            "total_pnl_pct": round((grand_value - grand_cost) / grand_cost * 100, 2) if grand_cost > 0 else 0,
+            "num_portfolios": len(results),
+            "top_exposures": [{"ticker": t, "value": round(v, 2)} for t, v in top_exp],
+        }
+    }), 200
 
 
 # ══════════════════════════════════════════════════════════════════════════════
