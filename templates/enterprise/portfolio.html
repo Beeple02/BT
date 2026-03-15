@@ -561,8 +561,17 @@ window.saveNotes = async function(){
 };
 
 // ── Add position ──────────────────────────────────────────────────────────────
-window.showAddPosModal = function(){ document.getElementById('add-pos-modal').style.display='flex'; };
-window.hideAddPosModal = function(){ document.getElementById('add-pos-modal').style.display='none'; };
+window.showAddPosModal = function(){
+  const m=document.getElementById('add-pos-modal');
+  if(!m) return;
+  // Move to body so position:fixed works correctly
+  if(m.parentElement !== document.body) document.body.appendChild(m);
+  m.style.display='flex';
+};
+window.hideAddPosModal = function(){
+  const m=document.getElementById('add-pos-modal');
+  if(m) m.style.display='none';
+};
 
 window.addPosition = async function(){
   const ticker=(document.getElementById('apm-ticker').value||'').trim().toUpperCase();
@@ -587,11 +596,17 @@ window.removePosition = async function(posId, ticker){
 
 // ── Cash modal ────────────────────────────────────────────────────────────────
 window.showCashModal = function(sign){
+  const m=document.getElementById('cash-modal');
+  if(!m) return;
+  if(m.parentElement !== document.body) document.body.appendChild(m);
   const inp=document.getElementById('cm-amount');
   if(sign&&inp) inp.value=sign>0?'':'-';
-  document.getElementById('cash-modal').style.display='flex';
+  m.style.display='flex';
 };
-window.hideCashModal = function(){ document.getElementById('cash-modal').style.display='none'; };
+window.hideCashModal = function(){
+  const m=document.getElementById('cash-modal');
+  if(m) m.style.display='none';
+};
 
 window.adjustCash = async function(){
   const amount=parseFloat(document.getElementById('cm-amount').value);
