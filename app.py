@@ -1659,7 +1659,11 @@ def atlas_proxy():
 @app.route("/")
 def index():           return render_template("terminal.html")
 @app.route("/enterprise")
-def enterprise():      return render_template("enterprise.html")
+def enterprise():
+    try:
+        return render_template("enterprise.html")
+    except Exception as e:
+        return f"<pre>Enterprise space not yet deployed. Deploy enterprise.html to templates/. Error: {e}</pre>", 500
 @app.route("/page/<n>")
 def page(n):
     name = n
@@ -1668,6 +1672,7 @@ def page(n):
     return render_template(f"pages/{name}.html")
 
 # ── ENTERPRISE — Portfolio CRUD ───────────────────────────────────────────────
+from datetime import datetime as _dt, timezone as _tz
 _ENT_FILE = os.path.join(os.path.dirname(__file__), "enterprise_state.json")
 
 def _load_ent():
@@ -1736,7 +1741,7 @@ def ent_add_position(pf_id):
         "entry_price": float(body.get("entry_price", 0)),
         "entry_date": body.get("entry_date", ""),
         "notes": body.get("notes", ""),
-        "added_at": __import__("datetime").datetime.utcnow().isoformat()
+        "added_at": _dt.now(_tz.utc).isoformat()
     }
     pf["positions"].append(position)
     _save_ent(data)
@@ -1767,7 +1772,7 @@ def ent_cash_adjustment(pf_id):
     pf["cash_log"].append({
         "amount": float(body.get("amount", 0)),
         "note": body.get("note", ""),
-        "ts": __import__("datetime").datetime.utcnow().isoformat()
+        "ts": _dt.now(_tz.utc).isoformat()
     })
     _save_ent(data)
     return jsonify({"cash": pf["cash"]}), 200
