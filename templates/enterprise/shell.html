@@ -310,21 +310,22 @@ async function _ensurePFPageLoaded(panel){
   let html;
   try { html = await _pfPageFetching; } catch(e){ console.error('portfolio page load failed',e); return false; }
 
-  const tmp=document.createElement('div');
-  tmp.innerHTML=html;
-  // Extract scripts and styles before setting innerHTML
-  const scripts=[...tmp.querySelectorAll('script')];
-  const styles=[...tmp.querySelectorAll('style')];
+  // Use DOMParser to safely parse HTML without mangling script template literals
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const scripts=[...doc.querySelectorAll('script')];
+  const styles=[...doc.querySelectorAll('style')];
+  // Remove scripts/styles from parsed doc before extracting body HTML
   scripts.forEach(s=>s.remove());
   styles.forEach(s=>s.remove());
-  panel.innerHTML=tmp.innerHTML;
-  // Inject styles into head (only once)
+  // Set panel HTML from parsed body (scripts/styles already removed)
+  panel.innerHTML=doc.body.innerHTML;
+  // Inject styles into head once
   styles.forEach(s=>{
     const ns=document.createElement('style');
     ns.textContent=s.textContent;
     document.head.appendChild(ns);
   });
-  // Run scripts synchronously
+  // Run scripts - textContent from DOMParser preserves template literals correctly
   for(const s of scripts){
     const ns=document.createElement('script');
     ns.textContent=s.textContent;
