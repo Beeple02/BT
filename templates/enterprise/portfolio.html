@@ -245,7 +245,14 @@ window.ENT_PF_load = async function(pfid){
 window.ENT_PF_refresh = async function(){
   if(!_pfid) return;
   const r = await api(`/api/enterprise/portfolios/${_pfid}/analytics`);
-  if(!r.ok){ return; }
+  if(!r.ok){
+    const root = document.getElementById('ent-pf-root');
+    if(root) root.innerHTML=`<div style="padding:20px;color:var(--dn);font-family:var(--font);font-size:11px">
+      Failed to load analytics (HTTP ${r.s}): ${r.d?.detail||'unknown error'}<br>
+      <span style="color:var(--txt3)">pfid=${_pfid}</span>
+    </div>`;
+    return;
+  }
   _pfData = r.d;
   renderHeader();
   renderOverview();
