@@ -1496,7 +1496,7 @@ def page(n):
     allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist",
                "heatmap","exchange","liquidity","holders","screener","alerts",
                "fundamentals","transactions","news","debug"]
-    if page_name not in allowed: return "Not found", 404
+    if n not in allowed: return "Not found", 404
     return render_template(f"pages/{n}.html")
 
 
