@@ -38,6 +38,7 @@
     <div class="ss"><div class="ss-l">CONCENTRATION</div><div class="ss-v" id="epf-conc">—</div></div>
     <div class="ss" style="margin-left:auto;border-left:1px solid var(--bdr);gap:6px">
       <button class="btn buy btn-xs" onclick="showAddPosModal()">+ POSITION</button>
+      <button class="btn btn-xs" style="color:var(--org);border-color:var(--org)" onclick="showImportModal()">⬆ IMPORT</button>
       <button class="btn btn-xs" style="color:var(--cyn);border-color:var(--cyn)" onclick="showCashModal()">± CASH</button>
       <button class="btn btn-xs" onclick="ENT_PF_refresh()">↻</button>
     </div>
@@ -264,4 +265,32 @@
       <button class="btn" style="border-color:var(--cyn);color:var(--cyn)" onclick="adjustCash()">CONFIRM →</button>
     </div>
   </div>
+
+<!-- Import Portfolio Modal -->
+<div id="import-modal" class="pos-modal" style="display:none">
+  <div class="pos-modal-box" style="max-width:580px;width:580px">
+    <div class="pos-modal-hd" style="border-color:var(--org)">
+      IMPORT FROM NER TERMINAL
+      <span style="cursor:pointer;color:var(--txt2);font-size:14px" onclick="hideImportModal()">✕</span>
+    </div>
+    <div style="padding:16px">
+      <div style="font-size:10px;color:var(--txt2);margin-bottom:8px;line-height:1.6">
+        Paste the portfolio table from your NER terminal below.<br>
+        <span style="color:var(--txt3)">Duplicates (tickers already in portfolio) will be skipped.</span>
+      </div>
+      <textarea id="import-raw" rows="10" placeholder="| BB  | 35 | $  31.31 | $  35.28 | $  139.04 |&#10;| SRI | 41 | $  66.66 | $  32.81 | $ -1387.77|&#10;..." style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:'Courier New',monospace;font-size:10px;padding:8px;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+      <div id="import-preview" style="margin-top:10px;display:none">
+        <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:6px">PREVIEW</div>
+        <div id="import-preview-rows" style="font-size:10px;font-family:'Courier New',monospace"></div>
+      </div>
+      <div id="import-status" style="margin-top:8px;font-size:10px;display:none"></div>
+    </div>
+    <div class="pos-modal-ft">
+      <button class="btn" onclick="hideImportModal()">CANCEL</button>
+      <button class="btn" style="color:var(--org);border-color:var(--org)" onclick="previewImport()">PREVIEW →</button>
+      <button class="btn buy" id="import-confirm-btn" style="display:none" onclick="confirmImport()">CONFIRM IMPORT →</button>
+    </div>
+  </div>
+</div>
+
 </div>
