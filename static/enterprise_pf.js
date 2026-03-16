@@ -233,92 +233,319 @@ function renderRisk(){
     :flags.map(fl=>`<div style="border-left:3px solid ${fl.c};padding:6px 10px;background:rgba(0,0,0,.2);margin-bottom:6px"><div style="font-size:9px;font-weight:700;color:${fl.c};letter-spacing:1px;margin-bottom:2px">${fl.t}</div><div style="font-size:10px;color:var(--txt2)">${fl.d}</div></div>`).join('');
 }
 
-// ── Report generator ──────────────────────────────────────────────────────────
+// ── Report generator (IBKR-style, sectioned) ─────────────────────────────────
+function _rptSec(id){ var el=document.getElementById(id); return el && el.checked; }
+function _rptH(title, color){
+  return '<div style="font-size:9px;font-weight:700;letter-spacing:2px;color:'+(color||'var(--org)')+';margin:20px 0 8px;border-bottom:1px solid rgba(255,140,0,.2);padding-bottom:4px">'+title+'</div>';
+}
+function _rptKV(label, value, valColor){
+  return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(46,46,46,.3)">'
+    +'<span style="color:var(--txt2)">'+label+'</span>'
+    +'<span style="font-weight:700;color:'+(valColor||'var(--wht)')+'">'+value+'</span></div>';
+}
+function _rptTable(headers, rows, colAligns){
+  var ths = headers.map(function(h,i){
+    var align = colAligns&&colAligns[i] ? colAligns[i] : 'left';
+    return '<th style="padding:5px 6px;text-align:'+align+';color:var(--txt2);border-bottom:1px solid var(--bdr);white-space:nowrap">'+h+'</th>';
+  }).join('');
+  var trs = rows.map(function(row){
+    var tds = row.map(function(cell, i){
+      var align = colAligns&&colAligns[i] ? colAligns[i] : 'left';
+      var val = typeof cell === 'object' ? cell.v : cell;
+      var col = typeof cell === 'object' ? cell.c : '';
+      return '<td style="padding:4px 6px;text-align:'+align+';'+(col?'color:'+col+';':'')+'">'+(val||'—')+'</td>';
+    }).join('');
+    return '<tr style="border-bottom:1px solid rgba(46,46,46,.25)">'+tds+'</tr>';
+  }).join('');
+  return '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px">'
+    +'<thead><tr>'+ths+'</tr></thead><tbody>'+trs+'</tbody></table>';
+}
+
 window.generateReport = function(){
   if(!_pfData) return;
-  const d=_pfData, s=d.summary;
-  const date=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
-  const el=document.getElementById('epf-report-body');
+  var d=_pfData, s=d.summary;
+  var date=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
+  var firm = (document.getElementById('rpt-firm-name')||{}).value || 'BLOOMBERG / NER ENTERPRISE';
+  var el=document.getElementById('epf-report-body');
   if(!el) return;
 
-  // Build positions rows with string concat (no nested template literals)
-  const posRows=d.positions.map(function(p){
-    const pc=p.pnl>=0?'var(--up)':'var(--dn)';
-    const ppc=p.pnl_pct>=0?'var(--up)':'var(--dn)';
-    return '<tr style="border-bottom:1px solid rgba(46,46,46,.3)">'
-      +'<td style="padding:5px 4px;color:var(--cyn);font-weight:700">'+p.ticker+'</td>'
-      +'<td style="padding:5px 4px;text-align:right">'+p.qty.toLocaleString()+'</td>'
-      +'<td style="padding:5px 4px;text-align:right">$'+f(p.entry_price,4)+'</td>'
-      +'<td style="padding:5px 4px;text-align:right">'+(p.live_price!=null?'$'+f(p.live_price,4):'—')+'</td>'
-      +'<td style="padding:5px 4px;text-align:right">$'+fk(p.market_value)+'</td>'
-      +'<td style="padding:5px 4px;text-align:right;color:'+pc+'">'+(p.pnl>=0?'+':'')+'$'+f(p.pnl,2)+'</td>'
-      +'<td style="padding:5px 4px;text-align:right;color:'+ppc+'">'+(p.pnl_pct>=0?'+':'')+p.pnl_pct.toFixed(2)+'%</td>'
-      +'<td style="padding:5px 4px;text-align:right">'+p.weight_pct.toFixed(1)+'%</td>'
-      +'</tr>';
-  }).join('');
+  var html = '<div style="font-family:\'Courier New\',monospace;color:var(--txt);max-width:900px">';
 
-  const pnlCol=s.total_pnl>=0?'var(--up)':'var(--dn)';
-  const retCol=s.total_pnl_pct>=0?'var(--up)':'var(--dn)';
-  const concCol=s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)';
-  const notesHtml=d.notes
-    ?'<div style="margin-bottom:20px"><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">NOTES</div>'
-      +'<div style="background:var(--bg3);padding:10px;color:var(--txt2)">'+d.notes+'</div></div>'
-    :'';
+  // ── COVER PAGE ──────────────────────────────────────────────────────────────
+  if(_rptSec('rpt-cover')){
+    html += '<div style="text-align:center;padding:32px 0 24px;border-bottom:2px solid var(--org);margin-bottom:24px">'
+      +'<div style="font-size:9px;color:var(--txt3);letter-spacing:4px;margin-bottom:8px">'+firm.toUpperCase()+'</div>'
+      +'<div style="font-size:28px;font-weight:700;color:var(--wht);letter-spacing:2px;margin-bottom:4px">PORTFOLIO STATEMENT</div>'
+      +'<div style="font-size:11px;color:var(--txt2);margin-bottom:16px">'+date+'</div>'
+      +'<div style="display:inline-grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--bdr);border:1px solid var(--bdr)">'
+      +'<div style="background:var(--bg3);padding:10px 20px"><div style="font-size:9px;color:var(--txt3)">CLIENT</div><div style="font-weight:700;color:var(--org)">'+(d.client||'—')+'</div></div>'
+      +'<div style="background:var(--bg3);padding:10px 20px"><div style="font-size:9px;color:var(--txt3)">PORTFOLIO</div><div style="font-weight:700;color:var(--wht)">'+(d.name||'—')+'</div></div>'
+      +'<div style="background:var(--bg3);padding:10px 20px"><div style="font-size:9px;color:var(--txt3)">TOTAL AUM</div><div style="font-weight:700;color:var(--wht)">$'+fk(s.total_with_cash)+'</div></div>'
+      +'</div></div>';
+  }
 
-  el.innerHTML=''
-    +'<div style="font-family:\'Courier New\',monospace;color:var(--txt)">'
-    +'<div style="border-bottom:2px solid var(--org);padding-bottom:12px;margin-bottom:20px">'
-    +'<div style="font-size:18px;font-weight:700;color:var(--wht);letter-spacing:2px">PORTFOLIO REPORT</div>'
-    +'<div style="font-size:11px;color:var(--txt2);margin-top:4px">'+date+' · BLOOMBERG / NER ENTERPRISE</div>'
-    +'</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">'
-    +'<div><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">CLIENT INFORMATION</div>'
-    +'<div><b style="color:var(--org)">Client:</b> '+(d.client||'—')+'</div>'
-    +'<div><b style="color:var(--org)">Portfolio:</b> '+(d.name||'—')+'</div>'
-    +'<div><b style="color:var(--org)">Report Date:</b> '+date+'</div></div>'
-    +'<div><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">PORTFOLIO SUMMARY</div>'
-    +'<div><b style="color:var(--org)">Market Value:</b> $'+fk(s.total_value)+'</div>'
-    +'<div><b style="color:var(--org)">Cash:</b> $'+fk(d.cash)+'</div>'
-    +'<div><b style="color:var(--org)">Total AUM:</b> <span style="color:var(--wht);font-weight:700">$'+fk(s.total_with_cash)+'</span></div></div>'
-    +'</div>'
-    +'<div style="margin-bottom:20px">'
-    +'<div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">PERFORMANCE</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">'
-    +'<div style="background:var(--bg3);padding:10px;text-align:center">'
-    +'<div style="font-size:9px;color:var(--txt3)">TOTAL P&L</div>'
-    +'<div style="font-size:18px;font-weight:700;color:'+pnlCol+'">'+(s.total_pnl>=0?'+':'')+'$'+fk(Math.abs(s.total_pnl))+'</div></div>'
-    +'<div style="background:var(--bg3);padding:10px;text-align:center">'
-    +'<div style="font-size:9px;color:var(--txt3)">RETURN</div>'
-    +'<div style="font-size:18px;font-weight:700;color:'+retCol+'">'+(s.total_pnl_pct>=0?'+':'')+s.total_pnl_pct.toFixed(2)+'%</div></div>'
-    +'<div style="background:var(--bg3);padding:10px;text-align:center">'
-    +'<div style="font-size:9px;color:var(--txt3)">CONCENTRATION</div>'
-    +'<div style="font-size:18px;font-weight:700;color:'+concCol+'">'+s.concentration+'</div></div>'
-    +'</div></div>'
-    +'<div style="margin-bottom:20px">'
-    +'<div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">HOLDINGS</div>'
-    +'<table style="width:100%;border-collapse:collapse;font-size:10px">'
-    +'<thead><tr style="border-bottom:1px solid var(--bdr)">'
-    +'<th style="text-align:left;padding:6px 4px;color:var(--txt2)">TICKER</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">QTY</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">ENTRY</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">LIVE</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">VALUE</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L%</th>'
-    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">WEIGHT</th>'
-    +'</tr></thead><tbody>'+posRows+'</tbody></table></div>'
-    +notesHtml
-    +'<div style="border-top:1px solid var(--bdr);padding-top:10px;font-size:9px;color:var(--txt3);text-align:center">'
-    +'Generated by BLOOMBERG / NER ENTERPRISE · '+date+' · Confidential'
-    +'</div></div>';
+  // ── EXECUTIVE SUMMARY ───────────────────────────────────────────────────────
+  if(_rptSec('rpt-summary')){
+    var pnlC = s.total_pnl>=0?'var(--up)':'var(--dn)';
+    var retC = s.total_pnl_pct>=0?'var(--up)':'var(--dn)';
+    var concC = s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)';
+    html += _rptH('EXECUTIVE SUMMARY');
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">';
+    html += '<div>';
+    html += _rptKV('Report Date', date);
+    html += _rptKV('Client', d.client||'—');
+    html += _rptKV('Portfolio', d.name||'—');
+    if(d.strategy) html += _rptKV('Strategy', d.strategy);
+    html += _rptKV('Number of Positions', s.num_positions);
+    html += '</div><div>';
+    html += _rptKV('Market Value', '$'+fk(s.total_value));
+    html += _rptKV('Cash', '$'+fk(d.cash), 'var(--cyn)');
+    html += _rptKV('Total AUM', '$'+fk(s.total_with_cash), 'var(--wht)');
+    html += _rptKV('Cost Basis', '$'+fk(s.total_cost));
+    html += _rptKV('Unrealised P&L', (s.total_pnl>=0?'+':'')+'$'+fk(Math.abs(s.total_pnl))+' ('+s.total_pnl_pct.toFixed(2)+'%)', pnlC);
+    html += '</div></div>';
+
+    // Performance KPI boxes
+    var avgVol = d.positions.filter(function(p){return p.ann_vol;}).reduce(function(a,p){return a+p.ann_vol;},0) / Math.max(d.positions.filter(function(p){return p.ann_vol;}).length,1);
+    var avgShr = d.positions.filter(function(p){return p.sharpe;}).reduce(function(a,p){return a+p.sharpe;},0) / Math.max(d.positions.filter(function(p){return p.sharpe;}).length,1);
+    html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--bdr);border:1px solid var(--bdr);margin-bottom:12px">';
+    var kpis = [
+      ['TOTAL RETURN', (s.total_pnl_pct>=0?'+':'')+s.total_pnl_pct.toFixed(2)+'%', retC],
+      ['AVG ANN VOL',  isNaN(avgVol)?'—':avgVol.toFixed(1)+'%', 'var(--yel)'],
+      ['AVG SHARPE',   isNaN(avgShr)?'—':avgShr.toFixed(2), avgShr>0?'var(--up)':'var(--dn)'],
+      ['HHI',          s.hhi.toFixed(0), concC],
+      ['CONCENTRATION',s.concentration, concC]
+    ];
+    kpis.forEach(function(k){
+      html += '<div style="background:var(--bg3);padding:10px;text-align:center">'
+        +'<div style="font-size:8px;color:var(--txt3);margin-bottom:4px">'+k[0]+'</div>'
+        +'<div style="font-size:15px;font-weight:700;color:'+k[2]+'">'+k[1]+'</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // ── HOLDINGS DETAIL ─────────────────────────────────────────────────────────
+  if(_rptSec('rpt-holdings')){
+    html += _rptH('HOLDINGS DETAIL');
+    var posRows = d.positions.map(function(p){
+      var pc=p.pnl>=0?'var(--up)':'var(--dn)';
+      var ppc=p.pnl_pct>=0?'var(--up)':'var(--dn)';
+      return [
+        {v:p.ticker,c:'var(--cyn)'},
+        p.qty.toLocaleString(),
+        {v:'$'+f(p.entry_price,4)},
+        {v:p.live_price!=null?'$'+f(p.live_price,4):'—'},
+        {v:'$'+fk(p.market_value)},
+        {v:(p.pnl>=0?'+':'')+'$'+f(p.pnl,2), c:pc},
+        {v:(p.pnl_pct>=0?'+':'')+p.pnl_pct.toFixed(2)+'%', c:ppc},
+        p.weight_pct.toFixed(1)+'%',
+        {v:p.entry_date||'—'},
+        p.notes||''
+      ];
+    });
+    html += _rptTable(['TICKER','QTY','ENTRY','LIVE','MKT VALUE','P&L','P&L%','WEIGHT','ENTRY DATE','NOTES'],
+      posRows, ['left','right','right','right','right','right','right','right','left','left']);
+  }
+
+  // ── PERFORMANCE ANALYSIS ────────────────────────────────────────────────────
+  if(_rptSec('rpt-perf')){
+    html += _rptH('PERFORMANCE ANALYSIS');
+    var sorted_pnl = d.positions.slice().sort(function(a,b){return b.pnl_pct-a.pnl_pct;});
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+    html += '<div>'+_rptH('TOP PERFORMERS','var(--up)');
+    sorted_pnl.slice(0,3).forEach(function(p){
+      var w = Math.min(Math.abs(p.pnl_pct),100).toFixed(0);
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+        +'<span style="width:52px;color:var(--cyn);font-weight:700">'+p.ticker+'</span>'
+        +'<div style="flex:1;height:6px;background:var(--bdr)"><div style="width:'+w+'%;height:100%;background:var(--up)"></div></div>'
+        +'<span style="color:var(--up);width:60px;text-align:right">'+(p.pnl_pct>=0?'+':'')+p.pnl_pct.toFixed(2)+'%</span>'
+        +'</div>';
+    });
+    html += '</div><div>'+_rptH('UNDERPERFORMERS','var(--dn)');
+    sorted_pnl.slice().reverse().slice(0,3).filter(function(p){return p.pnl_pct<0;}).forEach(function(p){
+      var w = Math.min(Math.abs(p.pnl_pct),100).toFixed(0);
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+        +'<span style="width:52px;color:var(--cyn);font-weight:700">'+p.ticker+'</span>'
+        +'<div style="flex:1;height:6px;background:var(--bdr)"><div style="width:'+w+'%;height:100%;background:var(--dn)"></div></div>'
+        +'<span style="color:var(--dn);width:60px;text-align:right">'+p.pnl_pct.toFixed(2)+'%</span>'
+        +'</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── RISK METRICS ─────────────────────────────────────────────────────────────
+  if(_rptSec('rpt-risk')){
+    html += _rptH('RISK METRICS');
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+    html += '<div>';
+    html += _rptKV('HHI (Concentration Index)', s.hhi.toFixed(0)+' / 10000', s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)');
+    html += _rptKV('Concentration Level', s.concentration, s.concentration==='HIGH'?'var(--dn)':'var(--up)');
+    html += _rptKV('Cash Buffer', s.cash_pct ? s.cash_pct.toFixed(1)+'%' : '$'+fk(d.cash));
+    var bigPos = d.positions.slice().sort(function(a,b){return b.weight_pct-a.weight_pct;})[0];
+    if(bigPos) html += _rptKV('Largest Position', bigPos.ticker+' ('+bigPos.weight_pct.toFixed(1)+'%)');
+    var worstPos = d.positions.slice().sort(function(a,b){return a.pnl_pct-b.pnl_pct;})[0];
+    if(worstPos) html += _rptKV('Worst P&L', worstPos.ticker+' ('+worstPos.pnl_pct.toFixed(2)+'%)', 'var(--dn)');
+    html += '</div><div>';
+    var withVol = d.positions.filter(function(p){return p.ann_vol!=null;});
+    var withShr = d.positions.filter(function(p){return p.sharpe!=null;});
+    if(withVol.length){
+      var avgV = withVol.reduce(function(a,p){return a+p.ann_vol;},0)/withVol.length;
+      var maxV = Math.max.apply(null,withVol.map(function(p){return p.ann_vol;}));
+      html += _rptKV('Avg Annualised Volatility', avgV.toFixed(1)+'%', 'var(--yel)');
+      html += _rptKV('Highest Vol Position', withVol.find(function(p){return p.ann_vol===maxV;}).ticker+' ('+maxV.toFixed(1)+'%)', 'var(--yel)');
+    }
+    if(withShr.length){
+      var avgS = withShr.reduce(function(a,p){return a+p.sharpe;},0)/withShr.length;
+      html += _rptKV('Avg Sharpe Ratio', avgS.toFixed(2), avgS>0?'var(--up)':'var(--dn)');
+    }
+    html += '</div></div>';
+    // Risk flags table
+    var flags = [];
+    if(s.concentration==='HIGH') flags.push({sev:'HIGH',title:'Concentrated Portfolio',detail:'HHI '+s.hhi.toFixed(0)+' — consider diversifying across more positions.'});
+    d.positions.forEach(function(p){
+      if(p.weight_pct>30) flags.push({sev:'HIGH',title:'Overweight: '+p.ticker,detail:p.weight_pct.toFixed(1)+'% of portfolio in a single position.'});
+      if(p.pnl_pct<-20) flags.push({sev:'HIGH',title:'Large Drawdown: '+p.ticker,detail:p.pnl_pct.toFixed(2)+'% below entry cost. Review stop-loss.'});
+    });
+    if(s.cash_pct<5 && d.positions.length>0) flags.push({sev:'MED',title:'Low Cash Buffer',detail:'Cash is below 5% of AUM. Limited flexibility for new opportunities.'});
+    if(flags.length){
+      html += _rptH('RISK FLAGS','var(--dn)');
+      html += _rptTable(['SEV','FLAG','DETAIL'], flags.map(function(fl){
+        return [{v:fl.sev,c:fl.sev==='HIGH'?'var(--dn)':'var(--yel)'}, {v:fl.title,c:'var(--wht)'}, fl.detail];
+      }), ['left','left','left']);
+    }
+  }
+
+  // ── ALLOCATION BREAKDOWN ─────────────────────────────────────────────────────
+  if(_rptSec('rpt-allocation')){
+    html += _rptH('ALLOCATION BREAKDOWN');
+    var allRows = d.positions.slice().sort(function(a,b){return b.weight_pct-a.weight_pct;}).map(function(p){
+      var barW = p.weight_pct.toFixed(1);
+      var bar = '<div style="display:flex;align-items:center;gap:6px">'
+        +'<div style="width:120px;height:5px;background:var(--bdr)"><div style="width:'+barW+'%;height:100%;background:var(--org)"></div></div>'
+        +'<span>'+barW+'%</span></div>';
+      return [{v:p.ticker,c:'var(--cyn)'}, '$'+fk(p.market_value), bar, '$'+fk(p.cost), (p.pnl>=0?'+':'')+'$'+f(p.pnl,2)];
+    });
+    // Add cash row
+    if(d.cash>0){
+      var cashPct = s.total_with_cash>0?(d.cash/s.total_with_cash*100).toFixed(1):'0';
+      var cBar = '<div style="display:flex;align-items:center;gap:6px"><div style="width:120px;height:5px;background:var(--bdr)"><div style="width:'+cashPct+'%;height:100%;background:var(--cyn)"></div></div><span>'+cashPct+'%</span></div>';
+      allRows.push([{v:'CASH',c:'var(--cyn)'},'$'+fk(d.cash),cBar,'—','—']);
+    }
+    html += _rptTable(['POSITION','MARKET VALUE','ALLOCATION','COST BASIS','UNREALISED P&L'],
+      allRows, ['left','right','left','right','right']);
+  }
+
+  // ── PER-POSITION ANALYTICS ───────────────────────────────────────────────────
+  if(_rptSec('rpt-individual')){
+    html += _rptH('PER-POSITION ANALYTICS');
+    var analRows = d.positions.map(function(p){
+      return [
+        {v:p.ticker,c:'var(--cyn)'},
+        {v:p.ann_vol!=null?p.ann_vol.toFixed(1)+'%':'—', c:p.ann_vol>80?'var(--dn)':p.ann_vol>40?'var(--yel)':'var(--up)'},
+        {v:p.sharpe!=null?p.sharpe.toFixed(2):'—', c:p.sharpe>1?'var(--up)':p.sharpe>0?'var(--yel)':'var(--dn)'},
+        {v:p.sortino!=null?p.sortino.toFixed(2):'—'},
+        {v:p.max_dd!=null?p.max_dd.toFixed(2)+'%':'—', c:'var(--dn)'},
+        p.weight_pct.toFixed(1)+'%'
+      ];
+    });
+    html += _rptTable(['TICKER','ANN VOL','SHARPE','SORTINO','MAX DD','WEIGHT'],
+      analRows, ['left','right','right','right','right','right']);
+    html += '<div style="font-size:9px;color:var(--txt3);margin-top:4px">Metrics computed from 30–90 day price history. — indicates insufficient data.</div>';
+  }
+
+  // ── CASH ACTIVITY LOG ────────────────────────────────────────────────────────
+  if(_rptSec('rpt-cashlog') && d.cash_log && d.cash_log.length){
+    html += _rptH('CASH ACTIVITY LOG');
+    var cashRows = d.cash_log.slice().reverse().map(function(e){
+      var amt = e.amount>=0?'+$'+f(e.amount,2):'-$'+f(Math.abs(e.amount),2);
+      return [
+        new Date(e.ts).toLocaleDateString('en-GB'),
+        {v:amt, c:e.amount>=0?'var(--up)':'var(--dn)'},
+        '$'+f(e.balance_after||0,2),
+        e.note||'—'
+      ];
+    });
+    html += _rptTable(['DATE','AMOUNT','BALANCE AFTER','NOTE'],
+      cashRows, ['left','right','right','left']);
+  }
+
+  // ── PORTFOLIO NOTES ──────────────────────────────────────────────────────────
+  if(_rptSec('rpt-notes') && d.notes){
+    html += _rptH('PORTFOLIO NOTES');
+    html += '<div style="background:var(--bg3);padding:12px;color:var(--txt2);line-height:1.7">'+d.notes+'</div>';
+  }
+
+  // ── RISK FLAGS ───────────────────────────────────────────────────────────────
+  if(_rptSec('rpt-flags')){
+    // Already included in risk section above — skip duplicate
+  }
+
+  // ── DISCLAIMER ───────────────────────────────────────────────────────────────
+  if(_rptSec('rpt-disclaimer')){
+    html += '<div style="margin-top:32px;padding-top:16px;border-top:1px solid var(--bdr);font-size:9px;color:var(--txt3);line-height:1.6">'
+      +'<div style="font-weight:700;margin-bottom:4px;letter-spacing:1px">DISCLAIMER</div>'
+      +'This report is provided for informational purposes only and does not constitute investment advice, a solicitation, or an offer to buy or sell any financial instrument. '
+      +'Past performance is not indicative of future results. All figures are based on data available at the time of report generation and may not reflect real-time market conditions. '
+      +'The HHI, Sharpe Ratio, and Volatility metrics are computed from historical price data and should be used as one of many tools in investment decision-making. '
+      +'</div>';
+  }
+
+  html += '<div style="margin-top:24px;padding-top:8px;border-top:1px solid var(--bdr);font-size:9px;color:var(--txt3);text-align:right">'
+    +'Generated by '+firm+' · '+date+'</div>';
+  html += '</div>';
+
+  el.innerHTML = html;
 };
 
 window.printReport = function(){
-  const content=document.getElementById('epf-report-body').innerHTML;
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Portfolio Report</title><style>body{background:#111;color:#bbb;font-family:'Courier New',monospace;padding:30px}*{box-sizing:border-box}</style></head><body>${content}</body></html>`);
-  w.document.close();
-  w.print();
+  var content = document.getElementById('epf-report-body');
+  if(!content){ alert('Generate the report first.'); return; }
+  var w = window.open('','_blank');
+  w.document.write('<html><head><title>Portfolio Report</title><style>'
+    +'body{background:#111;color:#bbb;font-family:"Courier New",monospace;padding:30px;font-size:11px;line-height:1.7}'
+    +'table{width:100%;border-collapse:collapse} th,td{padding:4px 6px}'
+    +'@media print{body{background:#fff;color:#000}}'
+    +'</style></head><body>'+content.innerHTML+'</body></html>');
+  w.document.close(); w.print();
+};
+
+window.exportReportCSV = function(){
+  if(!_pfData){ alert('No portfolio data.'); return; }
+  var d=_pfData;
+  var lines = [
+    'PORTFOLIO REPORT - '+d.name+' - '+new Date().toLocaleDateString('en-GB'),
+    '',
+    'CLIENT,'+d.client,
+    'PORTFOLIO,'+d.name,
+    'MARKET VALUE,$'+d.summary.total_value,
+    'CASH,$'+d.cash,
+    'TOTAL AUM,$'+d.summary.total_with_cash,
+    'UNREALISED PNL,$'+d.summary.total_pnl,
+    'RETURN,%'+d.summary.total_pnl_pct,
+    'HHI,'+d.summary.hhi,
+    '',
+    'HOLDINGS',
+    'TICKER,QTY,ENTRY PRICE,LIVE PRICE,MARKET VALUE,PNL,PNL%,WEIGHT%,ANN VOL%,SHARPE,ENTRY DATE'
+  ];
+  d.positions.forEach(function(p){
+    lines.push([
+      p.ticker, p.qty, p.entry_price,
+      p.live_price!=null?p.live_price:'',
+      p.market_value, p.pnl, p.pnl_pct, p.weight_pct,
+      p.ann_vol!=null?p.ann_vol:'', p.sharpe!=null?p.sharpe:'',
+      p.entry_date||''
+    ].join(','));
+  });
+  if(d.cash_log && d.cash_log.length){
+    lines.push('','CASH LOG','DATE,AMOUNT,BALANCE AFTER,NOTE');
+    d.cash_log.forEach(function(e){
+      lines.push([new Date(e.ts).toLocaleDateString('en-GB'),e.amount,e.balance_after||0,(e.note||'').replace(/,/g,';')].join(','));
+    });
+  }
+  var csv = lines.join('\n');
+  var blob = new Blob([csv], {type:'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = (d.name||'portfolio').replace(/\s+/g,'_')+'_report.csv'; a.click();
 };
 
 // ── Cash log ──────────────────────────────────────────────────────────────────
