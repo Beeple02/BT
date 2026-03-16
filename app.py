@@ -1696,13 +1696,19 @@ def ent_portfolio_analytics(pf_id):
         pnl       = mkt_value - cost
         pnl_pct   = (pnl/cost*100) if cost > 0 else 0
 
-        # 30d risk metrics
-        cs    = D.fetch_candles(ticker, 30, atlas_get)
-        vol   = None; shr = None; sor = None; mdd = None
-        if len(cs) >= 5:
+        # Risk metrics — try 30d first, fall back to 90d, then use entry vs live for delisted
+        cs = D.fetch_candles(ticker, 30, atlas_get)
+        if len(cs) < 2:
+            cs = D.fetch_candles(ticker, 90, atlas_get)
+        vol = None; shr = None; sor = None; mdd = None
+        if len(cs) >= 2:
             cl  = [c["close"] for c in cs]
             vol = Q.ann_vol(cl); shr = Q.sharpe(cl)
             sor = Q.sortino(cl); mdd = Q.max_drawdown(cl)
+        elif live_px and entry_price and entry_price > 0:
+            # Delisted or no history — synthesise from entry vs live
+            pnl_r = (live_px - entry_price) / entry_price
+            mdd   = round(max(0, -pnl_r) * 100, 2)
 
         total_cost  += cost
         total_value += mkt_value
