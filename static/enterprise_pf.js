@@ -387,18 +387,6 @@ window.adjustCash = async function(){
   await ENT_PF_refresh();
   epfTab('cashlog');
 };
-window.adjustCash = async function(){
-  const amount=parseFloat(document.getElementById('cm-amount').value);
-  const note=document.getElementById('cm-note').value;
-  if(isNaN(amount)){ alert('Enter a valid amount'); return; }
-  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/cash`,{amount,note});
-  if(!r.ok){ alert('Error updating cash'); return; }
-  hideCashModal();
-  document.getElementById('cm-amount').value='';
-  document.getElementById('cm-note').value='';
-  await ENT_PF_refresh();
-  epfTab('cashlog');
-};
 
 // ── Close position mode ───────────────────────────────────────────────────────
 window.toggleCloseMode = function(val){
@@ -406,30 +394,20 @@ window.toggleCloseMode = function(val){
   const closeFields = document.getElementById('close-pos-fields');
   const addBtn = document.getElementById('add-pos-btn');
   const normalFields = ['apm-ticker','apm-qty','apm-price','apm-date'];
-
   if(closeFields) closeFields.style.display = isClose ? 'block' : 'none';
-  if(addBtn) addBtn.textContent = isClose ? 'CLOSE POSITION →' : 'ADD POSITION →';
-
-  // Hide/show normal fields that don't apply to close
-  normalFields.forEach(id => {
+  if(addBtn) addBtn.textContent = isClose ? 'CLOSE POSITION \u2192' : 'ADD POSITION \u2192';
+  normalFields.forEach(function(id){
     const el = document.getElementById(id);
-    if(el){
-      const row = el.closest('.prow');
-      if(row) row.style.display = isClose ? 'none' : 'flex';
-    }
+    if(el){ const row = el.closest('.prow'); if(row) row.style.display = isClose ? 'none' : 'flex'; }
   });
-
   if(isClose){
-    // Populate position selector with open positions
     const sel = document.getElementById('close-pos-select');
     if(sel && _pfData){
       sel.innerHTML = '<option value="">— select —</option>'
-        + _pfData.positions.map(p => {
-            const lbl = p.ticker+' — '+p.qty.toLocaleString()+' shares @ $'+f(p.entry_price,4);
-            return '<option value="'+p.id+'">'+lbl+'</option>';
+        + _pfData.positions.map(function(p){
+            return '<option value="'+p.id+'">'+p.ticker+' — '+p.qty.toLocaleString()+' shares @ $'+f(p.entry_price,4)+'</option>';
           }).join('');
     }
-    // Set today's date as default
     const dateEl = document.getElementById('close-date');
     if(dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
   }
@@ -437,18 +415,12 @@ window.toggleCloseMode = function(val){
 
 window.prefillCloseFields = function(posId){
   if(!posId || !_pfData) return;
-  const pos = _pfData.positions.find(p => p.id === posId);
+  const pos = _pfData.positions.find(function(p){ return p.id === posId; });
   if(!pos) return;
-
-  // Prefill qty with full position
   const qtyEl = document.getElementById('close-qty');
   if(qtyEl) qtyEl.value = pos.qty;
-
-  // Prefill price with live price if available
   const priceEl = document.getElementById('close-price');
   if(priceEl) priceEl.value = pos.live_price != null ? pos.live_price : pos.entry_price;
-
-  // Update P&L preview
   updateClosePnlPreview();
 };
 
@@ -458,10 +430,8 @@ window.updateClosePnlPreview = function(){
   const qty   = parseFloat(document.getElementById('close-qty').value);
   const el    = document.getElementById('close-pnl-val');
   if(!el || !sel || !_pfData) return;
-
-  const pos = _pfData.positions.find(p => p.id === sel.value);
+  const pos = _pfData.positions.find(function(p){ return p.id === sel.value; });
   if(!pos || isNaN(price) || isNaN(qty)){ el.textContent = '—'; el.style.color = 'var(--txt2)'; return; }
-
   const pnl = (price - pos.entry_price) * qty;
   el.textContent = (pnl >= 0 ? '+' : '') + '$' + f(pnl, 2);
   el.style.color = pnl >= 0 ? 'var(--up)' : 'var(--dn)';
@@ -469,79 +439,62 @@ window.updateClosePnlPreview = function(){
 
 window.addPosition = async function(){
   const type = document.getElementById('apm-type').value;
-
   if(type === 'close'){
-    // ── Close flow ──────────────────────────────────────────────────────────
     const posId      = document.getElementById('close-pos-select').value;
     const closePrice = parseFloat(document.getElementById('close-price').value);
     const closeQty   = parseFloat(document.getElementById('close-qty').value)||null;
     const closeDate  = document.getElementById('close-date').value;
     const notes      = document.getElementById('apm-notes').value;
-
     if(!posId){ alert('Select a position to close.'); return; }
     if(!closePrice || closePrice <= 0){ alert('Enter a valid close price.'); return; }
-
-    const pos = _pfData && _pfData.positions.find(p => p.id === posId);
+    const pos = _pfData && _pfData.positions.find(function(p){ return p.id === posId; });
     const ticker = pos ? pos.ticker : '?';
-
-    const body = {close_price: closePrice, close_date: closeDate, notes};
+    const body = {close_price: closePrice, close_date: closeDate, notes: notes};
     if(closeQty) body.close_qty = closeQty;
-
-    const r = await apiPost(`/api/enterprise/portfolios/${_pfid}/positions/${posId}/close`, body);
+    const r = await apiPost('/api/enterprise/portfolios/'+_pfid+'/positions/'+posId+'/close', body);
     if(!r.ok){ alert('Error closing position: '+(r.d.detail||'unknown')); return; }
-
     hideAddPosModal();
-    // Reset modal
     document.getElementById('apm-type').value = 'long';
     toggleCloseMode('long');
-    document.getElementById('close-qty').value = '';
-    document.getElementById('close-price').value = '';
     document.getElementById('apm-notes').value = '';
-
     await ENT_PF_refresh();
     epfTab('positions');
-
-    // Show summary in status bar
     const pnl = r.d.realised_pnl;
     const bar = document.getElementById('cmd-st');
     if(bar){
-      bar.textContent = (r.d.removed ? 'CLOSED ' : 'PARTIAL CLOSE ') + ticker
-        + ' | PnL: ' + (pnl>=0?'+':'') + '$' + f(pnl,2);
+      bar.textContent = (r.d.removed ? 'CLOSED ' : 'PARTIAL CLOSE ') + ticker + ' | PnL: ' + (pnl>=0?'+':'') + '$' + f(pnl,2);
       bar.style.color = pnl>=0 ? 'var(--up)' : 'var(--dn)';
-      setTimeout(()=>{ bar.textContent='ENTERPRISE SPACE'; bar.style.color='var(--txt3)'; }, 4000);
+      setTimeout(function(){ bar.textContent='ENTERPRISE SPACE'; bar.style.color='var(--txt3)'; }, 4000);
     }
     return;
   }
-
-  // ── Normal add flow ────────────────────────────────────────────────────────
   const ticker=(document.getElementById('apm-ticker').value||'').trim().toUpperCase();
   const qty=parseFloat(document.getElementById('apm-qty').value)||0;
   const price=parseFloat(document.getElementById('apm-price').value)||0;
   const date=document.getElementById('apm-date').value;
   const notes=document.getElementById('apm-notes').value;
   if(!ticker||!qty||!price){ alert('Ticker, quantity and entry price are required.'); return; }
-  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/positions`,{ticker,qty,entry_price:price,entry_date:date,notes,type});
+  const r=await apiPost('/api/enterprise/portfolios/'+_pfid+'/positions',{ticker:ticker,qty:qty,entry_price:price,entry_date:date,notes:notes,type:type});
   if(!r.ok){ alert('Error adding position'); return; }
   hideAddPosModal();
-  ['apm-ticker','apm-qty','apm-price','apm-notes'].forEach(id=>document.getElementById(id).value='');
+  ['apm-ticker','apm-qty','apm-price','apm-notes'].forEach(function(id){ document.getElementById(id).value=''; });
   await ENT_PF_refresh();
   epfTab('positions');
 };
 
 window.removePosition = async function(posId, ticker){
   if(!confirm('Remove '+ticker+' from portfolio?')) return;
-  await api(`/api/enterprise/portfolios/${_pfid}/positions/${posId}`,{method:'DELETE'});
+  await api('/api/enterprise/portfolios/'+_pfid+'/positions/'+posId,{method:'DELETE'});
   await ENT_PF_refresh();
 };
 
 // ── Import portfolio ──────────────────────────────────────────────────────────
-let _importParsed = [];
+var _importParsed = [];
 
 window.showImportModal = function(){
   const m = document.getElementById('import-modal');
   if(!m) return;
   if(m.parentElement !== document.body) document.body.appendChild(m);
-  // Reset state
   document.getElementById('import-raw').value = '';
   document.getElementById('import-preview').style.display = 'none';
   document.getElementById('import-status').style.display = 'none';
@@ -559,100 +512,66 @@ window.hideImportModal = function(){
 window.previewImport = function(){
   const raw = (document.getElementById('import-raw').value || '').trim();
   if(!raw){ alert('Paste the NER portfolio table first.'); return; }
-
-  // Parse the ASCII table client-side for preview
   _importParsed = [];
-  const lines = raw.split('
-');
-  for(const line of lines){
-    const trimmed = line.trim();
+  const lines = raw.split('\n');
+  for(var i=0; i<lines.length; i++){
+    const trimmed = lines[i].trim();
     if(!trimmed.startsWith('|')) continue;
-    const parts = trimmed.split('|').map(p => p.trim()).filter(p => p);
+    const parts = trimmed.split('|').map(function(p){ return p.trim(); }).filter(function(p){ return p.length>0; });
     if(parts.length < 3) continue;
     const ticker = parts[0].toUpperCase();
-    if(['TICKER','---',''].includes(ticker) || ticker.startsWith('-') || ticker.startsWith('+')) continue;
+    if(ticker === 'TICKER' || ticker === '---' || ticker === '' || ticker.startsWith('-') || ticker.startsWith('+')) continue;
     const qty = parseFloat(parts[1].replace(/,/g,''));
     const avgCost = parseFloat(parts[2].replace(/[$,]/g,'').trim());
     if(isNaN(qty) || isNaN(avgCost) || qty <= 0 || avgCost <= 0) continue;
-    _importParsed.push({ ticker, qty, entry_price: avgCost });
+    _importParsed.push({ticker: ticker, qty: qty, entry_price: avgCost});
   }
-
   if(_importParsed.length === 0){
     const st = document.getElementById('import-status');
-    st.style.display = 'block';
-    st.style.color = 'var(--dn)';
+    st.style.display = 'block'; st.style.color = 'var(--dn)';
     st.textContent = 'Could not parse any positions. Check the format.';
     return;
   }
-
-  // Check for duplicates
-  const existing = new Set((_pfData ? _pfData.positions : []).map(p => p.ticker));
-  const dupes = _importParsed.filter(p => existing.has(p.ticker));
-
-  // Render preview table
-  const previewEl = document.getElementById('import-preview');
+  const existing = new Set((_pfData ? _pfData.positions : []).map(function(p){ return p.ticker; }));
+  const dupes = _importParsed.filter(function(p){ return existing.has(p.ticker); });
   const rowsEl = document.getElementById('import-preview-rows');
-  const rows = _importParsed.map(p => {
+  rowsEl.innerHTML = _importParsed.map(function(p){
     const isDupe = existing.has(p.ticker);
     const style = isDupe ? 'color:var(--txt3);text-decoration:line-through' : 'color:var(--wht)';
-    const tag = isDupe ? ' <span style="color:var(--yel);font-size:8px">SKIP (exists)</span>' : '';
-    return '<div style="'+style+';padding:2px 0">'
-      + p.ticker.padEnd(8) + '  '
-      + String(p.qty).padStart(6) + '  @ $'
-      + f(p.entry_price,4)
-      + tag + '</div>';
+    const tag = isDupe ? ' <span style="color:var(--yel);font-size:8px">SKIP</span>' : '';
+    return '<div style="'+style+';padding:2px 0">'+p.ticker.padEnd(8)+'  '+String(p.qty).padStart(6)+'  @ $'+f(p.entry_price,4)+tag+'</div>';
   }).join('');
-
-  rowsEl.innerHTML = rows;
-  previewEl.style.display = 'block';
-
-  const toImport = _importParsed.filter(p => !existing.has(p.ticker));
+  document.getElementById('import-preview').style.display = 'block';
+  const toImport = _importParsed.filter(function(p){ return !existing.has(p.ticker); });
   const st = document.getElementById('import-status');
   st.style.display = 'block';
   st.style.color = toImport.length > 0 ? 'var(--up)' : 'var(--yel)';
   st.textContent = toImport.length + ' position' + (toImport.length===1?'':'s') + ' to import'
     + (dupes.length > 0 ? ', ' + dupes.length + ' skipped (already exist)' : '');
-
   const btn = document.getElementById('import-confirm-btn');
   if(btn) btn.style.display = toImport.length > 0 ? 'inline-block' : 'none';
 };
 
 window.confirmImport = async function(){
   if(!_importParsed.length){ alert('Nothing to import.'); return; }
-
   const btn = document.getElementById('import-confirm-btn');
-  if(btn){ btn.disabled = true; btn.textContent = 'IMPORTING…'; }
-
+  if(btn){ btn.disabled = true; btn.textContent = 'IMPORTING\u2026'; }
   const r = await apiPost('/api/enterprise/portfolios/'+_pfid+'/import', {
-    positions: _importParsed.map(p => ({
-      ticker:      p.ticker,
-      qty:         p.qty,
-      entry_price: p.entry_price,
-      entry_date:  '',
-      notes:       'Imported from NER terminal',
-      type:        'long'
-    }))
+    positions: _importParsed.map(function(p){
+      return {ticker:p.ticker, qty:p.qty, entry_price:p.entry_price, entry_date:'', notes:'Imported from NER terminal', type:'long'};
+    })
   });
-
-  if(btn){ btn.disabled = false; btn.textContent = 'CONFIRM IMPORT →'; }
-
-  if(!r.ok){
-    alert('Import failed: ' + (r.d.detail||'unknown error'));
-    return;
-  }
-
+  if(btn){ btn.disabled = false; btn.textContent = 'CONFIRM IMPORT \u2192'; }
+  if(!r.ok){ alert('Import failed: '+(r.d.detail||'unknown error')); return; }
   hideImportModal();
   await ENT_PF_refresh();
   epfTab('positions');
-
-  // Status bar confirmation
   const bar = document.getElementById('cmd-st');
   if(bar){
-    bar.textContent = 'Imported ' + r.d.imported + ' positions'
+    bar.textContent = 'Imported ' + r.d.imported + ' position' + (r.d.imported===1?'':'s')
       + (r.d.skipped > 0 ? ' (' + r.d.skipped + ' skipped)' : '');
     bar.style.color = 'var(--up)';
-    setTimeout(() => { bar.textContent = 'ENTERPRISE SPACE'; bar.style.color = 'var(--txt3)'; }, 4000);
+    setTimeout(function(){ bar.textContent='ENTERPRISE SPACE'; bar.style.color='var(--txt3)'; }, 4000);
   }
 };
-
 })();
