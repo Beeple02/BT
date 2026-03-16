@@ -17,7 +17,7 @@ import enterprise_store as ES  # portfolio persistence
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _TMPL_DIR  = os.path.join(_BASE_DIR, "templates")
 _STAT_DIR  = os.path.join(_BASE_DIR, "static")
-print(f"[NER Terminal v3.1] Base dir : {_BASE_DIR}")
+print(f"[NER Terminal] Base dir : {_BASE_DIR}")
 print(f"[NER Terminal] Templates: {_TMPL_DIR}  exists={os.path.isdir(_TMPL_DIR)}")
 print(f"[NER Terminal] Static   : {_STAT_DIR}  exists={os.path.isdir(_STAT_DIR)}")
 
@@ -1485,11 +1485,11 @@ def index(): return render_template("terminal.html")
 def enterprise():
     return render_template("enterprise/shell.html")
 
-@app.route("/enterprise/page/<page_name>")
-def enterprise_page(page_name):
+@app.route("/enterprise/page/<name>")
+def enterprise_page(n):
     allowed = ["portfolio", "dashboard"]
-    if page_name not in allowed: return "Not found", 404
-    return render_template(f"enterprise/{page_name}.html")
+    if n not in allowed: return "Not found", 404
+    return render_template(f"enterprise/{n}.html")
 
 @app.route("/page/<n>")
 def page(n):
@@ -1548,6 +1548,59 @@ def ent_update_position(pf_id, pos_id):
     pos  = ES.update_position(pf_id, pos_id, body)
     if pos is None: return jsonify({"detail": "Not found"}), 404
     return jsonify(pos), 200
+
+@app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>/close", methods=["POST"])
+def ent_close_position(pf_id, pos_id):
+    """
+    Close all or part of a position.
+    body: {close_price, close_qty, close_date, notes}
+    Records realised P&L in cash_log, reduces qty (removes if fully closed).
+    """
+    from datetime import datetime as _dt2, timezone as _tz2
+    body        = request.get_json(silent=True) or {}
+    close_price = float(body.get("close_price") or 0)
+    close_date  = body.get("close_date") or _dt2.now(_tz2.utc).strftime("%Y-%m-%d")
+    close_notes = body.get("notes") or ""
+
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Portfolio not found"}), 404
+    pos = next((p for p in pf.get("positions", []) if p["id"] == pos_id), None)
+    if not pos: return jsonify({"detail": "Position not found"}), 404
+
+    entry_price = float(pos.get("entry_price") or 0)
+    open_qty    = float(pos.get("qty") or 0)
+    close_qty   = float(body.get("close_qty") or open_qty)  # default: full close
+    close_qty   = min(close_qty, open_qty)  # can't close more than held
+
+    realised_pnl   = (close_price - entry_price) * close_qty
+    proceeds       = close_price * close_qty
+    remaining_qty  = open_qty - close_qty
+
+    # Add proceeds to cash
+    note = f"Close {pos['ticker']} {int(close_qty)}@{close_price:.4f} | PnL {'+' if realised_pnl>=0 else ''}{realised_pnl:.2f}"
+    if close_notes: note += f" | {close_notes}"
+    ES.adjust_cash(pf_id, proceeds, note)
+
+    # Record close event in position history
+    if "closes" not in pos: pos["closes"] = []
+    pos["closes"].append({
+        "close_price": close_price,
+        "close_qty":   close_qty,
+        "close_date":  close_date,
+        "realised_pnl": round(realised_pnl, 2),
+        "proceeds":    round(proceeds, 2),
+        "notes":       close_notes,
+        "ts":          _dt2.now(_tz2.utc).isoformat()
+    })
+
+    if remaining_qty <= 0:
+        # Fully closed — remove position
+        ES.remove_position(pf_id, pos_id)
+        return jsonify({"status": "closed", "realised_pnl": round(realised_pnl,2), "removed": True}), 200
+    else:
+        # Partial close — reduce qty
+        ES.update_position(pf_id, pos_id, {"qty": remaining_qty, "closes": pos["closes"]})
+        return jsonify({"status": "partial", "remaining_qty": remaining_qty, "realised_pnl": round(realised_pnl,2), "removed": False}), 200
 
 @app.route("/api/enterprise/portfolios/<pf_id>/cash", methods=["POST"])
 def ent_cash_adjustment(pf_id):
