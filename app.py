@@ -1849,6 +1849,309 @@ def ent_portfolio_full_analytics(pf_id):
     }), 200
 
 
+@app.route("/api/enterprise/portfolios/<pf_id>/deep_analytics")
+def ent_deep_analytics(pf_id):
+    """
+    Full deep analytics: VaR, CVaR, correlation matrix, attribution,
+    portfolio-level TWR, MWR/IRR, monthly returns, beta, rolling Sharpe,
+    stress tests, and realized P&L from closed positions.
+    """
+    from datetime import datetime as _dt3, timezone as _tz3
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Portfolio not found"}), 404
+
+    positions = pf.get("positions", [])
+    days      = int(request.args.get("days", 90))
+
+    # ── Price history for all positions ──────────────────────────────────────
+    closes_map = {}
+    dates_map  = {}
+    for pos in positions:
+        cs = D.fetch_candles(pos["ticker"], days, atlas_get)
+        if len(cs) < 2:
+            cs = D.fetch_candles(pos["ticker"], 180, atlas_get)
+        if len(cs) >= 2:
+            closes_map[pos["ticker"]] = [c["close"] for c in cs]
+            dates_map[pos["ticker"]]  = [c["date"]  for c in cs]
+
+    # ── Value-weighted weights ────────────────────────────────────────────────
+    total_val = sum(
+        float(p.get("qty",0)) * (D.fetch_live_price(p["ticker"], atlas_get) or float(p.get("entry_price",0)))
+        for p in positions
+    )
+    weights = {}
+    for p in positions:
+        t = p["ticker"]
+        live = D.fetch_live_price(t, atlas_get) or float(p.get("entry_price",0))
+        val  = float(p.get("qty",0)) * live
+        weights[t] = val / total_val if total_val > 0 else 0
+
+    # ── Align closes ─────────────────────────────────────────────────────────
+    tickers = list(closes_map.keys())
+    if not tickers:
+        return jsonify({"detail": "No price history available"}), 200
+
+    min_len = min(len(v) for v in closes_map.values())
+    aligned = {t: closes_map[t][-min_len:] for t in tickers}
+
+    # ── Portfolio daily returns ───────────────────────────────────────────────
+    port_rets = []
+    for i in range(1, min_len):
+        day = sum(
+            weights.get(t, 0) * (aligned[t][i] - aligned[t][i-1]) / aligned[t][i-1]
+            for t in tickers if aligned[t][i-1] > 0
+        )
+        port_rets.append(round(day, 6))
+
+    # ── Portfolio equity curve ────────────────────────────────────────────────
+    port_closes = [10000.0]
+    for r in port_rets: port_closes.append(round(port_closes[-1] * (1 + r), 4))
+
+    # ── VaR / CVaR ───────────────────────────────────────────────────────────
+    var95  = round(Q.var_hist(port_rets, 0.95) * 100, 3) if port_rets else None
+    cvar95 = round(Q.cvar_hist(port_rets, 0.95) * 100, 3) if port_rets else None
+    var99  = round(Q.var_hist(port_rets, 0.99) * 100, 3) if len(port_rets) >= 20 else None
+
+    # ── Rolling Sharpe (20-day window) ────────────────────────────────────────
+    rolling_sharpe = []
+    WINDOW = 20
+    for i in range(WINDOW, len(port_rets) + 1):
+        window_rets = port_rets[i - WINDOW:i]
+        rolling_sharpe.append(round(Q.sharpe(
+            [10000 * (1 + r) for r in window_rets]
+        ), 3))
+
+    # ── Monthly returns table ─────────────────────────────────────────────────
+    # Build from portfolio returns using dates of the first ticker
+    ref_dates = dates_map.get(tickers[0], [])[-min_len:] if tickers else []
+    monthly = {}
+    for i, r in enumerate(port_rets):
+        if i < len(ref_dates):
+            ym = ref_dates[i + 1][:7] if i + 1 < len(ref_dates) else ""
+            if ym:
+                monthly[ym] = monthly.get(ym, 0) + r
+    monthly_list = [{"month": k, "return_pct": round(v * 100, 2)} for k, v in sorted(monthly.items())]
+
+    # ── Correlation matrix ────────────────────────────────────────────────────
+    rets_map = {t: [(aligned[t][i] - aligned[t][i-1]) / aligned[t][i-1]
+                    for i in range(1, len(aligned[t])) if aligned[t][i-1] > 0]
+                for t in tickers}
+    corr = {}
+    for t1 in tickers:
+        corr[t1] = {}
+        for t2 in tickers:
+            if t1 == t2: corr[t1][t2] = 1.0; continue
+            a, b = rets_map[t1], rets_map[t2]
+            n = min(len(a), len(b)); a, b = a[:n], b[:n]
+            if n < 2: corr[t1][t2] = 0; continue
+            am, bm = sum(a)/n, sum(b)/n
+            num = sum((a[i]-am)*(b[i]-bm) for i in range(n))
+            da  = (sum((x-am)**2 for x in a))**0.5
+            db  = (sum((x-bm)**2 for x in b))**0.5
+            corr[t1][t2] = round(num / da / db, 4) if da * db > 0 else 0
+
+    # ── Attribution (Brinson-style) ───────────────────────────────────────────
+    attribution = []
+    for t in tickers:
+        cl = aligned[t]
+        if len(cl) < 2 or not cl[0]: continue
+        ret  = (cl[-1] - cl[0]) / cl[0] * 100
+        cont = round(weights.get(t, 0) * ret, 3)
+        attribution.append({
+            "ticker": t,
+            "return_pct":      round(ret, 2),
+            "weight_pct":      round(weights.get(t, 0) * 100, 2),
+            "contribution_pct": cont,
+            "ann_vol":         round(Q.ann_vol(cl), 2),
+            "sharpe":          round(Q.sharpe(cl), 3),
+        })
+    attribution.sort(key=lambda x: x["contribution_pct"], reverse=True)
+
+    # ── Stress tests ─────────────────────────────────────────────────────────
+    stress_scenarios = [
+        {"name": "-10% market", "shocks": {t: -0.10 for t in tickers}},
+        {"name": "-20% market", "shocks": {t: -0.20 for t in tickers}},
+        {"name": "-30% crash",  "shocks": {t: -0.30 for t in tickers}},
+        {"name": "+10% rally",  "shocks": {t: +0.10 for t in tickers}},
+    ]
+    # Per-ticker stress for largest positions
+    pos_sorted = sorted(positions, key=lambda p: weights.get(p["ticker"], 0), reverse=True)
+    for p in pos_sorted[:3]:
+        t = p["ticker"]
+        stress_scenarios.append({"name": t+" -20%", "shocks": {t: -0.20}})
+        stress_scenarios.append({"name": t+" -40%", "shocks": {t: -0.40}})
+
+    stress_results = []
+    for sc in stress_scenarios:
+        impact = sum(weights.get(t, 0) * sc["shocks"].get(t, 0) for t in tickers) * 100
+        stress_results.append({"name": sc["name"], "portfolio_impact_pct": round(impact, 2)})
+
+    # ── Realized P&L from closed positions ───────────────────────────────────
+    realized_pnl = 0.0
+    realized_trades = []
+    for pos in positions:
+        for close in pos.get("closes", []):
+            realized_pnl += float(close.get("realised_pnl", 0))
+            realized_trades.append({
+                "ticker":       pos["ticker"],
+                "close_price":  close.get("close_price"),
+                "close_qty":    close.get("close_qty"),
+                "close_date":   close.get("close_date", ""),
+                "realised_pnl": close.get("realised_pnl"),
+                "notes":        close.get("notes", ""),
+            })
+    realized_trades.sort(key=lambda x: x.get("close_date",""), reverse=True)
+
+    # ── TWR (Time-Weighted Return) ────────────────────────────────────────────
+    # Simplified: compound daily portfolio returns
+    twr = round((port_closes[-1] / port_closes[0] - 1) * 100, 2) if len(port_closes) > 1 else 0
+
+    # ── MWR / IRR (approximation using cash flows) ────────────────────────────
+    # Cash flows: initial investment = total cost, current value = total_val
+    total_cost = sum(float(p.get("qty",0)) * float(p.get("entry_price",0)) for p in positions)
+    mwr = round((total_val - total_cost) / total_cost * 100, 2) if total_cost > 0 else 0
+
+    return jsonify({
+        "tickers":          tickers,
+        "days":             days,
+        "n_obs":            len(port_rets),
+        "port_rets":        port_rets,
+        "port_closes":      port_closes,
+        "monthly_returns":  monthly_list,
+        "rolling_sharpe":   rolling_sharpe,
+        "var95_pct":        var95,
+        "cvar95_pct":       cvar95,
+        "var99_pct":        var99,
+        "portfolio_metrics": {
+            "sharpe":       Q.sharpe(port_closes),
+            "sortino":      Q.sortino(port_closes),
+            "calmar":       Q.calmar(port_closes),
+            "ann_vol":      Q.ann_vol(port_closes),
+            "max_drawdown": Q.max_drawdown(port_closes),
+            "twr":          twr,
+            "mwr":          mwr,
+        },
+        "attribution":      attribution,
+        "correlation":      corr,
+        "stress_tests":     stress_results,
+        "realized_pnl":     round(realized_pnl, 2),
+        "realized_trades":  realized_trades,
+    }), 200
+
+
+@app.route("/api/enterprise/portfolios/<pf_id>/benchmark")
+def ent_benchmark(pf_id):
+    """Compare portfolio performance against equal-weight NER index."""
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail":"Not found"}), 404
+    days = int(request.args.get("days", 90))
+
+    # Get all NER securities for benchmark
+    _, secs = atlas_get("/securities", ttl=120)
+    ner_tickers = [s["ticker"] for s in (secs if isinstance(secs, list) else [])
+                   if not s.get("ticker","").startswith("TSE:") and _is_active(s.get("ticker",""))][:12]
+
+    # Portfolio closes
+    positions = pf.get("positions", [])
+    pf_closes_map = {}
+    for pos in positions:
+        cs = D.fetch_candles(pos["ticker"], days, atlas_get)
+        if len(cs) >= 2:
+            pf_closes_map[pos["ticker"]] = [c["close"] for c in cs]
+
+    # Benchmark closes
+    bm_closes_map = {}
+    for t in ner_tickers[:8]:
+        cs = D.fetch_candles(t, days, atlas_get)
+        if len(cs) >= 2:
+            bm_closes_map[t] = [c["close"] for c in cs]
+
+    def _port_returns(closes_map, wts=None):
+        if not closes_map: return []
+        min_len = min(len(v) for v in closes_map.values())
+        tickers = list(closes_map.keys())
+        aligned = {t: closes_map[t][-min_len:] for t in tickers}
+        n = len(tickers)
+        rets = []
+        for i in range(1, min_len):
+            day = sum(
+                (wts.get(t, 1/n) if wts else 1/n) *
+                (aligned[t][i] - aligned[t][i-1]) / aligned[t][i-1]
+                for t in tickers if aligned[t][i-1] > 0
+            )
+            rets.append(round(day, 6))
+        return rets
+
+    # Portfolio value-weighted
+    total_val = sum(float(p.get("qty",0)) * (D.fetch_live_price(p["ticker"], atlas_get) or float(p.get("entry_price",0)))
+                    for p in positions)
+    pf_weights = {}
+    for p in positions:
+        t = p["ticker"]
+        if t in pf_closes_map:
+            live = D.fetch_live_price(t, atlas_get) or float(p.get("entry_price",0))
+            pf_weights[t] = float(p.get("qty",0)) * live / total_val if total_val > 0 else 0
+
+    pf_rets = _port_returns(pf_closes_map, pf_weights)
+    bm_rets = _port_returns(bm_closes_map)  # equal-weight
+
+    def _cum(rets):
+        v = [10000.0]
+        for r in rets: v.append(round(v[-1]*(1+r), 2))
+        return v
+
+    pf_curve = _cum(pf_rets)
+    bm_curve = _cum(bm_rets)
+
+    min_c = min(len(pf_curve), len(bm_curve))
+    pf_ret_total = round((pf_curve[-1]/10000-1)*100, 2) if pf_curve else 0
+    bm_ret_total = round((bm_curve[-1]/10000-1)*100, 2) if bm_curve else 0
+
+    # Beta
+    n = min(len(pf_rets), len(bm_rets))
+    beta = None
+    if n >= 5:
+        pr, br = pf_rets[:n], bm_rets[:n]
+        pm, bm_ = sum(pr)/n, sum(br)/n
+        cov = sum((pr[i]-pm)*(br[i]-bm_) for i in range(n))/n
+        var = sum((b-bm_)**2 for b in br)/n
+        if var > 0: beta = round(cov/var, 3)
+
+    alpha = round(pf_ret_total - (beta or 1) * bm_ret_total, 2) if beta else None
+
+    return jsonify({
+        "portfolio_curve":    pf_curve[:min_c],
+        "benchmark_curve":    bm_curve[:min_c],
+        "portfolio_return":   pf_ret_total,
+        "benchmark_return":   bm_ret_total,
+        "alpha":              alpha,
+        "beta":               beta,
+        "outperformance":     round(pf_ret_total - bm_ret_total, 2),
+        "benchmark_tickers":  list(bm_closes_map.keys()),
+        "days":               days,
+    }), 200
+
+
+@app.route("/api/enterprise/portfolios/<pf_id>/target_allocation", methods=["GET","POST"])
+def ent_target_allocation(pf_id):
+    """GET returns current target. POST saves a new target allocation."""
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Not found"}), 404
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        ES.update_portfolio_meta(pf_id, {"target_allocation": body.get("targets", {})})
+        return jsonify({"ok": True, "targets": body.get("targets", {})}), 200
+    return jsonify({"targets": pf.get("target_allocation", {})}), 200
+
+
+@app.route("/api/enterprise/portfolios/<pf_id>/audit_log")
+def ent_audit_log(pf_id):
+    """Return the full audit trail for this portfolio."""
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Not found"}), 404
+    return jsonify(pf.get("audit_log", [])), 200
+
+
 @app.route("/api/enterprise/dashboard")
 def ent_dashboard():
     """Aggregate analytics across all portfolios."""
