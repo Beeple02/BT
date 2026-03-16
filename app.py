@@ -1485,11 +1485,11 @@ def index(): return render_template("terminal.html")
 def enterprise():
     return render_template("enterprise/shell.html")
 
-@app.route("/enterprise/page/<name>")
-def enterprise_page(n):
+@app.route("/enterprise/page/<pg>")
+def enterprise_page(pg):
     allowed = ["portfolio", "dashboard"]
-    if n not in allowed: return "Not found", 404
-    return render_template(f"enterprise/{n}.html")
+    if pg not in allowed: return "Not found", 404
+    return render_template(f"enterprise/{pg}.html")
 
 @app.route("/page/<n>")
 def page(n):
