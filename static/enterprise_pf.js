@@ -1,4 +1,5 @@
 (function(){
+const _d = v => '$'+v; // dollar-prefix helper
 let _pfid = null;
 let _pfData = null;
 let _charts = {};
@@ -72,17 +73,32 @@ function renderOverview(){
     _charts.alloc=new Chart(ctx,{
       type:'doughnut',
       data:{labels,datasets:[{data:vals,backgroundColor:colors.slice(0,vals.length),borderColor:'#111',borderWidth:2}]},
-      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:9},boxWidth:8,padding:4}},tooltip:{...TT,callbacks:{label:c=>{const total=c.dataset.data.reduce((a,b)=>a+b,0);return ` ${c.label}: $${fk(c.parsed)} (${(c.parsed/total*100).toFixed(1)}%)`;}}}}}
+      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{position:'right',labels:{color:'#888',font:{size:9},boxWidth:8,padding:4}},tooltip:{...TT,callbacks:{label:c=>{const total=c.dataset.data.reduce((a,b)=>a+b,0);return ` ${c.label}: ${_d(fk(c.parsed))} (${(c.parsed/total*100).toFixed(1)}%)`;}}}}}
     });
   }
   // Position summary table
   const tbody=document.getElementById('epf-pos-summary');
-  if(tbody) tbody.innerHTML=d.positions.length===0
-    ?'<div style="padding:16px;color:var(--txt3);font-size:10px">No positions. Click + POSITION to add one.</div>'
-    :`<table class="dt" style="width:100%"><thead><tr><th>TICKER</th><th class="r">VALUE</th><th class="r">WEIGHT</th><th class="r">P&L</th></tr></thead><tbody>
-      ${d.positions.map(p=>`<tr><td style="color:var(--cyn);font-weight:700">${p.ticker}</td><td class="r">$${fk(p.market_value)}</td><td class="r">${p.weight_pct.toFixed(1)}%</td><td class="r" style="color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${fk(Math.abs(p.pnl))}</td></tr>`).join('')}
-      ${d.cash>0?`<tr style="border-top:1px solid var(--bdr2)"><td style="color:var(--cyn)">CASH</td><td class="r">$${fk(d.cash)}</td><td class="r">${(d.cash/d.summary.total_with_cash*100).toFixed(1)}%</td><td class="r" style="color:var(--txt3)">—</td></tr>`:''}
-    </tbody></table>`;
+  if(tbody){
+    if(d.positions.length===0){
+      tbody.innerHTML='<div style="padding:16px;color:var(--txt3);font-size:10px">No positions. Click + POSITION to add one.</div>';
+    } else {
+      const posRows = d.positions.map(p=>{
+        const pnlCol = p.pnl>=0?'var(--up)':'var(--dn)';
+        return '<tr><td style="color:var(--cyn);font-weight:700">'+p.ticker+'</td>'
+          +'<td class="r">$'+fk(p.market_value)+'</td>'
+          +'<td class="r">'+p.weight_pct.toFixed(1)+'%</td>'
+          +'<td class="r" style="color:'+pnlCol+'">'+(p.pnl>=0?'+':'')+'$'+fk(Math.abs(p.pnl))+'</td></tr>';
+      }).join('');
+      const cashRow = d.cash>0
+        ? '<tr style="border-top:1px solid var(--bdr2)"><td style="color:var(--cyn)">CASH</td>'
+          +'<td class="r">$'+fk(d.cash)+'</td>'
+          +'<td class="r">'+(d.cash/d.summary.total_with_cash*100).toFixed(1)+'%</td>'
+          +'<td class="r" style="color:var(--txt3)">—</td></tr>'
+        : '';
+      tbody.innerHTML='<table class="dt" style="width:100%"><thead><tr><th>TICKER</th><th class="r">VALUE</th><th class="r">WEIGHT</th><th class="r">P&L</th></tr></thead><tbody>'
+        +posRows+cashRow+'</tbody></table>';
+    }
+  }
   // P&L bars
   const barsEl=document.getElementById('epf-pnl-bars');
   if(barsEl){
@@ -94,7 +110,7 @@ function renderOverview(){
         <div style="flex:1;height:8px;background:var(--bdr);border-radius:1px">
           <div style="width:${w}%;height:100%;background:${p.pnl>=0?'var(--up)':'var(--dn)'};border-radius:1px"></div>
         </div>
-        <span style="width:70px;text-align:right;font-size:10px;color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${f(p.pnl,2)}</span>
+        <span style="width:70px;text-align:right;font-size:10px;color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}${_d(f(p.pnl,2))}</span>
         <span style="width:52px;text-align:right;font-size:9px;color:var(--txt2)">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</span>
       </div>`;
     }).join('');
@@ -110,11 +126,11 @@ function renderPositions(){
     <tr>
       <td style="color:var(--cyn);font-weight:700">${p.ticker}</td>
       <td>${p.qty.toLocaleString()}</td>
-      <td class="r">$${f(p.entry_price,4)}</td>
-      <td class="r" style="color:var(--wht)">$${p.live_price!=null?f(p.live_price,4):'—'}</td>
-      <td class="r" style="color:var(--txt2)">$${fk(p.cost)}</td>
-      <td class="r">$${fk(p.market_value)}</td>
-      <td class="r" style="color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${f(p.pnl,2)}</td>
+      <td class="r">${_d(f(p.entry_price,4))}</td>
+      <td class="r" style="color:var(--wht)">${p.live_price!=null?'$'+f(p.live_price,4):'—'}</td>
+      <td class="r" style="color:var(--txt2)">${_d(fk(p.cost))}</td>
+      <td class="r">${_d(fk(p.market_value))}</td>
+      <td class="r" style="color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}${_d(f(p.pnl,2))}</td>
       <td class="r" style="color:${p.pnl_pct>=0?'var(--up)':'var(--dn)'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</td>
       <td class="r">${p.weight_pct.toFixed(1)}%</td>
       <td class="r" style="color:var(--yel)">${p.ann_vol!=null?p.ann_vol.toFixed(1)+'%':'—'}</td>
@@ -181,7 +197,7 @@ function renderRisk(){
     <div class="sc"><div class="sc-l">CONCENTRATION</div><div class="sc-v" style="color:${s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)'}">${s.concentration}</div><div class="sc-s">HHI ${s.hhi.toFixed(0)}</div></div>
     <div class="sc"><div class="sc-l">LARGEST POSITION</div><div class="sc-v" style="color:var(--org)">${d.positions.length?d.positions.slice().sort((a,b)=>b.weight_pct-a.weight_pct)[0].ticker:'—'}</div><div class="sc-s">${d.positions.length?d.positions.slice().sort((a,b)=>b.weight_pct-a.weight_pct)[0].weight_pct.toFixed(1)+'%':''}</div></div>
     <div class="sc"><div class="sc-l">WORST P&L</div><div class="sc-v" style="color:var(--dn)">${d.positions.length?d.positions.slice().sort((a,b)=>a.pnl_pct-b.pnl_pct)[0].ticker:'—'}</div><div class="sc-s">${d.positions.length?d.positions.slice().sort((a,b)=>a.pnl_pct-b.pnl_pct)[0].pnl_pct.toFixed(2)+'%':''}</div></div>
-    <div class="sc"><div class="sc-l">CASH BUFFER</div><div class="sc-v" style="color:var(--cyn)">${s.total_with_cash>0?(d.cash/s.total_with_cash*100).toFixed(1)+'%':'—'}</div><div class="sc-s">$${fk(d.cash)}</div></div>`;
+    <div class="sc"><div class="sc-l">CASH BUFFER</div><div class="sc-v" style="color:var(--cyn)">${s.total_with_cash>0?(d.cash/s.total_with_cash*100).toFixed(1)+'%':'—'}</div><div class="sc-s">${_d(fk(d.cash))}</div></div>`;
   // Concentration bars
   const concEl=document.getElementById('epf-risk-conc');
   if(concEl) concEl.innerHTML=d.positions.slice().sort((a,b)=>b.weight_pct-a.weight_pct).map(p=>`
@@ -222,75 +238,79 @@ window.generateReport = function(){
   if(!_pfData) return;
   const d=_pfData, s=d.summary;
   const date=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'});
-  document.getElementById('epf-report-body').innerHTML=`
-    <div style="font-family:'Courier New',monospace;color:var(--txt)">
-      <div style="border-bottom:2px solid var(--org);padding-bottom:12px;margin-bottom:20px">
-        <div style="font-size:18px;font-weight:700;color:var(--wht);letter-spacing:2px">PORTFOLIO REPORT</div>
-        <div style="font-size:11px;color:var(--txt2);margin-top:4px">${date} · BLOOMBERG / NER ENTERPRISE</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-        <div>
-          <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">CLIENT INFORMATION</div>
-          <div><b style="color:var(--org)">Client:</b> ${d.client||'—'}</div>
-          <div><b style="color:var(--org)">Portfolio:</b> ${d.name||'—'}</div>
-          <div><b style="color:var(--org)">Report Date:</b> ${date}</div>
-        </div>
-        <div>
-          <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">PORTFOLIO SUMMARY</div>
-          <div><b style="color:var(--org)">Market Value:</b> $${fk(s.total_value)}</div>
-          <div><b style="color:var(--org)">Cash:</b> $${fk(d.cash)}</div>
-          <div><b style="color:var(--org)">Total AUM:</b> <span style="color:var(--wht);font-weight:700">$${fk(s.total_with_cash)}</span></div>
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">PERFORMANCE</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-          <div style="background:var(--bg3);padding:10px;text-align:center">
-            <div style="font-size:9px;color:var(--txt3)">TOTAL P&L</div>
-            <div style="font-size:18px;font-weight:700;color:${s.total_pnl>=0?'var(--up)':'var(--dn)'}">${s.total_pnl>=0?'+':''}$${fk(Math.abs(s.total_pnl))}</div>
-          </div>
-          <div style="background:var(--bg3);padding:10px;text-align:center">
-            <div style="font-size:9px;color:var(--txt3)">RETURN</div>
-            <div style="font-size:18px;font-weight:700;color:${s.total_pnl_pct>=0?'var(--up)':'var(--dn)'}">${s.total_pnl_pct>=0?'+':''}${s.total_pnl_pct.toFixed(2)}%</div>
-          </div>
-          <div style="background:var(--bg3);padding:10px;text-align:center">
-            <div style="font-size:9px;color:var(--txt3)">CONCENTRATION</div>
-            <div style="font-size:18px;font-weight:700;color:${s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)'}">${s.concentration}</div>
-          </div>
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">HOLDINGS</div>
-        <table style="width:100%;border-collapse:collapse;font-size:10px">
-          <thead><tr style="border-bottom:1px solid var(--bdr)">
-            <th style="text-align:left;padding:6px 4px;color:var(--txt2)">TICKER</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">QTY</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">ENTRY</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">LIVE</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">VALUE</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L%</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--txt2)">WEIGHT</th>
-          </tr></thead>
-          <tbody>
-            ${d.positions.map(p=>`<tr style="border-bottom:1px solid rgba(46,46,46,.3)">
-              <td style="padding:5px 4px;color:var(--cyn);font-weight:700">${p.ticker}</td>
-              <td style="padding:5px 4px;text-align:right">${p.qty.toLocaleString()}</td>
-              <td style="padding:5px 4px;text-align:right">$${f(p.entry_price,4)}</td>
-              <td style="padding:5px 4px;text-align:right">$${p.live_price!=null?f(p.live_price,4):'—'}</td>
-              <td style="padding:5px 4px;text-align:right">$${fk(p.market_value)}</td>
-              <td style="padding:5px 4px;text-align:right;color:${p.pnl>=0?'var(--up)':'var(--dn)'}">${p.pnl>=0?'+':''}$${f(p.pnl,2)}</td>
-              <td style="padding:5px 4px;text-align:right;color:${p.pnl_pct>=0?'var(--up)':'var(--dn)'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct.toFixed(2)}%</td>
-              <td style="padding:5px 4px;text-align:right">${p.weight_pct.toFixed(1)}%</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      ${d.notes?`<div style="margin-bottom:20px"><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">NOTES</div><div style="background:var(--bg3);padding:10px;color:var(--txt2)">${d.notes}</div></div>`:''}
-      <div style="border-top:1px solid var(--bdr);padding-top:10px;font-size:9px;color:var(--txt3);text-align:center">
-        Generated by BLOOMBERG / NER ENTERPRISE · ${date} · Confidential
-      </div>
-    </div>`;
+  const el=document.getElementById('epf-report-body');
+  if(!el) return;
+
+  // Build positions rows with string concat (no nested template literals)
+  const posRows=d.positions.map(function(p){
+    const pc=p.pnl>=0?'var(--up)':'var(--dn)';
+    const ppc=p.pnl_pct>=0?'var(--up)':'var(--dn)';
+    return '<tr style="border-bottom:1px solid rgba(46,46,46,.3)">'
+      +'<td style="padding:5px 4px;color:var(--cyn);font-weight:700">'+p.ticker+'</td>'
+      +'<td style="padding:5px 4px;text-align:right">'+p.qty.toLocaleString()+'</td>'
+      +'<td style="padding:5px 4px;text-align:right">$'+f(p.entry_price,4)+'</td>'
+      +'<td style="padding:5px 4px;text-align:right">'+(p.live_price!=null?'$'+f(p.live_price,4):'—')+'</td>'
+      +'<td style="padding:5px 4px;text-align:right">$'+fk(p.market_value)+'</td>'
+      +'<td style="padding:5px 4px;text-align:right;color:'+pc+'">'+(p.pnl>=0?'+':'')+'$'+f(p.pnl,2)+'</td>'
+      +'<td style="padding:5px 4px;text-align:right;color:'+ppc+'">'+(p.pnl_pct>=0?'+':'')+p.pnl_pct.toFixed(2)+'%</td>'
+      +'<td style="padding:5px 4px;text-align:right">'+p.weight_pct.toFixed(1)+'%</td>'
+      +'</tr>';
+  }).join('');
+
+  const pnlCol=s.total_pnl>=0?'var(--up)':'var(--dn)';
+  const retCol=s.total_pnl_pct>=0?'var(--up)':'var(--dn)';
+  const concCol=s.concentration==='HIGH'?'var(--dn)':s.concentration==='MEDIUM'?'var(--yel)':'var(--up)';
+  const notesHtml=d.notes
+    ?'<div style="margin-bottom:20px"><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">NOTES</div>'
+      +'<div style="background:var(--bg3);padding:10px;color:var(--txt2)">'+d.notes+'</div></div>'
+    :'';
+
+  el.innerHTML=''
+    +'<div style="font-family:\'Courier New\',monospace;color:var(--txt)">'
+    +'<div style="border-bottom:2px solid var(--org);padding-bottom:12px;margin-bottom:20px">'
+    +'<div style="font-size:18px;font-weight:700;color:var(--wht);letter-spacing:2px">PORTFOLIO REPORT</div>'
+    +'<div style="font-size:11px;color:var(--txt2);margin-top:4px">'+date+' · BLOOMBERG / NER ENTERPRISE</div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">'
+    +'<div><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">CLIENT INFORMATION</div>'
+    +'<div><b style="color:var(--org)">Client:</b> '+(d.client||'—')+'</div>'
+    +'<div><b style="color:var(--org)">Portfolio:</b> '+(d.name||'—')+'</div>'
+    +'<div><b style="color:var(--org)">Report Date:</b> '+date+'</div></div>'
+    +'<div><div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:6px">PORTFOLIO SUMMARY</div>'
+    +'<div><b style="color:var(--org)">Market Value:</b> $'+fk(s.total_value)+'</div>'
+    +'<div><b style="color:var(--org)">Cash:</b> $'+fk(d.cash)+'</div>'
+    +'<div><b style="color:var(--org)">Total AUM:</b> <span style="color:var(--wht);font-weight:700">$'+fk(s.total_with_cash)+'</span></div></div>'
+    +'</div>'
+    +'<div style="margin-bottom:20px">'
+    +'<div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">PERFORMANCE</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">'
+    +'<div style="background:var(--bg3);padding:10px;text-align:center">'
+    +'<div style="font-size:9px;color:var(--txt3)">TOTAL P&L</div>'
+    +'<div style="font-size:18px;font-weight:700;color:'+pnlCol+'">'+(s.total_pnl>=0?'+':'')+'$'+fk(Math.abs(s.total_pnl))+'</div></div>'
+    +'<div style="background:var(--bg3);padding:10px;text-align:center">'
+    +'<div style="font-size:9px;color:var(--txt3)">RETURN</div>'
+    +'<div style="font-size:18px;font-weight:700;color:'+retCol+'">'+(s.total_pnl_pct>=0?'+':'')+s.total_pnl_pct.toFixed(2)+'%</div></div>'
+    +'<div style="background:var(--bg3);padding:10px;text-align:center">'
+    +'<div style="font-size:9px;color:var(--txt3)">CONCENTRATION</div>'
+    +'<div style="font-size:18px;font-weight:700;color:'+concCol+'">'+s.concentration+'</div></div>'
+    +'</div></div>'
+    +'<div style="margin-bottom:20px">'
+    +'<div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">HOLDINGS</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:10px">'
+    +'<thead><tr style="border-bottom:1px solid var(--bdr)">'
+    +'<th style="text-align:left;padding:6px 4px;color:var(--txt2)">TICKER</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">QTY</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">ENTRY</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">LIVE</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">VALUE</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">P&L%</th>'
+    +'<th style="text-align:right;padding:6px 4px;color:var(--txt2)">WEIGHT</th>'
+    +'</tr></thead><tbody>'+posRows+'</tbody></table></div>'
+    +notesHtml
+    +'<div style="border-top:1px solid var(--bdr);padding-top:10px;font-size:9px;color:var(--txt3);text-align:center">'
+    +'Generated by BLOOMBERG / NER ENTERPRISE · '+date+' · Confidential'
+    +'</div></div>';
 };
 
 window.printReport = function(){
@@ -310,9 +330,9 @@ function renderCashLog(){
   const rows=log.map(entry=>{running+=entry.amount;return{...entry,running};});
   tbody.innerHTML=rows.map(r=>`<tr>
     <td style="color:var(--txt2)">${r.ts?new Date(r.ts).toLocaleString('en-GB'):'—'}</td>
-    <td style="color:${r.amount>=0?'var(--up)':'var(--dn)';font-weight:700}">${r.amount>=0?'+':''}$${f(r.amount,2)}</td>
+    <td style="color:${r.amount>=0?'var(--up)':'var(--dn)'};font-weight:700">${r.amount>=0?'+':''}${f(r.amount,2)}</td>
     <td>${r.note||'—'}</td>
-    <td class="r" style="color:var(--wht)">$${f(r.running,2)}</td>
+    <td class="r" style="color:var(--wht)">${_d(f(r.running,2))}</td>
   </tr>`).join('')||'<tr><td colspan="4" style="padding:16px;color:var(--txt3);text-align:center">No cash transactions yet.</td></tr>';
 }
 
