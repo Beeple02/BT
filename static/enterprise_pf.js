@@ -359,26 +359,7 @@ window.hideAddPosModal = function(){
   if(m) m.style.display='none';
 };
 
-window.addPosition = async function(){
-  const ticker=(document.getElementById('apm-ticker').value||'').trim().toUpperCase();
-  const qty=parseFloat(document.getElementById('apm-qty').value)||0;
-  const price=parseFloat(document.getElementById('apm-price').value)||0;
-  const date=document.getElementById('apm-date').value;
-  const notes=document.getElementById('apm-notes').value;
-  if(!ticker||!qty||!price){ alert('Ticker, quantity and entry price are required.'); return; }
-  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/positions`,{ticker,qty,entry_price:price,entry_date:date,notes});
-  if(!r.ok){ alert('Error adding position'); return; }
-  hideAddPosModal();
-  ['apm-ticker','apm-qty','apm-price','apm-notes'].forEach(id=>document.getElementById(id).value='');
-  await ENT_PF_refresh();
-  epfTab('positions');
-};
 
-window.removePosition = async function(posId, ticker){
-  if(!confirm(`Remove ${ticker} from portfolio?`)) return;
-  await api(`/api/enterprise/portfolios/${_pfid}/positions/${posId}`,{method:'DELETE'});
-  await ENT_PF_refresh();
-};
 
 // ── Cash modal ────────────────────────────────────────────────────────────────
 window.showCashModal = function(sign){
@@ -405,5 +386,151 @@ window.adjustCash = async function(){
   document.getElementById('cm-note').value='';
   await ENT_PF_refresh();
   epfTab('cashlog');
+};
+window.adjustCash = async function(){
+  const amount=parseFloat(document.getElementById('cm-amount').value);
+  const note=document.getElementById('cm-note').value;
+  if(isNaN(amount)){ alert('Enter a valid amount'); return; }
+  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/cash`,{amount,note});
+  if(!r.ok){ alert('Error updating cash'); return; }
+  hideCashModal();
+  document.getElementById('cm-amount').value='';
+  document.getElementById('cm-note').value='';
+  await ENT_PF_refresh();
+  epfTab('cashlog');
+};
+
+// ── Close position mode ───────────────────────────────────────────────────────
+window.toggleCloseMode = function(val){
+  const isClose = val === 'close';
+  const closeFields = document.getElementById('close-pos-fields');
+  const addBtn = document.getElementById('add-pos-btn');
+  const normalFields = ['apm-ticker','apm-qty','apm-price','apm-date'];
+
+  if(closeFields) closeFields.style.display = isClose ? 'block' : 'none';
+  if(addBtn) addBtn.textContent = isClose ? 'CLOSE POSITION →' : 'ADD POSITION →';
+
+  // Hide/show normal fields that don't apply to close
+  normalFields.forEach(id => {
+    const el = document.getElementById(id);
+    if(el){
+      const row = el.closest('.prow');
+      if(row) row.style.display = isClose ? 'none' : 'flex';
+    }
+  });
+
+  if(isClose){
+    // Populate position selector with open positions
+    const sel = document.getElementById('close-pos-select');
+    if(sel && _pfData){
+      sel.innerHTML = '<option value="">— select —</option>'
+        + _pfData.positions.map(p => {
+            const lbl = p.ticker+' — '+p.qty.toLocaleString()+' shares @ $'+f(p.entry_price,4);
+            return '<option value="'+p.id+'">'+lbl+'</option>';
+          }).join('');
+    }
+    // Set today's date as default
+    const dateEl = document.getElementById('close-date');
+    if(dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+  }
+};
+
+window.prefillCloseFields = function(posId){
+  if(!posId || !_pfData) return;
+  const pos = _pfData.positions.find(p => p.id === posId);
+  if(!pos) return;
+
+  // Prefill qty with full position
+  const qtyEl = document.getElementById('close-qty');
+  if(qtyEl) qtyEl.value = pos.qty;
+
+  // Prefill price with live price if available
+  const priceEl = document.getElementById('close-price');
+  if(priceEl) priceEl.value = pos.live_price != null ? pos.live_price : pos.entry_price;
+
+  // Update P&L preview
+  updateClosePnlPreview();
+};
+
+window.updateClosePnlPreview = function(){
+  const sel   = document.getElementById('close-pos-select');
+  const price = parseFloat(document.getElementById('close-price').value);
+  const qty   = parseFloat(document.getElementById('close-qty').value);
+  const el    = document.getElementById('close-pnl-val');
+  if(!el || !sel || !_pfData) return;
+
+  const pos = _pfData.positions.find(p => p.id === sel.value);
+  if(!pos || isNaN(price) || isNaN(qty)){ el.textContent = '—'; el.style.color = 'var(--txt2)'; return; }
+
+  const pnl = (price - pos.entry_price) * qty;
+  el.textContent = (pnl >= 0 ? '+' : '') + '$' + f(pnl, 2);
+  el.style.color = pnl >= 0 ? 'var(--up)' : 'var(--dn)';
+};
+
+window.addPosition = async function(){
+  const type = document.getElementById('apm-type').value;
+
+  if(type === 'close'){
+    // ── Close flow ──────────────────────────────────────────────────────────
+    const posId      = document.getElementById('close-pos-select').value;
+    const closePrice = parseFloat(document.getElementById('close-price').value);
+    const closeQty   = parseFloat(document.getElementById('close-qty').value)||null;
+    const closeDate  = document.getElementById('close-date').value;
+    const notes      = document.getElementById('apm-notes').value;
+
+    if(!posId){ alert('Select a position to close.'); return; }
+    if(!closePrice || closePrice <= 0){ alert('Enter a valid close price.'); return; }
+
+    const pos = _pfData && _pfData.positions.find(p => p.id === posId);
+    const ticker = pos ? pos.ticker : '?';
+
+    const body = {close_price: closePrice, close_date: closeDate, notes};
+    if(closeQty) body.close_qty = closeQty;
+
+    const r = await apiPost(`/api/enterprise/portfolios/${_pfid}/positions/${posId}/close`, body);
+    if(!r.ok){ alert('Error closing position: '+(r.d.detail||'unknown')); return; }
+
+    hideAddPosModal();
+    // Reset modal
+    document.getElementById('apm-type').value = 'long';
+    toggleCloseMode('long');
+    document.getElementById('close-qty').value = '';
+    document.getElementById('close-price').value = '';
+    document.getElementById('apm-notes').value = '';
+
+    await ENT_PF_refresh();
+    epfTab('positions');
+
+    // Show summary in status bar
+    const pnl = r.d.realised_pnl;
+    const bar = document.getElementById('cmd-st');
+    if(bar){
+      bar.textContent = (r.d.removed ? 'CLOSED ' : 'PARTIAL CLOSE ') + ticker
+        + ' | PnL: ' + (pnl>=0?'+':'') + '$' + f(pnl,2);
+      bar.style.color = pnl>=0 ? 'var(--up)' : 'var(--dn)';
+      setTimeout(()=>{ bar.textContent='ENTERPRISE SPACE'; bar.style.color='var(--txt3)'; }, 4000);
+    }
+    return;
+  }
+
+  // ── Normal add flow ────────────────────────────────────────────────────────
+  const ticker=(document.getElementById('apm-ticker').value||'').trim().toUpperCase();
+  const qty=parseFloat(document.getElementById('apm-qty').value)||0;
+  const price=parseFloat(document.getElementById('apm-price').value)||0;
+  const date=document.getElementById('apm-date').value;
+  const notes=document.getElementById('apm-notes').value;
+  if(!ticker||!qty||!price){ alert('Ticker, quantity and entry price are required.'); return; }
+  const r=await apiPost(`/api/enterprise/portfolios/${_pfid}/positions`,{ticker,qty,entry_price:price,entry_date:date,notes,type});
+  if(!r.ok){ alert('Error adding position'); return; }
+  hideAddPosModal();
+  ['apm-ticker','apm-qty','apm-price','apm-notes'].forEach(id=>document.getElementById(id).value='');
+  await ENT_PF_refresh();
+  epfTab('positions');
+};
+
+window.removePosition = async function(posId, ticker){
+  if(!confirm('Remove '+ticker+' from portfolio?')) return;
+  await api(`/api/enterprise/portfolios/${_pfid}/positions/${posId}`,{method:'DELETE'});
+  await ENT_PF_refresh();
 };
 })();
