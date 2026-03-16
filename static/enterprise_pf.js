@@ -533,4 +533,126 @@ window.removePosition = async function(posId, ticker){
   await api(`/api/enterprise/portfolios/${_pfid}/positions/${posId}`,{method:'DELETE'});
   await ENT_PF_refresh();
 };
+
+// ── Import portfolio ──────────────────────────────────────────────────────────
+let _importParsed = [];
+
+window.showImportModal = function(){
+  const m = document.getElementById('import-modal');
+  if(!m) return;
+  if(m.parentElement !== document.body) document.body.appendChild(m);
+  // Reset state
+  document.getElementById('import-raw').value = '';
+  document.getElementById('import-preview').style.display = 'none';
+  document.getElementById('import-status').style.display = 'none';
+  const btn = document.getElementById('import-confirm-btn');
+  if(btn) btn.style.display = 'none';
+  _importParsed = [];
+  m.style.display = 'flex';
+};
+
+window.hideImportModal = function(){
+  const m = document.getElementById('import-modal');
+  if(m) m.style.display = 'none';
+};
+
+window.previewImport = function(){
+  const raw = (document.getElementById('import-raw').value || '').trim();
+  if(!raw){ alert('Paste the NER portfolio table first.'); return; }
+
+  // Parse the ASCII table client-side for preview
+  _importParsed = [];
+  const lines = raw.split('
+');
+  for(const line of lines){
+    const trimmed = line.trim();
+    if(!trimmed.startsWith('|')) continue;
+    const parts = trimmed.split('|').map(p => p.trim()).filter(p => p);
+    if(parts.length < 3) continue;
+    const ticker = parts[0].toUpperCase();
+    if(['TICKER','---',''].includes(ticker) || ticker.startsWith('-') || ticker.startsWith('+')) continue;
+    const qty = parseFloat(parts[1].replace(/,/g,''));
+    const avgCost = parseFloat(parts[2].replace(/[$,]/g,'').trim());
+    if(isNaN(qty) || isNaN(avgCost) || qty <= 0 || avgCost <= 0) continue;
+    _importParsed.push({ ticker, qty, entry_price: avgCost });
+  }
+
+  if(_importParsed.length === 0){
+    const st = document.getElementById('import-status');
+    st.style.display = 'block';
+    st.style.color = 'var(--dn)';
+    st.textContent = 'Could not parse any positions. Check the format.';
+    return;
+  }
+
+  // Check for duplicates
+  const existing = new Set((_pfData ? _pfData.positions : []).map(p => p.ticker));
+  const dupes = _importParsed.filter(p => existing.has(p.ticker));
+
+  // Render preview table
+  const previewEl = document.getElementById('import-preview');
+  const rowsEl = document.getElementById('import-preview-rows');
+  const rows = _importParsed.map(p => {
+    const isDupe = existing.has(p.ticker);
+    const style = isDupe ? 'color:var(--txt3);text-decoration:line-through' : 'color:var(--wht)';
+    const tag = isDupe ? ' <span style="color:var(--yel);font-size:8px">SKIP (exists)</span>' : '';
+    return '<div style="'+style+';padding:2px 0">'
+      + p.ticker.padEnd(8) + '  '
+      + String(p.qty).padStart(6) + '  @ $'
+      + f(p.entry_price,4)
+      + tag + '</div>';
+  }).join('');
+
+  rowsEl.innerHTML = rows;
+  previewEl.style.display = 'block';
+
+  const toImport = _importParsed.filter(p => !existing.has(p.ticker));
+  const st = document.getElementById('import-status');
+  st.style.display = 'block';
+  st.style.color = toImport.length > 0 ? 'var(--up)' : 'var(--yel)';
+  st.textContent = toImport.length + ' position' + (toImport.length===1?'':'s') + ' to import'
+    + (dupes.length > 0 ? ', ' + dupes.length + ' skipped (already exist)' : '');
+
+  const btn = document.getElementById('import-confirm-btn');
+  if(btn) btn.style.display = toImport.length > 0 ? 'inline-block' : 'none';
+};
+
+window.confirmImport = async function(){
+  if(!_importParsed.length){ alert('Nothing to import.'); return; }
+
+  const btn = document.getElementById('import-confirm-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'IMPORTING…'; }
+
+  const r = await apiPost('/api/enterprise/portfolios/'+_pfid+'/import', {
+    positions: _importParsed.map(p => ({
+      ticker:      p.ticker,
+      qty:         p.qty,
+      entry_price: p.entry_price,
+      entry_date:  '',
+      notes:       'Imported from NER terminal',
+      type:        'long'
+    }))
+  });
+
+  if(btn){ btn.disabled = false; btn.textContent = 'CONFIRM IMPORT →'; }
+
+  if(!r.ok){
+    alert('Import failed: ' + (r.d.detail||'unknown error'));
+    return;
+  }
+
+  hideImportModal();
+  await ENT_PF_refresh();
+  epfTab('positions');
+
+  // Status bar confirmation
+  const bar = document.getElementById('cmd-st');
+  if(bar){
+    bar.textContent = 'Imported ' + r.d.imported + ' positions'
+      + (r.d.skipped > 0 ? ' (' + r.d.skipped + ' skipped)' : '');
+    bar.style.color = 'var(--up)';
+    setTimeout(() => { bar.textContent = 'ENTERPRISE SPACE'; bar.style.color = 'var(--txt3)'; }, 4000);
+  }
+};
+
 })();
