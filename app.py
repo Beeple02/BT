@@ -1549,6 +1549,70 @@ def ent_update_position(pf_id, pos_id):
     if pos is None: return jsonify({"detail": "Not found"}), 404
     return jsonify(pos), 200
 
+@app.route("/api/enterprise/portfolios/<pf_id>/import", methods=["POST"])
+def ent_import_portfolio(pf_id):
+    """
+    Parse and import a NER portfolio table.
+    Accepts either:
+      - body.raw_text: the raw ASCII table pasted from NER terminal
+      - body.positions: pre-parsed [{ticker, qty, entry_price}]
+    Returns {imported: N, skipped: N, positions: [...]}
+    """
+    import re
+    body = request.get_json(silent=True) or {}
+    pf   = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail": "Portfolio not found"}), 404
+
+    positions_to_add = []
+
+    if body.get("positions"):
+        # Pre-parsed from frontend
+        positions_to_add = body["positions"]
+    elif body.get("raw_text"):
+        # Parse the ASCII table
+        # Format: | BB  | 35 | $ 31.31 | $ 35.28 | $ 139.04 |
+        raw = body["raw_text"]
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line.startswith("|"): continue
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) < 2: continue
+            ticker = parts[0].upper().strip()
+            # Skip header rows
+            if ticker in ("TICKER", "---", "") or ticker.startswith("-"): continue
+            try:
+                qty = float(parts[1].replace(",","").strip())
+                # Avg cost: strip $ and commas
+                avg_cost_str = parts[2].replace("$","").replace(",","").strip() if len(parts)>2 else "0"
+                avg_cost = float(avg_cost_str)
+                if qty <= 0 or avg_cost <= 0: continue
+                positions_to_add.append({
+                    "ticker":      ticker,
+                    "qty":         qty,
+                    "entry_price": avg_cost,
+                    "entry_date":  "",
+                    "notes":       "Imported from NER terminal",
+                    "type":        "long"
+                })
+            except (ValueError, IndexError):
+                continue
+
+    if not positions_to_add:
+        return jsonify({"detail": "No valid positions parsed", "imported": 0, "skipped": 0}), 400
+
+    # Skip tickers already in portfolio to avoid duplicates
+    existing_tickers = {p["ticker"] for p in pf.get("positions", [])}
+    to_add   = [p for p in positions_to_add if p["ticker"] not in existing_tickers]
+    skipped  = len(positions_to_add) - len(to_add)
+
+    added = ES.bulk_add_positions(pf_id, to_add)
+    return jsonify({
+        "imported":  len(added),
+        "skipped":   skipped,
+        "positions": added
+    }), 200
+
+
 @app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>/close", methods=["POST"])
 def ent_close_position(pf_id, pos_id):
     """
