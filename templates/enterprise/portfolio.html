@@ -1,67 +1,64 @@
-<!-- Enterprise Portfolio Deep-Dive — loaded into enterprise.html panels -->
+<!-- Enterprise Portfolio Deep-Dive -->
 <style>
-.ent-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
-.ent-tab{padding:6px 16px;font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr);transition:all .1s}
+.ent-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0;overflow-x:auto}
+.ent-tab{padding:6px 14px;font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr);transition:all .1s;white-space:nowrap;flex-shrink:0}
 .ent-tab:hover{color:var(--wht);background:var(--bg4)}
 .ent-tab.on{color:var(--org);background:var(--bg2);border-bottom:2px solid var(--org)}
 .ent-sub{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .ent-sub-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
 .ent-sub-panel.on{display:flex}
-/* position add modal */
-.pos-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;display:flex;align-items:center;justify-content:center}
-.pos-modal-box{background:var(--bg2);border:1px solid var(--org);width:420px;font-size:11px}
-.pos-modal-hd{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bdr);font-size:10px;font-weight:700;letter-spacing:2px;color:var(--org);display:flex;justify-content:space-between}
+.pos-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:2000;display:flex;align-items:center;justify-content:center}
+.pos-modal-box{background:var(--bg2);border:1px solid var(--org);width:420px;font-size:11px;max-height:90vh;overflow-y:auto}
+.pos-modal-hd{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bdr);font-size:10px;font-weight:700;letter-spacing:2px;color:var(--org);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:1}
 .pos-modal-body{padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pos-modal-body .full{grid-column:1/-1}
 .prow{display:flex;flex-direction:column;gap:3px}
 .prow label{font-size:9px;color:var(--txt3);letter-spacing:1.5px}
-.prow input,.prow select{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
+.prow input,.prow select,.prow textarea{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
 .prow input:focus{border-color:var(--org)}
-.pos-modal-ft{padding:10px 14px;background:var(--bg3);border-top:1px solid var(--bdr);display:flex;gap:8px;justify-content:flex-end}
-/* cash modal */
-.cash-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;display:flex;align-items:center;justify-content:center}
+.pos-modal-ft{padding:10px 14px;background:var(--bg3);border-top:1px solid var(--bdr);display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;z-index:1}
+.cash-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:2000;display:flex;align-items:center;justify-content:center}
 .cash-modal-box{background:var(--bg2);border:1px solid var(--cyn);width:340px}
 .rpt-toggle{display:inline-flex;align-items:center;gap:5px;font-size:9px;color:var(--txt2);cursor:pointer;padding:3px 8px;border:1px solid var(--bdr2);background:var(--bg)}
 .rpt-toggle input{accent-color:var(--org);cursor:pointer}
 .rpt-toggle:has(input:checked){border-color:var(--org);color:var(--org);background:rgba(255,140,0,.08)}
-#close-pos-fields input, #close-pos-fields select { background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100% }
-#close-pos-fields input:focus { border-color:var(--org) }
+#close-pos-fields input,#close-pos-fields select{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
 </style>
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden" id="ent-pf-root">
-  <!-- Portfolio header strip -->
   <div class="sstrip" id="ent-pf-strip" style="flex-shrink:0">
     <div class="ss"><div class="ss-l">CLIENT</div><div class="ss-v" id="epf-client" style="color:var(--org)">—</div></div>
     <div class="ss"><div class="ss-l">PORTFOLIO</div><div class="ss-v" id="epf-name" style="color:var(--wht)">—</div></div>
-    <div class="ss"><div class="ss-l">MARKET VALUE</div><div class="ss-v" id="epf-value">—</div></div>
+    <div class="ss"><div class="ss-l">MKT VALUE</div><div class="ss-v" id="epf-value">—</div></div>
     <div class="ss"><div class="ss-l">CASH</div><div class="ss-v" id="epf-cash" style="color:var(--cyn)">—</div></div>
-    <div class="ss"><div class="ss-l">TOTAL</div><div class="ss-v" id="epf-total">—</div></div>
-    <div class="ss"><div class="ss-l">P&L</div><div class="ss-v" id="epf-pnl">—</div></div>
-    <div class="ss"><div class="ss-l">P&L %</div><div class="ss-v" id="epf-pnlp">—</div></div>
-    <div class="ss"><div class="ss-l">POSITIONS</div><div class="ss-v" id="epf-npos">—</div></div>
-    <div class="ss"><div class="ss-l">CONCENTRATION</div><div class="ss-v" id="epf-conc">—</div></div>
-    <div class="ss" style="margin-left:auto;border-left:1px solid var(--bdr);gap:6px">
+    <div class="ss"><div class="ss-l">TOTAL AUM</div><div class="ss-v" id="epf-total">—</div></div>
+    <div class="ss"><div class="ss-l">UNREAL P&amp;L</div><div class="ss-v" id="epf-pnl">—</div></div>
+    <div class="ss"><div class="ss-l">REAL P&amp;L</div><div class="ss-v" id="epf-rpnl" style="color:var(--cyn)">—</div></div>
+    <div class="ss"><div class="ss-l">RETURN</div><div class="ss-v" id="epf-pnlp">—</div></div>
+    <div class="ss"><div class="ss-l">HHI</div><div class="ss-v" id="epf-conc">—</div></div>
+    <div class="ss" style="margin-left:auto;border-left:1px solid var(--bdr);gap:5px">
       <button class="btn buy btn-xs" onclick="showAddPosModal()">+ POSITION</button>
       <button class="btn btn-xs" style="color:var(--org);border-color:var(--org)" onclick="showImportModal()">⬆ IMPORT</button>
       <button class="btn btn-xs" style="color:var(--cyn);border-color:var(--cyn)" onclick="showCashModal()">± CASH</button>
       <button class="btn btn-xs" onclick="ENT_PF_refresh()">↻</button>
     </div>
   </div>
-
-  <!-- Sub-tabs -->
   <div class="ent-tabs">
-    <div class="ent-tab on"  onclick="epfTab('overview')">OVERVIEW</div>
-    <div class="ent-tab"     onclick="epfTab('positions')">POSITIONS</div>
-    <div class="ent-tab"     onclick="epfTab('analytics')">ANALYTICS</div>
-    <div class="ent-tab"     onclick="epfTab('risk')">RISK</div>
-    <div class="ent-tab"     onclick="epfTab('report')">REPORT</div>
-    <div class="ent-tab"     onclick="epfTab('cashlog')">CASH LOG</div>
+    <div class="ent-tab on" onclick="epfTab('overview')">OVERVIEW</div>
+    <div class="ent-tab" onclick="epfTab('positions')">POSITIONS</div>
+    <div class="ent-tab" onclick="epfTab('analytics')">ANALYTICS</div>
+    <div class="ent-tab" onclick="epfTab('risk')">RISK</div>
+    <div class="ent-tab" onclick="epfTab('benchmark')">BENCHMARK</div>
+    <div class="ent-tab" onclick="epfTab('attribution')">ATTRIBUTION</div>
+    <div class="ent-tab" onclick="epfTab('stress')">STRESS TEST</div>
+    <div class="ent-tab" onclick="epfTab('realized')">REALIZED P&amp;L</div>
+    <div class="ent-tab" onclick="epfTab('target')">TARGET ALLOC</div>
+    <div class="ent-tab" onclick="epfTab('report')">REPORT</div>
+    <div class="ent-tab" onclick="epfTab('cashlog')">CASH LOG</div>
+    <div class="ent-tab" onclick="epfTab('audit')">AUDIT LOG</div>
   </div>
-
   <div class="ent-sub">
-    <!-- OVERVIEW -->
     <div class="ent-sub-panel on" id="epf-overview">
       <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <!-- Allocation chart + positions summary -->
         <div class="wrow" style="gap:0;flex-shrink:0;min-height:200px">
           <div class="win" style="flex:1;border-right:0;border-bottom:0">
             <div class="wbar"><div class="wbar-l"><span class="wnum">π</span><span class="wtitle">ALLOCATION</span></div></div>
@@ -72,74 +69,89 @@
             <div class="scroll" id="epf-pos-summary"></div>
           </div>
         </div>
-        <!-- P&L by position -->
         <div class="win" style="flex-shrink:0">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">P&L BY POSITION</span></div></div>
+          <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">P&amp;L BY POSITION</span></div></div>
           <div style="padding:10px 14px" id="epf-pnl-bars"></div>
         </div>
-        <!-- Notes -->
         <div class="win" style="flex-shrink:0">
           <div class="wbar">
-            <div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">PORTFOLIO NOTES</span></div>
-            <div class="wbar-r"><button class="wbtn" onclick="saveNotes()">SAVE</button></div>
+            <div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">NOTES &amp; STRATEGY</span></div>
+            <div class="wbar-r">
+              <input id="epf-strategy-input" placeholder="Strategy / mandate" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 6px;outline:none;width:180px;margin-right:6px">
+              <button class="wbtn" onclick="saveNotes()">SAVE</button>
+            </div>
           </div>
-          <div style="padding:8px">
-            <textarea id="epf-notes-area" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:8px;outline:none;resize:vertical;min-height:60px"></textarea>
-          </div>
+          <div style="padding:8px"><textarea id="epf-notes-area" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:8px;outline:none;resize:vertical;min-height:60px"></textarea></div>
         </div>
       </div>
     </div>
-
-    <!-- POSITIONS -->
     <div class="ent-sub-panel" id="epf-positions">
-      <div class="frow" style="justify-content:flex-end">
-        <button class="btn buy btn-xs" onclick="showAddPosModal()">+ ADD POSITION</button>
-      </div>
+      <div class="frow" style="justify-content:flex-end"><button class="btn buy btn-xs" onclick="showAddPosModal()">+ ADD POSITION</button></div>
       <div class="scroll">
         <table class="dt" style="width:100%">
           <thead><tr>
-            <th>TICKER</th><th>QTY</th><th class="r">ENTRY</th><th class="r">LIVE</th>
-            <th class="r">COST</th><th class="r">VALUE</th><th class="r">P&L</th><th class="r">P&L%</th>
-            <th class="r">WEIGHT</th><th class="r">ANN VOL</th><th class="r">SHARPE</th>
-            <th>ENTRY DATE</th><th>NOTES</th><th></th>
+            <th>TICKER</th><th>TYPE</th><th>QTY</th>
+            <th class="r">ENTRY</th><th class="r">LIVE</th><th class="r">COST</th><th class="r">VALUE</th>
+            <th class="r">P&amp;L</th><th class="r">P&amp;L%</th><th class="r">WEIGHT</th>
+            <th class="r">ANN VOL</th><th class="r">SHARPE</th><th class="r">SORTINO</th><th class="r">MAX DD</th>
+            <th>DATE</th><th>NOTES</th><th></th>
           </tr></thead>
           <tbody id="epf-pos-tbody"></tbody>
         </table>
       </div>
     </div>
-
-    <!-- ANALYTICS -->
     <div class="ent-sub-panel" id="epf-analytics">
       <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <div class="wrow" style="gap:0;flex-shrink:0;min-height:220px">
+        <div class="win" style="flex-shrink:0;min-height:180px">
+          <div class="wbar">
+            <div class="wbar-l"><span class="wnum">∑</span><span class="wtitle">PORTFOLIO EQUITY CURVE</span></div>
+            <div class="wbar-r"><select id="analytics-days" onchange="loadDeepAnalytics()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 4px"><option value="30">30D</option><option value="60">60D</option><option value="90" selected>90D</option><option value="180">180D</option></select></div>
+          </div>
+          <div class="chart-wrap"><canvas id="epf-equity-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">📅</span><span class="wtitle">MONTHLY RETURNS</span></div></div>
+          <div style="padding:10px" id="epf-monthly-returns"></div>
+        </div>
+        <div class="win" style="flex-shrink:0;min-height:160px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">α</span><span class="wtitle">ROLLING SHARPE (20D WINDOW)</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-rolling-sharpe-chart"></canvas></div>
+        </div>
+        <div class="wrow" style="gap:0;flex-shrink:0;min-height:200px">
           <div class="win" style="flex:1;border-right:0;border-bottom:0">
             <div class="wbar"><div class="wbar-l"><span class="wnum">σ</span><span class="wtitle">VOLATILITY BY POSITION</span></div></div>
             <div class="chart-wrap"><canvas id="epf-vol-chart"></canvas></div>
           </div>
           <div class="win" style="flex:1;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">α</span><span class="wtitle">SHARPE RATIO</span></div></div>
+            <div class="wbar"><div class="wbar-l"><span class="wnum">S</span><span class="wtitle">SHARPE BY POSITION</span></div></div>
             <div class="chart-wrap"><canvas id="epf-sharpe-chart"></canvas></div>
           </div>
         </div>
         <div class="win" style="flex-shrink:0">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">Δ</span><span class="wtitle">PERFORMANCE METRICS</span></div></div>
-          <div id="epf-metrics-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--bdr)"></div>
+          <div class="wbar"><div class="wbar-l"><span class="wnum">Δ</span><span class="wtitle">PORTFOLIO METRICS</span></div></div>
+          <div id="epf-metrics-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--bdr)"></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">ρ</span><span class="wtitle">CORRELATION MATRIX</span></div></div>
+          <div style="padding:12px;overflow-x:auto" id="epf-corr-matrix"></div>
         </div>
       </div>
     </div>
-
-    <!-- RISK -->
     <div class="ent-sub-panel" id="epf-risk">
       <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-risk-kpis"></div>
+        <div class="scards" style="grid-template-columns:repeat(5,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-risk-kpis"></div>
         <div class="wrow" style="gap:0;flex-shrink:0">
           <div class="win" style="flex:1;border-right:0;border-bottom:0">
-            <div class="wbar"><div class="wbar-l"><span class="wnum">⚠</span><span class="wtitle">CONCENTRATION RISK</span></div></div>
+            <div class="wbar"><div class="wbar-l"><span class="wnum">⚠</span><span class="wtitle">CONCENTRATION</span></div></div>
             <div style="padding:10px" id="epf-risk-conc"></div>
           </div>
-          <div class="win" style="flex:1;border-bottom:0">
+          <div class="win" style="flex:1;border-right:0;border-bottom:0">
             <div class="wbar"><div class="wbar-l"><span class="wnum">K</span><span class="wtitle">KELLY SIZING</span></div></div>
             <div style="padding:10px" id="epf-risk-kelly"></div>
+          </div>
+          <div class="win" style="flex:1;border-bottom:0">
+            <div class="wbar"><div class="wbar-l"><span class="wnum">↓</span><span class="wtitle">VAR / CVAR (95%)</span></div></div>
+            <div style="padding:10px" id="epf-risk-var"></div>
           </div>
         </div>
         <div class="win" style="flex-shrink:0">
@@ -148,33 +160,111 @@
         </div>
       </div>
     </div>
-
-    <!-- REPORT -->
+    <div class="ent-sub-panel" id="epf-benchmark">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-bm-kpis"></div>
+        <div class="win" style="flex-shrink:0;min-height:220px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">≈</span><span class="wtitle">PORTFOLIO vs NER EQUAL-WEIGHT INDEX</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-bm-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">β</span><span class="wtitle">BENCHMARK DETAILS</span></div></div>
+          <div id="epf-bm-detail" style="padding:12px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="ent-sub-panel" id="epf-attribution">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="win" style="flex-shrink:0;min-height:200px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">Σ</span><span class="wtitle">RETURN CONTRIBUTION BY POSITION</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-attr-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">Δ</span><span class="wtitle">ATTRIBUTION TABLE</span></div></div>
+          <div id="epf-attr-table" style="padding:10px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="ent-sub-panel" id="epf-stress">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="win" style="flex-shrink:0;min-height:220px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">☢</span><span class="wtitle">STRESS TEST SCENARIOS</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-stress-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">+</span><span class="wtitle">CUSTOM SHOCK</span></div></div>
+          <div style="padding:12px">
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div class="prow" style="flex-shrink:0"><label>TICKER</label><input id="stress-ticker" placeholder="SRI" style="width:80px"></div>
+              <div class="prow" style="flex-shrink:0"><label>SHOCK %</label><input id="stress-shock" type="number" placeholder="-20" style="width:80px"></div>
+              <button class="btn on btn-xs" onclick="runCustomStress()">RUN</button>
+            </div>
+            <div id="epf-custom-stress-result" style="margin-top:10px"></div>
+          </div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">ALL SCENARIOS</span></div></div>
+          <div id="epf-stress-table" style="padding:10px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="ent-sub-panel" id="epf-realized">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="scards" style="grid-template-columns:repeat(3,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-real-kpis"></div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">CLOSED TRADE HISTORY</span></div></div>
+          <div id="epf-realized-table" style="padding:10px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="ent-sub-panel" id="epf-target">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar">
+            <div class="wbar-l"><span class="wnum">◎</span><span class="wtitle">TARGET vs ACTUAL ALLOCATION</span></div>
+            <div class="wbar-r"><button class="wbtn" onclick="saveTargetAllocation()">SAVE TARGETS</button></div>
+          </div>
+          <div id="epf-target-alloc" style="padding:12px"></div>
+        </div>
+        <div class="win" style="flex-shrink:0;min-height:200px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">≈</span><span class="wtitle">DRIFT CHART</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-drift-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">→</span><span class="wtitle">REBALANCE SUGGESTIONS</span></div></div>
+          <div id="epf-rebalance" style="padding:12px"></div>
+        </div>
+      </div>
+    </div>
     <div class="ent-sub-panel" id="epf-report">
       <div class="scroll" style="padding:16px">
-        <!-- Section toggles -->
         <div style="background:var(--bg3);border:1px solid var(--bdr);padding:12px 14px;margin-bottom:12px;flex-shrink:0">
           <div style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-bottom:8px">REPORT SECTIONS</div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px" id="report-section-toggles">
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
             <label class="rpt-toggle"><input type="checkbox" id="rpt-cover" checked> Cover Page</label>
             <label class="rpt-toggle"><input type="checkbox" id="rpt-summary" checked> Executive Summary</label>
             <label class="rpt-toggle"><input type="checkbox" id="rpt-holdings" checked> Holdings Detail</label>
-            <label class="rpt-toggle"><input type="checkbox" id="rpt-perf" checked> Performance Analysis</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-perf" checked> Performance</label>
             <label class="rpt-toggle"><input type="checkbox" id="rpt-risk" checked> Risk Metrics</label>
-            <label class="rpt-toggle"><input type="checkbox" id="rpt-allocation" checked> Allocation Breakdown</label>
-            <label class="rpt-toggle"><input type="checkbox" id="rpt-individual" checked> Per-Position Analytics</label>
-            <label class="rpt-toggle"><input type="checkbox" id="rpt-cashlog"> Cash Activity Log</label>
-            <label class="rpt-toggle"><input type="checkbox" id="rpt-flags" checked> Risk Flags</label>
-            <label class="rpt-toggle"><input type="checkbox" id="rpt-notes" checked> Portfolio Notes</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-allocation" checked> Allocation</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-individual" checked> Per-Position</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-monthly"> Monthly Returns</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-attribution"> Attribution</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-stress"> Stress Tests</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-realized"> Realized P&amp;L</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-cashlog"> Cash Log</label>
+            <label class="rpt-toggle"><input type="checkbox" id="rpt-notes" checked> Notes</label>
             <label class="rpt-toggle"><input type="checkbox" id="rpt-disclaimer" checked> Disclaimer</label>
           </div>
-          <div style="display:flex;gap:8px;margin-top:10px">
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
             <button class="btn on" onclick="generateReport()">⚡ GENERATE</button>
             <button class="btn" onclick="printReport()">🖨 PRINT / PDF</button>
-            <button class="btn" onclick="exportReportCSV()">⬇ EXPORT CSV</button>
-            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
-              <span style="font-size:9px;color:var(--txt3)">BRANDING:</span>
+            <button class="btn" onclick="exportReportCSV()">⬇ CSV</button>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:9px;color:var(--txt3)">FIRM:</span>
               <input id="rpt-firm-name" placeholder="Firm name" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 8px;outline:none;width:140px">
+              <span style="font-size:9px;color:var(--txt3)">PERIOD:</span>
+              <input id="rpt-period" placeholder="e.g. Q1 2026" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 8px;outline:none;width:90px">
             </div>
           </div>
         </div>
@@ -183,8 +273,6 @@
         </div>
       </div>
     </div>
-
-    <!-- CASH LOG -->
     <div class="ent-sub-panel" id="epf-cashlog">
       <div class="frow">
         <button class="btn buy btn-xs" onclick="showCashModal(1)">+ DEPOSIT</button>
@@ -192,122 +280,71 @@
       </div>
       <div class="scroll">
         <table class="dt" style="width:100%">
-          <thead><tr><th>DATE</th><th>AMOUNT</th><th>NOTE</th><th class="r">RUNNING BALANCE</th></tr></thead>
+          <thead><tr><th>DATE</th><th>AMOUNT</th><th>NOTE</th><th class="r">BALANCE AFTER</th></tr></thead>
           <tbody id="epf-cash-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="ent-sub-panel" id="epf-audit">
+      <div class="scroll">
+        <table class="dt" style="width:100%">
+          <thead><tr><th>TIMESTAMP</th><th>ACTION</th><th>DETAIL</th></tr></thead>
+          <tbody id="epf-audit-tbody"></tbody>
         </table>
       </div>
     </div>
   </div>
 </div>
-
 <!-- Add Position Modal -->
 <div id="add-pos-modal" class="pos-modal" style="display:none">
   <div class="pos-modal-box">
-    <div class="pos-modal-hd">ADD POSITION <span style="cursor:pointer;color:var(--txt2)" onclick="hideAddPosModal()">✕</span></div>
+    <div class="pos-modal-hd">ADD / CLOSE POSITION <span style="cursor:pointer;color:var(--txt2)" onclick="hideAddPosModal()">✕</span></div>
     <div class="pos-modal-body">
-      <div class="prow full">
-        <label>TICKER</label>
-        <input id="apm-ticker" placeholder="e.g. SRI or TSE:ECO" style="text-transform:uppercase">
-      </div>
-      <div class="prow">
-        <label>QUANTITY (SHARES)</label>
-        <input id="apm-qty" type="number" placeholder="100">
-      </div>
-      <div class="prow">
-        <label>ENTRY PRICE ($)</label>
-        <input id="apm-price" type="number" step="0.0001" placeholder="78.2600">
-      </div>
-      <div class="prow">
-        <label>ENTRY DATE</label>
-        <input id="apm-date" type="date">
-      </div>
-      <div class="prow">
-        <label>TYPE</label>
-        <select id="apm-type" onchange="toggleCloseMode(this.value)">
-        <option value="long">LONG</option>
-        <option value="short">SHORT</option>
-        <option value="close">CLOSE POSITION</option>
-      </select>
-      </div>
-      <div class="prow full">
-        <label>NOTES</label>
-        <input id="apm-notes" placeholder="Optional notes">
-      </div>
+      <div class="prow full"><label>TICKER</label><input id="apm-ticker" placeholder="e.g. SRI" style="text-transform:uppercase"></div>
+      <div class="prow"><label>QUANTITY</label><input id="apm-qty" type="number" placeholder="100"></div>
+      <div class="prow"><label>ENTRY PRICE ($)</label><input id="apm-price" type="number" step="0.0001" placeholder="78.2600"></div>
+      <div class="prow"><label>ENTRY DATE</label><input id="apm-date" type="date"></div>
+      <div class="prow"><label>TYPE</label><select id="apm-type" onchange="toggleCloseMode(this.value)"><option value="long">LONG</option><option value="short">SHORT</option><option value="close">CLOSE POSITION</option></select></div>
+      <div class="prow full"><label>NOTES</label><input id="apm-notes" placeholder="Optional"></div>
     </div>
-
-    <!-- Close position extra fields (shown when type = CLOSE) -->
     <div id="close-pos-fields" style="display:none;padding:0 16px 12px;border-top:1px solid var(--bdr)">
-      <div style="font-size:9px;color:var(--org);letter-spacing:2px;padding:10px 0 8px;font-weight:700">SELECT POSITION TO CLOSE</div>
+      <div style="font-size:9px;color:var(--org);letter-spacing:2px;padding:10px 0 8px;font-weight:700">CLOSE DETAILS</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div class="prow" style="grid-column:1/-1">
-          <label>OPEN POSITION</label>
-          <select id="close-pos-select" onchange="prefillCloseFields(this.value)" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%">
-            <option value="">— select —</option>
-          </select>
-        </div>
-        <div class="prow">
-          <label>CLOSE PRICE ($)</label>
-          <input id="close-price" type="number" step="0.0001" placeholder="auto-fills live price" oninput="updateClosePnlPreview()">
-        </div>
-        <div class="prow">
-          <label>SHARES TO CLOSE</label>
-          <input id="close-qty" type="number" placeholder="all shares" oninput="updateClosePnlPreview()">
-        </div>
-        <div class="prow">
-          <label>CLOSE DATE</label>
-          <input id="close-date" type="date">
-        </div>
-        <div class="prow" id="close-pnl-preview" style="align-self:end">
-          <label>EST. REALISED P&L</label>
-          <div id="close-pnl-val" style="font-size:16px;font-weight:700;color:var(--txt2);padding:5px 0">—</div>
-        </div>
+        <div class="prow" style="grid-column:1/-1"><label>POSITION TO CLOSE</label><select id="close-pos-select" onchange="prefillCloseFields(this.value)"></select></div>
+        <div class="prow"><label>CLOSE PRICE ($)</label><input id="close-price" type="number" step="0.0001" oninput="updateClosePnlPreview()"></div>
+        <div class="prow"><label>SHARES TO CLOSE</label><input id="close-qty" type="number" oninput="updateClosePnlPreview()"></div>
+        <div class="prow"><label>CLOSE DATE</label><input id="close-date" type="date"></div>
+        <div class="prow"><label>EST. REALISED P&amp;L</label><div id="close-pnl-val" style="font-size:16px;font-weight:700;color:var(--txt2);padding:5px 0">—</div></div>
       </div>
     </div>
-
     <div class="pos-modal-ft">
       <button class="btn" onclick="hideAddPosModal()">CANCEL</button>
       <button class="btn buy" id="add-pos-btn" onclick="addPosition()">ADD POSITION →</button>
     </div>
   </div>
 </div>
-
 <!-- Cash Modal -->
 <div id="cash-modal" class="cash-modal" style="display:none">
   <div class="cash-modal-box">
     <div class="pos-modal-hd" style="border-color:var(--cyn)">CASH ADJUSTMENT <span style="cursor:pointer;color:var(--txt2)" onclick="hideCashModal()">✕</span></div>
     <div class="pos-modal-body" style="grid-template-columns:1fr">
-      <div class="prow">
-        <label>AMOUNT ($) — negative for withdrawal</label>
-        <input id="cm-amount" type="number" step="0.01" placeholder="10000.00">
-      </div>
-      <div class="prow">
-        <label>NOTE</label>
-        <input id="cm-note" placeholder="e.g. Initial deposit">
-      </div>
+      <div class="prow"><label>AMOUNT ($) — negative = withdrawal</label><input id="cm-amount" type="number" step="0.01" placeholder="10000.00"></div>
+      <div class="prow"><label>NOTE</label><input id="cm-note" placeholder="e.g. Initial deposit"></div>
     </div>
     <div class="pos-modal-ft">
       <button class="btn" onclick="hideCashModal()">CANCEL</button>
       <button class="btn" style="border-color:var(--cyn);color:var(--cyn)" onclick="adjustCash()">CONFIRM →</button>
     </div>
   </div>
-
-<!-- Import Portfolio Modal -->
+</div>
+<!-- Import Modal -->
 <div id="import-modal" class="pos-modal" style="display:none">
   <div class="pos-modal-box" style="max-width:580px;width:580px">
-    <div class="pos-modal-hd" style="border-color:var(--org)">
-      IMPORT FROM NER TERMINAL
-      <span style="cursor:pointer;color:var(--txt2);font-size:14px" onclick="hideImportModal()">✕</span>
-    </div>
+    <div class="pos-modal-hd" style="border-color:var(--org)">IMPORT FROM NER TERMINAL <span style="cursor:pointer;color:var(--txt2);font-size:14px" onclick="hideImportModal()">✕</span></div>
     <div style="padding:16px">
-      <div style="font-size:10px;color:var(--txt2);margin-bottom:8px;line-height:1.6">
-        Paste the portfolio table from your NER terminal below.<br>
-        <span style="color:var(--txt3)">Duplicates (tickers already in portfolio) will be skipped.</span>
-      </div>
-      <textarea id="import-raw" rows="10" placeholder="| BB  | 35 | $  31.31 | $  35.28 | $  139.04 |&#10;| SRI | 41 | $  66.66 | $  32.81 | $ -1387.77|&#10;..." style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:'Courier New',monospace;font-size:10px;padding:8px;outline:none;resize:vertical;box-sizing:border-box"></textarea>
-      <div id="import-preview" style="margin-top:10px;display:none">
-        <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:6px">PREVIEW</div>
-        <div id="import-preview-rows" style="font-size:10px;font-family:'Courier New',monospace"></div>
-      </div>
+      <div style="font-size:10px;color:var(--txt2);margin-bottom:8px;line-height:1.6">Paste the portfolio table from your NER terminal.<br><span style="color:var(--txt3)">Duplicates will be skipped.</span></div>
+      <textarea id="import-raw" rows="10" placeholder="| BB  | 35 | $  31.31 | ..." style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:'Courier New',monospace;font-size:10px;padding:8px;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+      <div id="import-preview" style="margin-top:10px;display:none"><div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:6px">PREVIEW</div><div id="import-preview-rows" style="font-size:10px;font-family:'Courier New',monospace"></div></div>
       <div id="import-status" style="margin-top:8px;font-size:10px;display:none"></div>
     </div>
     <div class="pos-modal-ft">
@@ -316,6 +353,4 @@
       <button class="btn buy" id="import-confirm-btn" style="display:none" onclick="confirmImport()">CONFIRM IMPORT →</button>
     </div>
   </div>
-</div>
-
 </div>
