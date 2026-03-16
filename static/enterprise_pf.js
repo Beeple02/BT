@@ -24,11 +24,10 @@ window.ENT_PF_refresh = async function(){
   renderHeader();
   renderOverview();
   renderPositions();
-  renderAnalytics();
   renderRisk();
   renderCashLog();
-  renderAuditLog();
   renderRealized();
+  renderAuditLog();
   renderTargetAlloc();
 };
 
