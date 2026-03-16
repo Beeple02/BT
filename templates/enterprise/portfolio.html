@@ -21,6 +21,8 @@
 /* cash modal */
 .cash-modal{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;display:flex;align-items:center;justify-content:center}
 .cash-modal-box{background:var(--bg2);border:1px solid var(--cyn);width:340px}
+#close-pos-fields input, #close-pos-fields select { background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100% }
+#close-pos-fields input:focus { border-color:var(--org) }
 </style>
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden" id="ent-pf-root">
   <!-- Portfolio header strip -->
@@ -195,16 +197,50 @@
       </div>
       <div class="prow">
         <label>TYPE</label>
-        <select id="apm-type"><option value="long">LONG</option><option value="short">SHORT</option></select>
+        <select id="apm-type" onchange="toggleCloseMode(this.value)">
+        <option value="long">LONG</option>
+        <option value="short">SHORT</option>
+        <option value="close">CLOSE POSITION</option>
+      </select>
       </div>
       <div class="prow full">
         <label>NOTES</label>
         <input id="apm-notes" placeholder="Optional notes">
       </div>
     </div>
+
+    <!-- Close position extra fields (shown when type = CLOSE) -->
+    <div id="close-pos-fields" style="display:none;padding:0 16px 12px;border-top:1px solid var(--bdr)">
+      <div style="font-size:9px;color:var(--org);letter-spacing:2px;padding:10px 0 8px;font-weight:700">SELECT POSITION TO CLOSE</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="prow" style="grid-column:1/-1">
+          <label>OPEN POSITION</label>
+          <select id="close-pos-select" onchange="prefillCloseFields(this.value)" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%">
+            <option value="">— select —</option>
+          </select>
+        </div>
+        <div class="prow">
+          <label>CLOSE PRICE ($)</label>
+          <input id="close-price" type="number" step="0.0001" placeholder="auto-fills live price" oninput="updateClosePnlPreview()">
+        </div>
+        <div class="prow">
+          <label>SHARES TO CLOSE</label>
+          <input id="close-qty" type="number" placeholder="all shares" oninput="updateClosePnlPreview()">
+        </div>
+        <div class="prow">
+          <label>CLOSE DATE</label>
+          <input id="close-date" type="date">
+        </div>
+        <div class="prow" id="close-pnl-preview" style="align-self:end">
+          <label>EST. REALISED P&L</label>
+          <div id="close-pnl-val" style="font-size:16px;font-weight:700;color:var(--txt2);padding:5px 0">—</div>
+        </div>
+      </div>
+    </div>
+
     <div class="pos-modal-ft">
       <button class="btn" onclick="hideAddPosModal()">CANCEL</button>
-      <button class="btn buy" onclick="addPosition()">ADD POSITION →</button>
+      <button class="btn buy" id="add-pos-btn" onclick="addPosition()">ADD POSITION →</button>
     </div>
   </div>
 </div>
