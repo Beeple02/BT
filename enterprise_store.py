@@ -85,6 +85,17 @@ def get_portfolio(pf_id: str) -> dict | None:
 
 # ── Position CRUD ──────────────────────────────────────────────────────────────
 
+def _audit(pf: dict, action: str, detail: str = ""):
+    pf.setdefault("audit_log", []).append({
+        "ts":     datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "detail": detail,
+    })
+    # Keep last 500 entries
+    if len(pf["audit_log"]) > 500:
+        pf["audit_log"] = pf["audit_log"][-500:]
+
+
 def add_position(pf_id: str, pos: dict) -> dict | None:
     data = _load()
     pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
@@ -95,6 +106,7 @@ def add_position(pf_id: str, pos: dict) -> dict | None:
     pos["qty"]         = float(pos.get("qty", 0))
     pos["entry_price"] = float(pos.get("entry_price", 0))
     pf.setdefault("positions", []).append(pos)
+    _audit(pf, "ADD_POSITION", f"{pos['ticker']} qty={pos['qty']} entry={pos['entry_price']}")
     _save(data)
     return pos
 
@@ -123,7 +135,9 @@ def remove_position(pf_id: str, pos_id: str) -> int:
     pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
     if not pf: return 0
     before = len(pf.get("positions", []))
+    removed = next((p for p in pf.get("positions",[]) if p["id"]==pos_id), None)
     pf["positions"] = [p for p in pf.get("positions", []) if p["id"] != pos_id]
+    if removed: _audit(pf, "REMOVE_POSITION", f"{removed.get('ticker','?')} id={pos_id}")
     _save(data)
     return before - len(pf["positions"])
 
@@ -152,6 +166,8 @@ def adjust_cash(pf_id: str, amount: float, note: str = "") -> dict | None:
         "ts":            datetime.now(timezone.utc).isoformat(),
         "balance_after": pf["cash"],
     })
+    action = "DEPOSIT" if amount >= 0 else "WITHDRAWAL"
+    _audit(pf, action, f"amount={amount:.2f} note={note}")
     _save(data)
     return {"cash": pf["cash"], "log_entry": pf["cash_log"][-1]}
 
