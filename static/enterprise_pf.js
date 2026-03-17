@@ -42,8 +42,19 @@ window.epfTab = function(tab){
 async function loadDeepAnalytics(){
   if(!_pfid) return;
   var days = (document.getElementById('analytics-days')||{}).value || '90';
+  // Show loading state
+  var equityChart = document.getElementById('epf-equity-chart');
+  var metricsEl = document.getElementById('epf-metrics-grid');
+  if(metricsEl) metricsEl.innerHTML='<div style="padding:12px;color:var(--txt3);font-size:10px;grid-column:1/-1">Loading analytics...</div>';
   var r = await api('/api/enterprise/portfolios/'+_pfid+'/deep_analytics?days='+days);
-  if(!r.ok) return;
+  if(!r.ok){
+    if(metricsEl) metricsEl.innerHTML='<div style="padding:12px;color:var(--dn);font-size:10px;grid-column:1/-1">Failed to load analytics: '+(r.d&&r.d.detail||'error')+'</div>';
+    return;
+  }
+  if(r.d&&r.d.detail){
+    if(metricsEl) metricsEl.innerHTML='<div style="padding:12px;color:var(--yel);font-size:10px;grid-column:1/-1">'+r.d.detail+' — try a longer time window or check that your positions have price history.</div>';
+    return;
+  }
   _deepData = r.d;
   renderEquityCurve();
   renderMonthlyReturns();
@@ -56,9 +67,16 @@ async function loadDeepAnalytics(){
 
 async function loadBenchmark(){
   if(!_pfid) return;
-  var r = await api('/api/enterprise/portfolios/'+_pfid+'/benchmark');
-  if(!r.ok) return;
+  var bm=(document.getElementById('bm-selector')||{}).value||'B:NCOMP';
+  var days=(document.getElementById('bm-days')||{}).value||'90';
+  var lbl=document.getElementById('bm-label');
+  if(lbl) lbl.textContent='Loading...';
+  var r = await api('/api/enterprise/portfolios/'+_pfid+'/benchmark?benchmark='+bm+'&days='+days);
+  if(!r.ok){ if(lbl) lbl.textContent='Failed'; return; }
   _bmData = r.d;
+  if(lbl) lbl.textContent=r.d.benchmark_label||bm;
+  var titleEl=document.getElementById('epf-bm-title');
+  if(titleEl) titleEl.textContent='PORTFOLIO vs '+(r.d.benchmark_label||bm);
   renderBenchmark();
 }
 
@@ -168,13 +186,44 @@ function renderEquityCurve(){
   if(!ctx) return;
   if(_charts.equity) _charts.equity.destroy();
   var pts=_deepData.port_closes;
-  var labels=pts.map(function(_,i){return i;});
+  // Use dates from deep data if available, else day indices
+  var refDates=_deepData.ref_dates||null;
+  var labels=pts.map(function(_,i){return refDates&&refDates[i]?refDates[i]:i;});
+  // Colour line green/red based on overall direction
+  var up=pts[pts.length-1]>=pts[0];
+  var lineCol=up?'#00c853':'#f44336';
+  var fillCol=up?'rgba(0,200,83,.07)':'rgba(244,67,54,.06)';
   _charts.equity=new Chart(ctx,{
     type:'line',
-    data:{labels:labels,datasets:[{data:pts,borderColor:'#00c853',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,200,83,.07)'}]},
-    options:{responsive:true,maintainAspectRatio:false,animation:false,
-      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:function(c){return ' $'+f(c.parsed.y,2)+' ('+(((c.parsed.y/10000)-1)*100).toFixed(2)+'%)';}}}},
-      scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:function(v){return '$'+fk(v);}}}}}});
+    data:{labels:labels,datasets:[{data:pts,borderColor:lineCol,borderWidth:1.8,pointRadius:0,pointHoverRadius:4,fill:true,backgroundColor:fillCol,tension:0.15}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{...TT,callbacks:{
+          title:function(items){return labels[items[0].dataIndex]||'Day '+items[0].dataIndex;},
+          label:function(c){var v=c.parsed.y;return ' $'+f(v,2)+' ('+(((v/10000)-1)*100).toFixed(2)+'%)';},
+          afterLabel:function(c){
+            var idx=c.dataIndex;
+            if(idx===0) return '';
+            var prev=pts[idx-1]; var curr=pts[idx];
+            var d=(curr-prev)/prev*100;
+            return ' Day chg: '+(d>=0?'+':'')+d.toFixed(3)+'%';
+          }
+        }},
+        // Crosshair via afterDraw
+      },
+      scales:{
+        x:{grid:{color:'rgba(46,46,46,.4)'},ticks:{color:'#444',maxTicksLimit:8,maxRotation:0}},
+        y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:function(v){return '$'+fk(v);}}}
+      }
+    }
+  });
+  // Click to zoom: double-click resets
+  ctx.ondblclick=function(){
+    _charts.equity.resetZoom&&_charts.equity.resetZoom();
+  };
 }
 
 function renderMonthlyReturns(){
@@ -353,11 +402,12 @@ function renderBenchmark(){
     if(_charts.bm) _charts.bm.destroy();
     var n=Math.min(d.portfolio_curve.length,d.benchmark_curve.length);
     var labels=Array.from({length:n},function(_,i){return i;});
+    var bmLbl=d.benchmark_label||'Benchmark';
     _charts.bm=new Chart(ctx,{
       type:'line',
       data:{labels:labels,datasets:[
         {label:'Portfolio',data:d.portfolio_curve.slice(0,n),borderColor:'#ff8c00',borderWidth:2,pointRadius:0,fill:false},
-        {label:'NER Index',data:d.benchmark_curve.slice(0,n),borderColor:'#444',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[4,2]}
+        {label:bmLbl,data:d.benchmark_curve.slice(0,n),borderColor:'#534AB7',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[4,2]}
       ]},
       options:{responsive:true,maintainAspectRatio:false,animation:false,
         plugins:{legend:{labels:{color:'#888',font:{size:9}}},tooltip:{...TT}},
@@ -587,13 +637,17 @@ function renderCashLog(){
   var tbody=document.getElementById('epf-cash-tbody');
   if(!tbody) return;
   var log=(_pfData&&_pfData.cash_log||[]).slice().reverse();
+  var fromStr=(document.getElementById('cl-date-from')||{}).value||'';
+  var toStr=(document.getElementById('cl-date-to')||{}).value||'';
+  if(fromStr) log=log.filter(function(r){return !r.ts||(r.ts.slice(0,10)>=fromStr);});
+  if(toStr)   log=log.filter(function(r){return !r.ts||(r.ts.slice(0,10)<=toStr);});
   tbody.innerHTML=log.map(function(r){
     return '<tr><td style="color:var(--txt2)">'+(r.ts?new Date(r.ts).toLocaleString('en-GB'):'—')+'</td>'
       +'<td style="color:'+(r.amount>=0?'var(--up)':'var(--dn)')+';font-weight:700">'+(r.amount>=0?'+':'')+'$'+f(r.amount,2)+'</td>'
       +'<td>'+(r.note||'—')+'</td>'
       +'<td class="r" style="color:var(--wht)">$'+f(r.balance_after||0,2)+'</td>'
       +'</tr>';
-  }).join('')||'<tr><td colspan="4" style="padding:16px;color:var(--txt3);text-align:center">No cash transactions yet.</td></tr>';
+  }).join('')||'<tr><td colspan="4" style="padding:16px;color:var(--txt3);text-align:center">No entries for selected period.</td></tr>';
 }
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
@@ -602,11 +656,15 @@ async function renderAuditLog(){
   if(!tbody) return;
   var r=await api('/api/enterprise/portfolios/'+(_pfid||'')+'/audit_log');
   var log=r.ok?r.d:[];
+  var fromStr=(document.getElementById('al-date-from')||{}).value||'';
+  var toStr=(document.getElementById('al-date-to')||{}).value||'';
+  if(fromStr) log=log.filter(function(e){return !e.ts||(e.ts.slice(0,10)>=fromStr);});
+  if(toStr)   log=log.filter(function(e){return !e.ts||(e.ts.slice(0,10)<=toStr);});
   tbody.innerHTML=log.slice().reverse().map(function(e){
     return '<tr><td style="color:var(--txt2);font-size:9px">'+(e.ts?new Date(e.ts).toLocaleString('en-GB'):'—')+'</td>'
       +'<td style="color:var(--org);font-weight:700">'+e.action+'</td>'
       +'<td style="color:var(--txt2)">'+(e.detail||'')+'</td></tr>';
-  }).join('')||'<tr><td colspan="3" style="padding:16px;color:var(--txt3);text-align:center">No audit events yet.</td></tr>';
+  }).join('')||'<tr><td colspan="3" style="padding:16px;color:var(--txt3);text-align:center">No audit events for selected period.</td></tr>';
 }
 
 // ── Notes save ────────────────────────────────────────────────────────────────
@@ -914,8 +972,9 @@ window.generateReport = function(){
   }
   if(_rptSec('rpt-cashlog')&&d.cash_log&&d.cash_log.length){
     html+=_rptH('CASH ACTIVITY LOG');
+    var filteredLog=_rptDateFilter(d.cash_log,'ts').slice().reverse();
     html+=_rptTable(['DATE','AMOUNT','BALANCE AFTER','NOTE'],
-      d.cash_log.slice().reverse().map(function(e){
+      filteredLog.map(function(e){
         return [new Date(e.ts).toLocaleDateString('en-GB'),{v:(e.amount>=0?'+':'')+'$'+f(e.amount,2),c:e.amount>=0?'var(--up)':'var(--dn)'},'$'+f(e.balance_after||0,2),e.note||'—'];
       }),['left','right','right','left']);
   }
@@ -951,5 +1010,38 @@ window.exportReportCSV = function(){
   var blob=new Blob([lines.join('\n')],{type:'text/csv'});
   var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(d.name||'portfolio').replace(/\s+/g,'_')+'_report.csv';a.click();
 };
+
+window.exportStressExcel = function(){
+  if(typeof XLSX === 'undefined'){alert('SheetJS not loaded yet, try again.');return;}
+  if(!_deepData||!_deepData.stress_tests){alert('Load Analytics tab first to compute stress tests.');return;}
+  var pfName=(_pfData&&_pfData.name)||'Portfolio';
+  var aum=(_pfData&&_pfData.summary&&_pfData.summary.total_with_cash)||0;
+  var rows=[['Scenario','Portfolio Impact %','Est. Loss ($)','AUM ($)']];
+  _deepData.stress_tests.forEach(function(s){
+    var loss=aum*s.portfolio_impact_pct/100;
+    rows.push([s.name,s.portfolio_impact_pct.toFixed(2),loss.toFixed(2),aum.toFixed(2)]);
+  });
+  var ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:25},{wch:20},{wch:20},{wch:15}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Stress Tests');
+  XLSX.writeFile(wb,pfName.replace(/\s+/g,'_')+'_stress_tests.xlsx');
+};
+
+// Report date range: filter cash_log and positions by selected dates
+function _rptDateFilter(entries, tsField){
+  tsField = tsField||'ts';
+  var fromEl=document.getElementById('rpt-date-from');
+  var toEl=document.getElementById('rpt-date-to');
+  var from=fromEl&&fromEl.value?fromEl.value:'';
+  var to=toEl&&toEl.value?toEl.value:new Date().toISOString().slice(0,10);
+  return entries.filter(function(e){
+    var d=(e[tsField]||'').slice(0,10);
+    if(!d) return true;
+    return (!from||d>=from) && (!to||d<=to);
+  });
+}
+window._rptDateFilter = _rptDateFilter;
+
 
 })();
