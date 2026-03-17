@@ -154,14 +154,21 @@ function renderOverview(){
 // ── Positions table ───────────────────────────────────────────────────────────
 function renderPositions(){
   var tbody=document.getElementById('epf-pos-tbody');
-  if(!tbody) return;
+  if(!tbody||!_pfData) return;
   var d=_pfData;
   tbody.innerHTML=d.positions.map(function(p){
     var pc=p.pnl>=0?'var(--up)':'var(--dn)';
     var ppc=p.pnl_pct>=0?'var(--up)':'var(--dn)';
     var typeBadge=p.type==='short'?'<span style="color:var(--dn);font-size:8px">SHORT</span>':'<span style="color:var(--up);font-size:8px">LONG</span>';
+    var tagHtml=p.tag?'<span style="font-size:7px;padding:1px 5px;border:1px solid var(--bdr2);color:var(--yel);margin-left:3px">'+p.tag.toUpperCase()+'</span>':'';
+    var stopHtml='—';
+    if(p.stop_price&&p.stop_price>0&&p.live_price){
+      var dist=(p.live_price-p.stop_price)/p.live_price*100;
+      var stopCol=dist<5?'var(--dn)':dist<15?'var(--yel)':'var(--up)';
+      stopHtml='<span style="color:'+stopCol+'">'+dist.toFixed(1)+'%</span>';
+    }
     return '<tr>'
-      +'<td style="color:var(--cyn);font-weight:700">'+p.ticker+'</td>'
+      +'<td style="color:var(--cyn);font-weight:700">'+p.ticker+tagHtml+'</td>'
       +'<td>'+typeBadge+'</td>'
       +'<td>'+p.qty.toLocaleString()+'</td>'
       +'<td class="r">$'+f(p.entry_price,4)+'</td>'
@@ -175,11 +182,15 @@ function renderPositions(){
       +'<td class="r" style="color:'+((p.sharpe||0)>0?'var(--up)':'var(--dn)')+'">'+(p.sharpe!=null?p.sharpe.toFixed(2):'—')+'</td>'
       +'<td class="r">'+(p.sortino!=null?p.sortino.toFixed(2):'—')+'</td>'
       +'<td class="r" style="color:var(--dn)">'+(p.max_dd!=null?p.max_dd.toFixed(2)+'%':'—')+'</td>'
+      +'<td class="r">'+stopHtml+'</td>'
       +'<td style="color:var(--txt2)">'+(p.entry_date||'—')+'</td>'
-      +'<td style="color:var(--txt2);max-width:100px;overflow:hidden;text-overflow:ellipsis">'+(p.notes||'')+'</td>'
-      +'<td><span style="color:var(--dn);cursor:pointer;font-size:11px" onclick="removePosition(\''+p.id+'\',\''+p.ticker+'\')">✕</span></td>'
+      +'<td style="color:var(--txt2);max-width:80px;overflow:hidden;text-overflow:ellipsis">'+(p.notes||'')+'</td>'
+      +'<td>'
+      +'<span style="color:var(--txt3);cursor:pointer;font-size:9px;margin-right:4px" onclick="showPositionCurve(&quot;'+p.id+'&quot;,&quot;'+p.ticker+'&quot;)">📈</span>'
+      +'<span style="color:var(--dn);cursor:pointer;font-size:11px" onclick="removePosition(&quot;'+p.id+'&quot;,&quot;'+p.ticker+'&quot;)">✕</span>'
+      +'</td>'
       +'</tr>';
-  }).join('')||'<tr><td colspan="17" style="color:var(--txt3);padding:16px;text-align:center">No positions</td></tr>';
+  }).join('')||'<tr><td colspan="18" style="color:var(--txt3);padding:16px;text-align:center">No positions</td></tr>';
 }
 
 // ── Analytics: equity curve, monthly returns, rolling Sharpe, metrics, corr ─
@@ -1280,56 +1291,6 @@ window.addPosition = async function(){
   await ENT_PF_refresh(); epfTab('positions');
 };
 
-// ── Position grouping & tags: render positions with tag badges + stop prox ─
-(function(){
-  var _origRenderPositions = window._renderPositionsOrig;
-  // Override renderPositions to add tag + stop columns
-  window._renderPositionsFull = function(){
-    var tbody=document.getElementById('epf-pos-tbody');
-    if(!tbody||!_pfData) return;
-    var d=_pfData;
-    tbody.innerHTML=d.positions.map(function(p){
-      var pc=p.pnl>=0?'var(--up)':'var(--dn)';
-      var ppc=p.pnl_pct>=0?'var(--up)':'var(--dn)';
-      var typeBadge=p.type==='short'?'<span style="color:var(--dn);font-size:8px">SHORT</span>':'<span style="color:var(--up);font-size:8px">LONG</span>';
-      var tagHtml=p.tag?'<span style="font-size:7px;padding:1px 5px;border:1px solid var(--bdr2);color:var(--yel);margin-left:3px">'+p.tag.toUpperCase()+'</span>':'';
-      // Stop-loss proximity
-      var stopHtml='—';
-      if(p.stop_price&&p.stop_price>0&&p.live_price){
-        var dist=(p.live_price-p.stop_price)/p.live_price*100;
-        var stopCol=dist<5?'var(--dn)':dist<15?'var(--yel)':'var(--up)';
-        stopHtml='<span style="color:'+stopCol+'">'+dist.toFixed(1)+'%</span>';
-      }
-      return '<tr>'
-        +'<td style="color:var(--cyn);font-weight:700">'+p.ticker+tagHtml+'</td>'
-        +'<td>'+typeBadge+'</td>'
-        +'<td>'+p.qty.toLocaleString()+'</td>'
-        +'<td class="r">$'+f(p.entry_price,4)+'</td>'
-        +'<td class="r" style="color:var(--wht)">'+(p.live_price!=null?'$'+f(p.live_price,4):'—')+'</td>'
-        +'<td class="r" style="color:var(--txt2)">$'+fk(p.cost)+'</td>'
-        +'<td class="r">$'+fk(p.market_value)+'</td>'
-        +'<td class="r" style="color:'+pc+'">'+(p.pnl>=0?'+':'')+'$'+f(p.pnl,2)+'</td>'
-        +'<td class="r" style="color:'+ppc+'">'+(p.pnl_pct>=0?'+':'')+p.pnl_pct.toFixed(2)+'%</td>'
-        +'<td class="r">'+p.weight_pct.toFixed(1)+'%</td>'
-        +'<td class="r" style="color:var(--yel)">'+(p.ann_vol!=null?p.ann_vol.toFixed(1)+'%':'—')+'</td>'
-        +'<td class="r" style="color:'+((p.sharpe||0)>0?'var(--up)':'var(--dn)')+'">'+(p.sharpe!=null?p.sharpe.toFixed(2):'—')+'</td>'
-        +'<td class="r">'+(p.sortino!=null?p.sortino.toFixed(2):'—')+'</td>'
-        +'<td class="r" style="color:var(--dn)">'+(p.max_dd!=null?p.max_dd.toFixed(2)+'%':'—')+'</td>'
-        +'<td class="r">'+stopHtml+'</td>'
-        +'<td style="color:var(--txt2)">'+(p.entry_date||'—')+'</td>'
-        +'<td style="color:var(--txt2);max-width:80px;overflow:hidden;text-overflow:ellipsis">'+(p.notes||'')+'</td>'
-        +'<td><span style="color:var(--txt3);cursor:pointer;font-size:9px;margin-right:4px" onclick="showPositionCurve(\''+p.id+'\',\''+p.ticker+'\')">📈</span>'
-        +'<span style="color:var(--dn);cursor:pointer;font-size:11px" onclick="removePosition(\''+p.id+'\',\''+p.ticker+'\')">✕</span></td>'
-        +'</tr>';
-    }).join('')||'<tr><td colspan="18" style="color:var(--txt3);padding:16px;text-align:center">No positions</td></tr>';
-  };
-  // Monkey-patch: call our version right after ENT_PF_refresh sets _pfData
-  var _origRefresh = window.ENT_PF_refresh;
-  window.ENT_PF_refresh = async function(){
-    await _origRefresh();
-    window._renderPositionsFull();
-  };
-})();
 
 // ── Position equity curve modal ────────────────────────────────────────────
 window.showPositionCurve = async function(posId, ticker){
