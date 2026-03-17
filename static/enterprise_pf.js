@@ -712,7 +712,7 @@ function renderRealized(){
 }
 
 // ── Target Allocation ─────────────────────────────────────────────────────────
-async function renderTargetAlloc(){
+window.renderTargetAlloc = async function(){
   if(!_pfData) return;
   var r=await api('/api/enterprise/portfolios/'+_pfid+'/target_allocation');
   var targets=r.ok?r.d.targets:{};
@@ -809,7 +809,7 @@ function renderCashLog(){
 }
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
-async function renderAuditLog(){
+window.renderAuditLog = async function(){
   var tbody=document.getElementById('epf-audit-tbody');
   if(!tbody) return;
   var r=await api('/api/enterprise/portfolios/'+(_pfid||'')+'/audit_log');
@@ -1202,51 +1202,21 @@ function _rptDateFilter(entries, tsField){
 window._rptDateFilter = _rptDateFilter;
 
 
-})();
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ── NEW FEATURES BLOCK ────────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════════════
+// ── NEW FEATURES BLOCK ──────────────────────────────────────────────────────
 
-// Expose new tab loaders on window
-window.loadRollingBeta = loadRollingBeta;
-window.loadVarBacktest = loadVarBacktest;
-window.loadDrawdown    = loadDrawdown;
-window.loadDividends   = loadDividends;
-window.loadScenarios   = loadScenarios;
-window.loadSnapshots   = loadSnapshots;
-
-// ── Extend epfTab to trigger new tabs ────────────────────────────────────
-(function(){
-  var _origTab = window.epfTab;
-  window.epfTab = function(tab){
-    _origTab(tab);
-    if(tab==='drawdown')  loadDrawdown();
-    if(tab==='beta')      loadRollingBeta();
-    if(tab==='varbt')     loadVarBacktest();
-    if(tab==='dividends') loadDividends();
-    if(tab==='scenarios') loadScenarios();
-    if(tab==='snapshots') loadSnapshots();
-    if(tab==='tearsheet' && _pfData) generateTearsheet();
-  };
-})();
-
-// ── Stop-loss: patch addPosition to send stop+tag ────────────────────────
-(function(){
-  var _origAdd = window.addPosition;
-  window.addPosition = async function(){
-    // Inject tag+stop into body before calling original
-    window._apm_tag  = (document.getElementById('apm-tag')||{}).value||'';
-    window._apm_stop = (document.getElementById('apm-stop')||{}).value||'';
-    await _origAdd();
-    window._apm_tag = ''; window._apm_stop = '';
-  };
-})();
-
-// Patch apiPost for positions to include tag+stop fields
-// (We hook into the fetch via the standard addPosition flow — 
-//  the tag/stop are read in the modal and sent via body overrides)
-// Actually cleaner: override addPosition fully here
+// ── Extend epfTab for new tabs (inside IIFE, has access to private vars) ────
+var _origEpfTab = window.epfTab;
+window.epfTab = function(tab){
+  _origEpfTab(tab);
+  if(tab==='drawdown')  loadDrawdown();
+  if(tab==='beta')      loadRollingBeta();
+  if(tab==='varbt')     loadVarBacktest();
+  if(tab==='dividends') loadDividends();
+  if(tab==='scenarios') loadScenarios();
+  if(tab==='snapshots') loadSnapshots();
+  if(tab==='tearsheet') { if(_pfData) generateTearsheet(); }
+};
 
 window.addPosition = async function(){
   var type = document.getElementById('apm-type').value;
@@ -1334,7 +1304,7 @@ window.showPositionCurve = async function(posId, ticker){
 };
 
 // ── Drawdown chart ────────────────────────────────────────────────────────
-async function loadDrawdown(){
+window.loadDrawdown = async function(){
   if(!_deepData) await loadDeepAnalytics();
   if(!_deepData||!_deepData.port_closes.length) return;
   var pts=_deepData.port_closes;
@@ -1394,7 +1364,7 @@ async function loadDrawdown(){
 }
 
 // ── Rolling beta ──────────────────────────────────────────────────────────
-async function loadRollingBeta(){
+window.loadRollingBeta = async function(){
   if(!_pfid) return;
   var days=(document.getElementById('beta-days')||{}).value||'90';
   var r=await api('/api/enterprise/portfolios/'+_pfid+'/rolling_beta?days='+days);
@@ -1432,7 +1402,7 @@ async function loadRollingBeta(){
 }
 
 // ── VaR Backtest ──────────────────────────────────────────────────────────
-async function loadVarBacktest(){
+window.loadVarBacktest = async function(){
   if(!_pfid) return;
   var r=await api('/api/enterprise/portfolios/'+_pfid+'/var_backtest?days=180');
   if(!r.ok||!r.d.n_test) return;
@@ -1482,7 +1452,7 @@ async function loadVarBacktest(){
 }
 
 // ── Dividends ─────────────────────────────────────────────────────────────
-async function loadDividends(){
+window.loadDividends = async function(){
   if(!_pfData) return;
   var el=document.getElementById('epf-dividends-body');
   if(!el) return;
@@ -1537,7 +1507,7 @@ window.recordDividend = async function(){
 };
 
 // ── Scenario builder ──────────────────────────────────────────────────────
-async function loadScenarios(){
+window.loadScenarios = async function(){
   if(!_pfid) return;
   var r=await api('/api/enterprise/portfolios/'+_pfid+'/scenarios');
   if(!r.ok) return;
@@ -1605,7 +1575,7 @@ window.deleteScenario = async function(id){
 };
 
 // ── Snapshots ─────────────────────────────────────────────────────────────
-async function loadSnapshots(){
+window.loadSnapshots = async function(){
   if(!_pfid) return;
   var r=await api('/api/enterprise/portfolios/'+_pfid+'/report_snapshots');
   if(!r.ok) return;
@@ -1739,3 +1709,5 @@ window.printTearsheet = function(){
   w.document.write('<html><head><title>Tearsheet</title><style>body{background:#111;color:#bbb;font-family:"Courier New",monospace;padding:20px;font-size:11px}@media print{body{background:#fff;color:#000}}</style></head><body>'+c.innerHTML+'</body></html>');
   w.document.close(); w.print();
 };
+
+})();
