@@ -55,6 +55,10 @@ async function loadDeepAnalytics(){
     if(metricsEl) metricsEl.innerHTML='<div style="padding:12px;color:var(--yel);font-size:10px;grid-column:1/-1">'+r.d.detail+' — try a longer time window or check that your positions have price history.</div>';
     return;
   }
+  if(!r.d || r.d.detail || !r.d.port_closes){
+    if(metricsEl) metricsEl.innerHTML='<div style="padding:12px;color:var(--yel);font-size:10px;grid-column:1/-1">'+(r.d&&r.d.detail||'No price history')+' — try a longer time window.</div>';
+    return;
+  }
   _deepData = r.d;
   renderEquityCurve();
   renderMonthlyReturns();
@@ -672,13 +676,16 @@ function renderRealized(){
   var realPnl=_pfData&&_pfData.realized_pnl||0;
   var kpis=document.getElementById('epf-real-kpis');
   if(kpis){
-    var deepReal=_deepData&&_deepData.realized_pnl||realPnl;
-    var trades=_deepData&&_deepData.realized_trades||[];
+    var deepReal=(_deepData&&_deepData.realized_pnl!=null?_deepData.realized_pnl:null)||realPnl||0;
+    var divIncome=(_pfData&&_pfData.dividend_income)||0;
+    var trades=(_deepData&&_deepData.realized_trades)||[];
     var winners=trades.filter(function(t){return (t.realised_pnl||0)>0;}).length;
     kpis.innerHTML=[
-      {l:'TOTAL REALIZED P&L',v:(deepReal>=0?'+':'')+'$'+f(Math.abs(deepReal),2),c:deepReal>=0?'var(--up)':'var(--dn)'},
+      {l:'REALIZED P&L',v:(deepReal>=0?'+':'')+'$'+f(Math.abs(deepReal),2),c:deepReal>=0?'var(--up)':'var(--dn)'},
+      {l:'DIVIDEND INCOME',v:'+$'+f(divIncome,2),c:'var(--up)'},
       {l:'CLOSED TRADES',v:trades.length,c:'var(--wht)'},
       {l:'WIN RATE',v:trades.length?Math.round(winners/trades.length*100)+'%':'—',c:'var(--yel)'},
+      {l:'TOTAL INCOME',v:'+'+'$'+f(Math.abs(deepReal+divIncome),2),c:'var(--up)'},
     ].map(function(k){return '<div class="sc"><div class="sc-l">'+k.l+'</div><div class="sc-v" style="color:'+k.c+'">'+k.v+'</div></div>';}).join('');
   }
   // From deep analytics if available, else from position.closes
@@ -1306,7 +1313,11 @@ window.showPositionCurve = async function(posId, ticker){
 // ── Drawdown chart ────────────────────────────────────────────────────────
 window.loadDrawdown = async function(){
   if(!_deepData) await loadDeepAnalytics();
-  if(!_deepData||!_deepData.port_closes.length) return;
+  if(!_deepData||!_deepData.port_closes||!_deepData.port_closes.length){
+    var el=document.getElementById('epf-dd-stats');
+    if(el) el.innerHTML='<div style="padding:12px;color:var(--yel);font-size:10px;grid-column:1/-1">Open ANALYTICS tab first to load price history.</div>';
+    return;
+  }
   var pts=_deepData.port_closes;
   // Compute rolling drawdown series
   var peak=pts[0]; var ddSeries=[];
@@ -1459,12 +1470,8 @@ window.loadDividends = async function(){
   // Collect dividends from all positions
   var rows=[];
   var totalDiv=0;
-  _pfData.positions.forEach(function(p){
-    (p.dividends||[]).forEach(function(d){
-      rows.push({ticker:p.ticker,date:d.date,amount:d.amount,note:d.note,ts:d.ts});
-      totalDiv+=d.amount;
-    });
-  });
+  var divSrc=(_pfData.all_dividends&&_pfData.all_dividends.length)?_pfData.all_dividends:(function(){var o=[];_pfData.positions.forEach(function(p){(p.dividends||[]).forEach(function(d){o.push(Object.assign({ticker:p.ticker},d));});});return o;})();
+  divSrc.forEach(function(d){rows.push({ticker:d.ticker,date:d.date,amount:d.amount,note:d.note,ts:d.ts});totalDiv+=parseFloat(d.amount)||0;});
   rows.sort(function(a,b){return (b.date||b.ts||'').localeCompare(a.date||a.ts||'');});
   if(!rows.length){
     el.innerHTML='<div style="color:var(--txt3);font-size:10px;padding:10px">No dividends recorded yet. Use + RECORD DIVIDEND to log income.</div>';
@@ -1654,9 +1661,9 @@ window.generateTearsheet = function(){
   var kpis=[
     ['AUM','$'+fk(s.total_with_cash),'#fff'],
     ['RETURN',(s.total_pnl_pct>=0?'+':'')+s.total_pnl_pct.toFixed(2)+'%',pnlC],
-    ['SHARPE',pm?pm.sharpe.toFixed(2):'—',pm&&pm.sharpe>0?'#00c853':'#f44336'],
-    ['MAX DD',pm?'-'+pm.max_drawdown.toFixed(2)+'%':'—','#f44336'],
-    ['VOL',pm?pm.ann_vol.toFixed(1)+'%':'—','#ffd600'],
+    ['SHARPE',pm&&pm.sharpe!=null?pm.sharpe.toFixed(2):'—',pm&&pm.sharpe>0?'#00c853':'#f44336'],
+    ['MAX DD',pm&&pm.max_drawdown!=null?'-'+pm.max_drawdown.toFixed(2)+'%':'—','#f44336'],
+    ['VOL',pm&&pm.ann_vol!=null?pm.ann_vol.toFixed(1)+'%':'—','#ffd600'],
     ['POSITIONS',s.num_positions,'#fff'],
   ];
   kpis.forEach(function(k){html+='<div style="background:#111;padding:8px 10px;text-align:center"><div style="font-size:7px;color:#555;letter-spacing:1.5px;margin-bottom:3px">'+k[0]+'</div><div style="font-size:14px;font-weight:700;color:'+k[2]+'">'+k[1]+'</div></div>';});
@@ -1684,9 +1691,9 @@ window.generateTearsheet = function(){
   // Benchmark row
     +(bm?'<div style="border:1px solid #222;padding:10px;margin-bottom:16px;font-size:9px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px">'
       +'<div><div style="color:#666;margin-bottom:2px">VS BENCHMARK</div><div style="color:#534AB7;font-weight:700">'+(bm.benchmark_label||'NER Index')+'</div></div>'
-      +'<div><div style="color:#666;margin-bottom:2px">BM RETURN</div><div style="color:'+(bm.benchmark_return>=0?'#00c853':'#f44336')+';font-weight:700">'+(bm.benchmark_return>=0?'+':'')+bm.benchmark_return.toFixed(2)+'%</div></div>'
-      +'<div><div style="color:#666;margin-bottom:2px">ALPHA</div><div style="color:'+(bm.alpha>=0?'#00c853':'#f44336')+';font-weight:700">'+(bm.alpha>=0?'+':'')+bm.alpha.toFixed(2)+'%</div></div>'
-      +'<div><div style="color:#666;margin-bottom:2px">BETA</div><div style="color:#ffd600;font-weight:700">'+( bm.beta!=null?bm.beta.toFixed(3):'—')+'</div></div>'
+      +'<div><div style="color:#666;margin-bottom:2px">BM RETURN</div><div style="color:'+((bm.benchmark_return||0)>=0?'#00c853':'#f44336')+';font-weight:700">'+((bm.benchmark_return||0)>=0?'+':'')+(bm.benchmark_return!=null?bm.benchmark_return.toFixed(2):'—')+'%</div></div>'
+      +'<div><div style="color:#666;margin-bottom:2px">ALPHA</div><div style="color:'+((bm.alpha||0)>=0?'#00c853':'#f44336')+';font-weight:700">'+((bm.alpha||0)>=0?'+':'')+(bm.alpha!=null?bm.alpha.toFixed(2):'—')+'%</div></div>'
+      +'<div><div style="color:#666;margin-bottom:2px">BETA</div><div style="color:#ffd600;font-weight:700">'+(bm.beta!=null?bm.beta.toFixed(3):'—')+'</div></div>'
       +'</div>':'')
   // Monthly returns heatmap
     +(_deepData&&_deepData.monthly_returns.length?'<div style="margin-bottom:16px"><div style="font-size:8px;color:#ff8c00;letter-spacing:2px;margin-bottom:6px">MONTHLY RETURNS</div>'
