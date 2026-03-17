@@ -24,6 +24,7 @@
 .rpt-toggle:has(input:checked){border-color:var(--org);color:var(--org);background:rgba(255,140,0,.08)}
 #close-pos-fields input,#close-pos-fields select{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden" id="ent-pf-root">
   <div class="sstrip" id="ent-pf-strip" style="flex-shrink:0">
     <div class="ss"><div class="ss-l">CLIENT</div><div class="ss-v" id="epf-client" style="color:var(--org)">—</div></div>
@@ -156,15 +157,32 @@
         </div>
         <div class="win" style="flex-shrink:0">
           <div class="wbar"><div class="wbar-l"><span class="wnum">!</span><span class="wtitle">RISK FLAGS</span></div></div>
-          <div id="epf-risk-flags" style="padding:10px"></div>
+          <div id="epf-risk-flags" style="padding:10px;max-height:200px;overflow-y:auto"></div>
         </div>
       </div>
     </div>
     <div class="ent-sub-panel" id="epf-benchmark">
       <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div style="background:var(--bg3);border:1px solid var(--bdr);padding:10px 14px;flex-shrink:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="font-size:9px;color:var(--txt3);letter-spacing:2px">BENCHMARK:</span>
+          <select id="bm-selector" onchange="loadBenchmark()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:4px 8px;outline:none">
+            <option value="B:NCOMP">B:NCOMP — NER Composite</option>
+            <option value="B:NSTK">B:NSTK — NER Stocks Only</option>
+            <option value="B:NCOM">B:NCOM — NER Commodities (NTR)</option>
+            <option value="B:TCOMP">B:TCOMP — TSE Composite</option>
+            <option value="B:TSTK">B:TSTK — TSE Stocks Only</option>
+            <option value="SFP:SRI">SFP:SRI — SRI Stock</option>
+          </select>
+          <span style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-left:8px">PERIOD:</span>
+          <select id="bm-days" onchange="loadBenchmark()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:4px 8px;outline:none">
+            <option value="30">30D</option><option value="60">60D</option>
+            <option value="90" selected>90D</option><option value="180">180D</option>
+          </select>
+          <span id="bm-label" style="font-size:9px;color:var(--org);margin-left:4px"></span>
+        </div>
         <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-bm-kpis"></div>
         <div class="win" style="flex-shrink:0;min-height:220px">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">≈</span><span class="wtitle">PORTFOLIO vs NER EQUAL-WEIGHT INDEX</span></div></div>
+          <div class="wbar"><div class="wbar-l"><span class="wnum">≈</span><span class="wtitle" id="epf-bm-title">PORTFOLIO vs BENCHMARK</span></div></div>
           <div class="chart-wrap"><canvas id="epf-bm-chart"></canvas></div>
         </div>
         <div class="win" style="flex-shrink:0">
@@ -203,7 +221,10 @@
           </div>
         </div>
         <div class="win" style="flex-shrink:0">
-          <div class="wbar"><div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">ALL SCENARIOS</span></div></div>
+          <div class="wbar">
+            <div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">ALL SCENARIOS</span></div>
+            <div class="wbar-r"><button class="wbtn" onclick="exportStressExcel()">⬇ EXCEL</button></div>
+          </div>
           <div id="epf-stress-table" style="padding:10px"></div>
         </div>
       </div>
@@ -262,9 +283,11 @@
             <button class="btn" onclick="exportReportCSV()">⬇ CSV</button>
             <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
               <span style="font-size:9px;color:var(--txt3)">FIRM:</span>
-              <input id="rpt-firm-name" placeholder="Firm name" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 8px;outline:none;width:140px">
-              <span style="font-size:9px;color:var(--txt3)">PERIOD:</span>
-              <input id="rpt-period" placeholder="e.g. Q1 2026" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 8px;outline:none;width:90px">
+              <input id="rpt-firm-name" placeholder="Firm name" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 8px;outline:none;width:130px">
+              <span style="font-size:9px;color:var(--txt3)">FROM:</span>
+              <input id="rpt-date-from" type="date" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 6px;outline:none;width:120px">
+              <span style="font-size:9px;color:var(--txt3)">TO:</span>
+              <input id="rpt-date-to" type="date" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:3px 6px;outline:none;width:120px">
             </div>
           </div>
         </div>
@@ -277,6 +300,10 @@
       <div class="frow">
         <button class="btn buy btn-xs" onclick="showCashModal(1)">+ DEPOSIT</button>
         <button class="btn sell btn-xs" onclick="showCashModal(-1)">− WITHDRAWAL</button>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:9px;color:var(--txt3)">
+          FROM: <input id="cl-date-from" type="date" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 4px;outline:none" onchange="renderCashLog()">
+          TO: <input id="cl-date-to" type="date" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 4px;outline:none" onchange="renderCashLog()">
+        </span>
       </div>
       <div class="scroll">
         <table class="dt" style="width:100%">
@@ -286,6 +313,12 @@
       </div>
     </div>
     <div class="ent-sub-panel" id="epf-audit">
+      <div class="frow">
+        <span style="display:flex;align-items:center;gap:6px;font-size:9px;color:var(--txt3)">
+          FROM: <input id="al-date-from" type="date" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 4px;outline:none" onchange="renderAuditLog()">
+          TO: <input id="al-date-to" type="date" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 4px;outline:none" onchange="renderAuditLog()">
+        </span>
+      </div>
       <div class="scroll">
         <table class="dt" style="width:100%">
           <thead><tr><th>TIMESTAMP</th><th>ACTION</th><th>DETAIL</th></tr></thead>
