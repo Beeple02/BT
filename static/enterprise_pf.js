@@ -183,50 +183,154 @@ function renderPositions(){
 }
 
 // ── Analytics: equity curve, monthly returns, rolling Sharpe, metrics, corr ─
+// Shared crosshair plugin for line charts
+var _crosshairPlugin = {
+  id: 'crosshair',
+  afterDraw: function(chart) {
+    if(!chart._hoverX) return;
+    var ctx2 = chart.ctx;
+    var xScale = chart.scales.x;
+    var yScale = chart.scales.y;
+    ctx2.save();
+    ctx2.beginPath();
+    ctx2.moveTo(chart._hoverX, yScale.top);
+    ctx2.lineTo(chart._hoverX, yScale.bottom);
+    ctx2.lineWidth = 1;
+    ctx2.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx2.setLineDash([3,3]);
+    ctx2.stroke();
+    ctx2.restore();
+  },
+  afterEvent: function(chart, args) {
+    var e = args.event;
+    if(e.type === 'mousemove') {
+      chart._hoverX = e.x;
+    } else if(e.type === 'mouseout') {
+      chart._hoverX = null;
+    }
+    chart.draw();
+  }
+};
+
 function renderEquityCurve(){
   if(!_deepData) return;
   var ctx=document.getElementById('epf-equity-chart');
   if(!ctx) return;
   if(_charts.equity) _charts.equity.destroy();
   var pts=_deepData.port_closes;
-  // Use dates from deep data if available, else day indices
   var refDates=_deepData.ref_dates||null;
-  var labels=pts.map(function(_,i){return refDates&&refDates[i]?refDates[i]:i;});
-  // Colour line green/red based on overall direction
+  var labels=pts.map(function(_,i){return refDates&&refDates[i]?refDates[i]:'D'+i;});
   var up=pts[pts.length-1]>=pts[0];
   var lineCol=up?'#00c853':'#f44336';
   var fillCol=up?'rgba(0,200,83,.07)':'rgba(244,67,54,.06)';
+
+  // Find high/low for annotation
+  var maxVal=Math.max.apply(null,pts); var minVal=Math.min.apply(null,pts);
+  var maxIdx=pts.indexOf(maxVal);   var minIdx=pts.indexOf(minVal);
+
   _charts.equity=new Chart(ctx,{
     type:'line',
-    data:{labels:labels,datasets:[{data:pts,borderColor:lineCol,borderWidth:1.8,pointRadius:0,pointHoverRadius:4,fill:true,backgroundColor:fillCol,tension:0.15}]},
+    data:{labels:labels,datasets:[
+      {data:pts,borderColor:lineCol,borderWidth:2,pointRadius:0,
+       pointHoverRadius:5,pointHoverBackgroundColor:lineCol,
+       fill:true,backgroundColor:fillCol,tension:0.1}
+    ]},
     options:{
       responsive:true,maintainAspectRatio:false,animation:false,
       interaction:{mode:'index',intersect:false},
       plugins:{
         legend:{display:false},
-        tooltip:{...TT,callbacks:{
-          title:function(items){return labels[items[0].dataIndex]||'Day '+items[0].dataIndex;},
-          label:function(c){var v=c.parsed.y;return ' $'+f(v,2)+' ('+(((v/10000)-1)*100).toFixed(2)+'%)';},
-          afterLabel:function(c){
-            var idx=c.dataIndex;
-            if(idx===0) return '';
-            var prev=pts[idx-1]; var curr=pts[idx];
-            var d=(curr-prev)/prev*100;
-            return ' Day chg: '+(d>=0?'+':'')+d.toFixed(3)+'%';
+        tooltip:{
+          backgroundColor:'rgba(15,15,15,0.92)',
+          borderColor:'rgba(255,140,0,0.4)',
+          borderWidth:1,
+          titleColor:'#ff8c00',
+          bodyColor:'#ccc',
+          padding:10,
+          callbacks:{
+            title:function(items){
+              var i=items[0].dataIndex;
+              return labels[i]||('Day '+i);
+            },
+            label:function(c){
+              var v=c.parsed.y;
+              var ret=(v/10000-1)*100;
+              return '  Value: $'+f(v,2)+'  ('+( ret>=0?'+':'')+ret.toFixed(2)+'%)';
+            },
+            afterLabel:function(c){
+              var i=c.dataIndex;
+              if(i===0) return '';
+              var dayRet=(pts[i]-pts[i-1])/pts[i-1]*100;
+              return '  Day: '+(dayRet>=0?'+':'')+dayRet.toFixed(3)+'%';
+            }
           }
-        }},
-        // Crosshair via afterDraw
+        }
       },
       scales:{
-        x:{grid:{color:'rgba(46,46,46,.4)'},ticks:{color:'#444',maxTicksLimit:8,maxRotation:0}},
-        y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:function(v){return '$'+fk(v);}}}
+        x:{
+          grid:{color:'rgba(46,46,46,.3)'},
+          ticks:{color:'#555',maxTicksLimit:10,maxRotation:0,font:{size:9}}
+        },
+        y:{
+          grid:{color:'rgba(30,30,30,.8)'},
+          position:'right',
+          ticks:{color:'#555',font:{size:9},callback:function(v){return '$'+fk(v);}}
+        }
       }
-    }
+    },
+    plugins:[_crosshairPlugin]
   });
-  // Click to zoom: double-click resets
-  ctx.ondblclick=function(){
-    _charts.equity.resetZoom&&_charts.equity.resetZoom();
+
+  // Annotate peak and trough directly on canvas after render
+  _charts.equity._peakIdx = maxIdx;
+  _charts.equity._troughIdx = minIdx;
+
+  // Drag-select to zoom (simple: mousedown+mousemove+mouseup on canvas)
+  _initChartZoom(ctx, _charts.equity, pts, labels);
+}
+
+// Lightweight drag-to-zoom for a line chart
+function _initChartZoom(canvas, chart, pts, labels){
+  var drag={active:false, startX:0, startIdx:0};
+  var overlay=null;
+
+  canvas.onmousedown=function(e){
+    if(!e.shiftKey) return; // only zoom when shift held
+    drag.active=true; drag.startX=e.offsetX;
+    drag.startIdx=_xToIdx(chart,e.offsetX,pts.length);
+    if(!overlay){ overlay=document.createElement('div'); overlay.style.cssText='position:absolute;top:0;bottom:0;background:rgba(255,140,0,.08);border:1px solid rgba(255,140,0,.3);pointer-events:none'; canvas.parentElement.style.position='relative'; canvas.parentElement.appendChild(overlay); }
+    overlay.style.display='block'; overlay.style.left=e.offsetX+'px'; overlay.style.width='0';
   };
+  canvas.onmousemove=function(e){
+    if(!drag.active||!overlay) return;
+    var x1=Math.min(drag.startX,e.offsetX);
+    var x2=Math.max(drag.startX,e.offsetX);
+    overlay.style.left=x1+'px'; overlay.style.width=(x2-x1)+'px';
+  };
+  canvas.onmouseup=function(e){
+    if(!drag.active) return; drag.active=false;
+    if(overlay) overlay.style.display='none';
+    var endIdx=_xToIdx(chart,e.offsetX,pts.length);
+    var i1=Math.min(drag.startIdx,endIdx);
+    var i2=Math.max(drag.startIdx,endIdx);
+    if(i2-i1<2) return;
+    chart.data.labels=labels.slice(i1,i2+1);
+    chart.data.datasets[0].data=pts.slice(i1,i2+1);
+    chart.update('none');
+  };
+  canvas.ondblclick=function(){
+    // Reset zoom
+    chart.data.labels=labels;
+    chart.data.datasets[0].data=pts;
+    chart.update('none');
+  };
+}
+
+function _xToIdx(chart,x,total){
+  var xScale=chart.scales.x;
+  if(!xScale) return 0;
+  var pct=(x-xScale.left)/(xScale.right-xScale.left);
+  return Math.max(0,Math.min(total-1,Math.round(pct*(total-1))));
 }
 
 function renderMonthlyReturns(){
@@ -399,22 +503,62 @@ function renderBenchmark(){
       {l:'BETA',v:d.beta!=null?d.beta.toFixed(3):'—',c:'var(--yel)'},
     ].map(function(k){return '<div class="sc"><div class="sc-l">'+k.l+'</div><div class="sc-v" style="color:'+k.c+'">'+k.v+'</div></div>';}).join('');
   }
-  // Chart
+  // Chart — interactive with crosshair + shift-drag zoom
   var ctx=document.getElementById('epf-bm-chart');
   if(ctx){
     if(_charts.bm) _charts.bm.destroy();
     var n=Math.min(d.portfolio_curve.length,d.benchmark_curve.length);
+    var pfCurve=d.portfolio_curve.slice(0,n);
+    var bmCurve=d.benchmark_curve.slice(0,n);
     var labels=Array.from({length:n},function(_,i){return i;});
     var bmLbl=d.benchmark_label||'Benchmark';
     _charts.bm=new Chart(ctx,{
       type:'line',
       data:{labels:labels,datasets:[
-        {label:'Portfolio',data:d.portfolio_curve.slice(0,n),borderColor:'#ff8c00',borderWidth:2,pointRadius:0,fill:false},
-        {label:bmLbl,data:d.benchmark_curve.slice(0,n),borderColor:'#534AB7',borderWidth:1.5,pointRadius:0,fill:false,borderDash:[4,2]}
+        {label:'Portfolio',data:pfCurve,borderColor:'#ff8c00',borderWidth:2,
+         pointRadius:0,pointHoverRadius:5,pointHoverBackgroundColor:'#ff8c00',fill:false},
+        {label:bmLbl,data:bmCurve,borderColor:'#534AB7',borderWidth:1.5,
+         pointRadius:0,pointHoverRadius:4,fill:false,borderDash:[5,3]}
       ]},
-      options:{responsive:true,maintainAspectRatio:false,animation:false,
-        plugins:{legend:{labels:{color:'#888',font:{size:9}}},tooltip:{...TT}},
-        scales:{x:{display:false},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:function(v){return '$'+fk(v);}}}}}});
+      options:{
+        responsive:true,maintainAspectRatio:false,animation:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{labels:{color:'#888',font:{size:9},boxWidth:12,padding:12}},
+          tooltip:{
+            backgroundColor:'rgba(15,15,15,0.92)',
+            borderColor:'rgba(83,74,183,0.5)',
+            borderWidth:1,
+            titleColor:'#aaa',
+            bodyColor:'#ccc',
+            padding:10,
+            callbacks:{
+              title:function(items){return 'Day '+items[0].dataIndex;},
+              label:function(c){
+                var v=c.parsed.y;
+                var ret=(v/10000-1)*100;
+                var col=c.datasetIndex===0?'#ff8c00':'#534AB7';
+                return c.dataset.label+':  $'+f(v,2)+'  ('+(ret>=0?'+':'')+ret.toFixed(2)+'%)';
+              },
+              afterBody:function(items){
+                if(items.length<2) return '';
+                var pf=items[0].parsed.y; var bm=items[1].parsed.y;
+                var diff=(pf-bm)/bm*100;
+                return ['','  Spread vs BM: '+(diff>=0?'+':'')+diff.toFixed(2)+'%'];
+              }
+            }
+          }
+        },
+        scales:{
+          x:{grid:{color:'rgba(46,46,46,.3)'},ticks:{color:'#555',maxTicksLimit:10,font:{size:9}}},
+          y:{grid:{color:'rgba(30,30,30,.8)'},position:'right',
+             ticks:{color:'#555',font:{size:9},callback:function(v){return '$'+fk(v);}}}
+        }
+      },
+      plugins:[_crosshairPlugin]
+    });
+    // Shift+drag to zoom, dblclick to reset
+    _initChartZoom(ctx, _charts.bm, pfCurve, labels);
   }
   // Detail
   var det=document.getElementById('epf-bm-detail');
