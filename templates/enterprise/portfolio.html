@@ -56,6 +56,13 @@
     <div class="ent-tab" onclick="epfTab('report')">REPORT</div>
     <div class="ent-tab" onclick="epfTab('cashlog')">CASH LOG</div>
     <div class="ent-tab" onclick="epfTab('audit')">AUDIT LOG</div>
+    <div class="ent-tab" onclick="epfTab('dividends')">DIVIDENDS</div>
+    <div class="ent-tab" onclick="epfTab('drawdown')">DRAWDOWN</div>
+    <div class="ent-tab" onclick="epfTab('beta')">ROLLING BETA</div>
+    <div class="ent-tab" onclick="epfTab('scenarios')">SCENARIOS</div>
+    <div class="ent-tab" onclick="epfTab('varbt')">VAR BACKTEST</div>
+    <div class="ent-tab" onclick="epfTab('tearsheet')">TEARSHEET</div>
+    <div class="ent-tab" onclick="epfTab('snapshots')">SNAPSHOTS</div>
   </div>
   <div class="ent-sub">
     <div class="ent-sub-panel on" id="epf-overview">
@@ -171,7 +178,7 @@
             <option value="B:NCOM">B:NCOM — NER Commodities (NTR)</option>
             <option value="B:TCOMP">B:TCOMP — TSE Composite</option>
             <option value="B:TSTK">B:TSTK — TSE Stocks Only</option>
-            <option value="SFP:SRI">SFP:SRI — SRI Stock</option>
+            <option value="SFP:SRI">SFP:SRI — SFP Redmont Stock Market ETF</option>
           </select>
           <span style="font-size:9px;color:var(--txt3);letter-spacing:2px;margin-left:8px">PERIOD:</span>
           <select id="bm-days" onchange="loadBenchmark()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:4px 8px;outline:none">
@@ -312,6 +319,115 @@
         </table>
       </div>
     </div>
+    <div class="ent-sub-panel" id="epf-dividends">
+      <div class="frow" style="justify-content:space-between">
+        <span style="font-size:9px;color:var(--txt3);letter-spacing:2px;align-self:center">DIVIDEND INCOME PER POSITION</span>
+        <button class="btn buy btn-xs" onclick="showDividendModal()">+ RECORD DIVIDEND</button>
+      </div>
+      <div class="scroll">
+        <div id="epf-dividends-body" style="padding:12px"></div>
+      </div>
+    </div>
+
+    <div class="ent-sub-panel" id="epf-drawdown">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="win" style="flex-shrink:0;min-height:200px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">↓</span><span class="wtitle">DRAWDOWN FROM PEAK OVER TIME</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-drawdown-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0;min-height:160px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">↑</span><span class="wtitle">EQUITY CURVE WITH DRAWDOWN OVERLAY</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-dd-equity-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">Δ</span><span class="wtitle">DRAWDOWN STATS</span></div></div>
+          <div id="epf-dd-stats" style="padding:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--bdr)"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ent-sub-panel" id="epf-beta">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="win" style="flex-shrink:0;min-height:200px">
+          <div class="wbar">
+            <div class="wbar-l"><span class="wnum">β</span><span class="wtitle">ROLLING BETA vs NER COMPOSITE</span></div>
+            <div class="wbar-r">
+              <select id="beta-days" onchange="loadRollingBeta()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 4px">
+                <option value="60">60D</option><option value="90" selected>90D</option><option value="180">180D</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="epf-beta-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">Σ</span><span class="wtitle">BETA INTERPRETATION</span></div></div>
+          <div id="epf-beta-detail" style="padding:12px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ent-sub-panel" id="epf-scenarios">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">+</span><span class="wtitle">BUILD SCENARIO</span></div></div>
+          <div style="padding:12px">
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+              <div class="prow" style="flex:1;min-width:160px"><label>SCENARIO NAME</label><input id="sc-name" placeholder="e.g. 2008 Crisis"></div>
+              <button class="btn on btn-xs" onclick="addScenarioRow()">+ ADD TICKER SHOCK</button>
+              <button class="btn btn-xs" onclick="runScenario(false)">▶ RUN</button>
+              <button class="btn buy btn-xs" onclick="runScenario(true)">▶ RUN &amp; SAVE</button>
+            </div>
+            <div id="sc-rows" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+            <div id="sc-result" style="display:none;padding:10px;background:var(--bg3);border:1px solid var(--bdr)"></div>
+          </div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">SAVED SCENARIOS</span></div></div>
+          <div id="epf-scenarios-list" style="padding:10px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ent-sub-panel" id="epf-varbt">
+      <div class="scroll" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0" id="epf-varbt-kpis"></div>
+        <div class="win" style="flex-shrink:0;min-height:200px">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">↓</span><span class="wtitle">DAILY RETURNS WITH VAR BREACH MARKERS</span></div></div>
+          <div class="chart-wrap"><canvas id="epf-varbt-chart"></canvas></div>
+        </div>
+        <div class="win" style="flex-shrink:0">
+          <div class="wbar"><div class="wbar-l"><span class="wnum">!</span><span class="wtitle">BACKTEST INTERPRETATION</span></div></div>
+          <div id="epf-varbt-detail" style="padding:12px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ent-sub-panel" id="epf-tearsheet">
+      <div class="scroll" style="padding:16px">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-shrink:0">
+          <button class="btn on" onclick="generateTearsheet()">⚡ GENERATE TEARSHEET</button>
+          <button class="btn" onclick="printTearsheet()">🖨 PRINT / PDF</button>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+            <span style="font-size:9px;color:var(--txt3)">COMMENTARY:</span>
+            <textarea id="ts-commentary" rows="2" placeholder="Manager outlook paragraph..." style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:10px;padding:4px 8px;outline:none;resize:none;width:300px"></textarea>
+          </div>
+        </div>
+        <div id="epf-tearsheet-body" style="background:var(--bg);border:1px solid var(--bdr);padding:28px;font-size:11px;line-height:1.7;color:var(--txt)">
+          <div style="color:var(--txt3);text-align:center;padding:40px">Click GENERATE TEARSHEET to build a 1-page client summary.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ent-sub-panel" id="epf-snapshots">
+      <div class="frow" style="justify-content:space-between">
+        <span style="font-size:9px;color:var(--txt3);letter-spacing:2px;align-self:center">SAVED REPORT SNAPSHOTS</span>
+        <button class="btn on btn-xs" onclick="saveSnapshot()">💾 SAVE CURRENT SNAPSHOT</button>
+      </div>
+      <div class="scroll">
+        <div id="epf-snapshots-list" style="padding:12px"></div>
+      </div>
+    </div>
+
     <div class="ent-sub-panel" id="epf-audit">
       <div class="frow">
         <span style="display:flex;align-items:center;gap:6px;font-size:9px;color:var(--txt3)">
@@ -339,6 +455,8 @@
       <div class="prow"><label>ENTRY DATE</label><input id="apm-date" type="date"></div>
       <div class="prow"><label>TYPE</label><select id="apm-type" onchange="toggleCloseMode(this.value)"><option value="long">LONG</option><option value="short">SHORT</option><option value="close">CLOSE POSITION</option></select></div>
       <div class="prow full"><label>NOTES</label><input id="apm-notes" placeholder="Optional"></div>
+      <div class="prow"><label>TAG</label><input id="apm-tag" placeholder="core / speculative / hedge"></div>
+      <div class="prow"><label>STOP PRICE ($)</label><input id="apm-stop" type="number" step="0.0001" placeholder="optional"></div>
     </div>
     <div id="close-pos-fields" style="display:none;padding:0 16px 12px;border-top:1px solid var(--bdr)">
       <div style="font-size:9px;color:var(--org);letter-spacing:2px;padding:10px 0 8px;font-weight:700">CLOSE DETAILS</div>
@@ -369,7 +487,28 @@
       <button class="btn" style="border-color:var(--cyn);color:var(--cyn)" onclick="adjustCash()">CONFIRM →</button>
     </div>
   </div>
+
+<!-- Dividend Modal -->
+<div id="dividend-modal" class="pos-modal" style="display:none">
+  <div class="pos-modal-box" style="max-width:400px">
+    <div class="pos-modal-hd" style="border-color:var(--up)">RECORD DIVIDEND <span style="cursor:pointer;color:var(--txt2)" onclick="hideDividendModal()">✕</span></div>
+    <div class="pos-modal-body" style="grid-template-columns:1fr 1fr">
+      <div class="prow" style="grid-column:1/-1"><label>POSITION</label>
+        <select id="div-pos-select" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%">
+          <option value="">— select —</option>
+        </select>
+      </div>
+      <div class="prow"><label>AMOUNT ($)</label><input id="div-amount" type="number" step="0.01" placeholder="50.00"></div>
+      <div class="prow"><label>DATE</label><input id="div-date" type="date"></div>
+      <div class="prow full"><label>NOTE</label><input id="div-note" placeholder="e.g. Q1 dividend"></div>
+    </div>
+    <div class="pos-modal-ft">
+      <button class="btn" onclick="hideDividendModal()">CANCEL</button>
+      <button class="btn buy" onclick="recordDividend()">RECORD →</button>
+    </div>
+  </div>
 </div>
+
 <!-- Import Modal -->
 <div id="import-modal" class="pos-modal" style="display:none">
   <div class="pos-modal-box" style="max-width:580px;width:580px">
