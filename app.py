@@ -1752,7 +1752,19 @@ def ent_portfolio_analytics(pf_id):
             "hhi":              concentration_hhi,
             "concentration":    "HIGH" if concentration_hhi>3000 else "MEDIUM" if concentration_hhi>1500 else "LOW",
             "cash_pct":         round(cash/total_with_cash*100, 2) if total_with_cash > 0 else 100,
-        }
+        },
+        "realized_pnl":  round(sum(
+            float(c.get("realised_pnl",0))
+            for p in positions for c in p.get("closes",[])
+        ), 2),
+        "dividend_income": round(sum(
+            float(d.get("amount",0))
+            for p in positions for d in p.get("dividends",[])
+        ), 2),
+        "all_dividends": [
+            {"ticker": p["ticker"], **d}
+            for p in positions for d in p.get("dividends",[])
+        ],
     }), 200
 
 
@@ -2265,6 +2277,13 @@ def ent_position_dividends(pf_id, pos_id):
         "amount": div["amount"], "note": f"Dividend {pos_raw['ticker']}: {div['note']}",
         "ts": div["ts"], "balance_after": pf_raw["cash"]
     })
+    # Audit log
+    pf_raw.setdefault("audit_log",[]).append({
+        "ts": div["ts"], "action": "DIVIDEND",
+        "detail": f"{pos_raw['ticker']} +${div['amount']:.2f} {div['note']}"
+    })
+    if len(pf_raw["audit_log"]) > 500:
+        pf_raw["audit_log"] = pf_raw["audit_log"][-500:]
     tmp = _ENT_FILE+".tmp"
     with open(tmp,"w") as f: _json.dump(data,f,indent=2)
     _os.replace(tmp, _ENT_FILE)
