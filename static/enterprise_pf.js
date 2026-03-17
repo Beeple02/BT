@@ -81,6 +81,9 @@ async function loadBenchmark(){
 }
 
 window.loadDeepAnalytics = loadDeepAnalytics;
+window.loadBenchmark = loadBenchmark;
+window.renderCashLog = function(){ renderCashLog(); };
+window.renderAuditLog = function(){ renderAuditLog(); };
 
 // ── Header ────────────────────────────────────────────────────────────────────
 function renderHeader(){
