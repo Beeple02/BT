@@ -66,6 +66,9 @@
 </head>
 <body>
 <div id="app">
+{% if demo_mode %}
+<div style="background:#ff8c00;color:#000;text-align:center;padding:3px 8px;font-size:9px;font-family:'Courier New',monospace;font-weight:700;letter-spacing:2px;flex-shrink:0;z-index:9999;position:relative">⚡ DEMO MODE — Live read-only data. Trading is disabled.</div>
+{% endif %}
 
 <div id="topbar">
   <div class="tb-brand" onclick="window.location.href='/'" title="Back to retail terminal">BLOOMBERG</div>
