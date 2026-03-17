@@ -2041,15 +2041,58 @@ def ent_deep_analytics(pf_id):
 
 @app.route("/api/enterprise/portfolios/<pf_id>/benchmark")
 def ent_benchmark(pf_id):
-    """Compare portfolio performance against equal-weight NER index."""
+    """
+    Compare portfolio vs a selected benchmark.
+    benchmark param:
+      SFP:SRI   — SRI stock (single ticker)
+      B:NCOMP   — NER composite (all NER active securities, cap-weighted approx = equal-weight)
+      B:TCOMP   — TSE composite (all TSE securities)
+      B:NSTK    — NER stocks only (exclude VSP3/bonds: tickers containing 'SP' or known bonds)
+      B:TSTK    — TSE stocks only (exclude commodity/bond TSE tickers)
+      B:NCOM    — NER commodities only (NTR)
+    """
     pf = ES.get_portfolio(pf_id)
     if not pf: return jsonify({"detail":"Not found"}), 404
-    days = int(request.args.get("days", 90))
+    days      = int(request.args.get("days", 90))
+    benchmark = request.args.get("benchmark", "B:NCOMP")
 
-    # Get all NER securities for benchmark
+    # Get all securities
     _, secs = atlas_get("/securities", ttl=120)
-    ner_tickers = [s["ticker"] for s in (secs if isinstance(secs, list) else [])
-                   if not s.get("ticker","").startswith("TSE:") and _is_active(s.get("ticker",""))][:12]
+    all_secs = secs if isinstance(secs, list) else []
+
+    # NER active
+    ner_active = [s["ticker"] for s in all_secs
+                  if not s.get("ticker","").startswith("TSE:") and _is_active(s.get("ticker",""))]
+    # TSE active
+    tse_active = [s["ticker"] for s in all_secs
+                  if s.get("ticker","").startswith("TSE:") and _is_active(s.get("ticker",""))]
+
+    _BOND_LIKE = {"VSP3","VSP2","VSP1"}  # known bond/structured products
+    _COMMODITY_LIKE = {"NTR"}            # NER commodities
+
+    if benchmark == "SFP:SRI":
+        bm_tickers = ["SRI"]
+        bm_label   = "SRI (SFP)"
+    elif benchmark == "B:NCOMP":
+        bm_tickers = ner_active
+        bm_label   = "NER Composite (B:NCOMP)"
+    elif benchmark == "B:TCOMP":
+        bm_tickers = tse_active
+        bm_label   = "TSE Composite (B:TCOMP)"
+    elif benchmark == "B:NSTK":
+        bm_tickers = [t for t in ner_active if t not in _BOND_LIKE and t not in _COMMODITY_LIKE]
+        bm_label   = "NER Stocks (B:NSTK)"
+    elif benchmark == "B:TSTK":
+        bm_tickers = [t for t in tse_active if "GOLD" not in t and "GCC" not in t]
+        bm_label   = "TSE Stocks (B:TSTK)"
+    elif benchmark == "B:NCOM":
+        bm_tickers = list(_COMMODITY_LIKE & set(ner_active))
+        bm_label   = "NER Commodities (B:NCOM)"
+    else:
+        bm_tickers = ner_active
+        bm_label   = "NER Composite (B:NCOMP)"
+
+    ner_tickers = bm_tickers[:12]  # keep existing variable name for compat
 
     # Portfolio closes
     positions = pf.get("positions", [])
@@ -2128,6 +2171,7 @@ def ent_benchmark(pf_id):
         "beta":               beta,
         "outperformance":     round(pf_ret_total - bm_ret_total, 2),
         "benchmark_tickers":  list(bm_closes_map.keys()),
+        "benchmark_label":    bm_label,
         "days":               days,
     }), 200
 
