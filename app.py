@@ -201,6 +201,16 @@ _norm_candles = D.norm_candles; _build_candles_from_history = D.build_candles_fr
 
 # ─── TSE market data proxy routes ──────────────────────────────────────────
 
+
+# ── DEMO MODE — trading completely disabled ───────────────────────────────────
+# Set DEMO_MODE=1 in environment to prevent any order placement or cancellation.
+# All read-only endpoints (prices, candles, orderbook, portfolio view) remain live.
+DEMO_MODE = os.environ.get("DEMO_MODE","0") == "1"
+
+def _demo_block():
+    """Return a 403 with a clear demo-mode message."""
+    return jsonify({"detail": "Trading is disabled in demo mode. DM on Discord for a live account.", "demo": True}), 403
+
 @app.route("/api/tse/stock/<symbol>")
 def tse_stock(symbol):
     """Full TSE stock detail (sector, volume, high/low 24h, market_cap)."""
@@ -267,6 +277,7 @@ def tse_orders_history():
 @app.route("/api/tse/orders/<order_id>", methods=["DELETE"])
 def tse_cancel_order(order_id):
     """Cancel a TSE order by ID."""
+    if DEMO_MODE: return _demo_block()
     try:
         r = _session.delete(f"{TSE_BASE}/api/v1/orders/{order_id}", headers=TSE_H, timeout=(4, 8))
         try: return jsonify(r.json()), r.status_code
@@ -386,21 +397,25 @@ def _route_order(ner_path, side, order_type, payload):
 
 @app.route("/api/orders/buy_limit",   methods=["POST"])
 def buy_limit():
+    if DEMO_MODE: return _demo_block()
     s,d=_route_order("/orders/buy_limit",  "buy",  "limit",  request.json)
     return jsonify(d),s
 
 @app.route("/api/orders/sell_limit",  methods=["POST"])
 def sell_limit():
+    if DEMO_MODE: return _demo_block()
     s,d=_route_order("/orders/sell_limit", "sell", "limit",  request.json)
     return jsonify(d),s
 
 @app.route("/api/orders/buy_market",  methods=["POST"])
 def buy_market():
+    if DEMO_MODE: return _demo_block()
     s,d=_route_order("/orders/buy_market", "buy",  "market", request.json)
     return jsonify(d),s
 
 @app.route("/api/orders/sell_market", methods=["POST"])
 def sell_market():
+    if DEMO_MODE: return _demo_block()
     s,d=_route_order("/orders/sell_market","sell", "market", request.json)
     return jsonify(d),s
 
@@ -1479,11 +1494,11 @@ def atlas_proxy():
     return jsonify(d), s
 
 @app.route("/")
-def index(): return render_template("terminal.html")
+def index(): return render_template("terminal.html", demo_mode=DEMO_MODE)
 
 @app.route("/enterprise")
 def enterprise():
-    return render_template("enterprise/shell.html")
+    return render_template("enterprise/shell.html", demo_mode=DEMO_MODE)
 
 @app.route("/enterprise/page/<pg>")
 def enterprise_page(pg):
@@ -2563,6 +2578,7 @@ def orders_open():
 
 @app.route("/api/orders_open/<order_id>", methods=["DELETE"])
 def cancel_order(order_id):
+    if DEMO_MODE: return _demo_block()
     import requests as req
     url = f"{NER_BASE}/orders/{order_id}"
     r = req.delete(url, headers=AUTH_H, timeout=(4, 8))
