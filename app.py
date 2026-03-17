@@ -2196,6 +2196,268 @@ def ent_audit_log(pf_id):
     return jsonify(pf.get("audit_log", [])), 200
 
 
+
+# ── Per-position equity curve ──────────────────────────────────────────────────
+@app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>/curve")
+def ent_position_curve(pf_id, pos_id):
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail":"Not found"}), 404
+    pos = next((p for p in pf.get("positions",[]) if p["id"]==pos_id), None)
+    if not pos: return jsonify({"detail":"Position not found"}), 404
+    days = int(request.args.get("days", 180))
+    cs   = D.fetch_candles(pos["ticker"], days, atlas_get)
+    if len(cs) < 2: return jsonify({"dates":[],"closes":[],"entry":float(pos.get("entry_price",0))}), 200
+    closes = [c["close"] for c in cs]
+    dates  = [c["date"]  for c in cs]
+    entry  = float(pos.get("entry_price", 0))
+    entry_date = pos.get("entry_date","")
+    # Trim to entry date if known
+    if entry_date:
+        try:
+            idx = next((i for i,d in enumerate(dates) if d >= entry_date), 0)
+            closes = closes[idx:]; dates = dates[idx:]
+        except: pass
+    # Compute pnl series from entry price normalised
+    pnl_series = [round((c - entry)/entry*100, 3) if entry > 0 else 0 for c in closes]
+    return jsonify({
+        "ticker":     pos["ticker"],
+        "dates":      dates,
+        "closes":     closes,
+        "pnl_series": pnl_series,
+        "entry":      entry,
+        "entry_date": entry_date,
+        "current":    closes[-1] if closes else None,
+        "stop_price": float(pos.get("stop_price") or 0) or None,
+    }), 200
+
+
+# ── Dividends ──────────────────────────────────────────────────────────────────
+@app.route("/api/enterprise/portfolios/<pf_id>/positions/<pos_id>/dividends", methods=["GET","POST"])
+def ent_position_dividends(pf_id, pos_id):
+    from datetime import datetime as _dt4, timezone as _tz4
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail":"Not found"}), 404
+    data_store = next((None for _ in []), None)  # placeholder to load data
+    # Load raw data for mutation
+    import json as _json, os as _os
+    _DATA_DIR = _os.environ.get("ENTERPRISE_DATA_DIR", _os.path.dirname(_os.path.abspath(__file__)))
+    _ENT_FILE = _os.path.join(_DATA_DIR, "enterprise_state.json")
+    raw = open(_ENT_FILE).read() if _os.path.exists(_ENT_FILE) else "{}"
+    data = _json.loads(raw)
+    pf_raw = next((p for p in data.get("portfolios",[]) if p["id"]==pf_id), None)
+    if not pf_raw: return jsonify({"detail":"Not found"}), 404
+    pos_raw = next((p for p in pf_raw.get("positions",[]) if p["id"]==pos_id), None)
+    if not pos_raw: return jsonify({"detail":"Position not found"}), 404
+    if request.method == "GET":
+        return jsonify(pos_raw.get("dividends",[])), 200
+    body = request.get_json(silent=True) or {}
+    div = {
+        "id":     str(__import__("uuid").uuid4())[:8],
+        "date":   body.get("date",""),
+        "amount": float(body.get("amount",0)),
+        "note":   body.get("note",""),
+        "ts":     _dt4.now(_tz4.utc).isoformat(),
+    }
+    pos_raw.setdefault("dividends",[]).append(div)
+    # Add to cash
+    pf_raw["cash"] = float(pf_raw.get("cash",0)) + div["amount"]
+    pf_raw.setdefault("cash_log",[]).append({
+        "amount": div["amount"], "note": f"Dividend {pos_raw['ticker']}: {div['note']}",
+        "ts": div["ts"], "balance_after": pf_raw["cash"]
+    })
+    tmp = _ENT_FILE+".tmp"
+    with open(tmp,"w") as f: _json.dump(data,f,indent=2)
+    _os.replace(tmp, _ENT_FILE)
+    return jsonify(div), 200
+
+
+# ── Report snapshots (scheduling) ─────────────────────────────────────────────
+@app.route("/api/enterprise/portfolios/<pf_id>/report_snapshots", methods=["GET","POST","DELETE"])
+def ent_report_snapshots(pf_id):
+    from datetime import datetime as _dt5, timezone as _tz5
+    import json as _json5, os as _os5
+    _DATA_DIR5 = _os5.environ.get("ENTERPRISE_DATA_DIR", _os5.path.dirname(_os5.path.abspath(__file__)))
+    _ENT_FILE5 = _os5.path.join(_DATA_DIR5, "enterprise_state.json")
+    raw = open(_ENT_FILE5).read() if _os5.path.exists(_ENT_FILE5) else "{}"
+    data = _json5.loads(raw)
+    pf_raw = next((p for p in data.get("portfolios",[]) if p["id"]==pf_id), None)
+    if not pf_raw: return jsonify({"detail":"Not found"}), 404
+    if request.method == "GET":
+        return jsonify(pf_raw.get("report_snapshots",[])), 200
+    if request.method == "DELETE":
+        snap_id = request.args.get("id","")
+        pf_raw["report_snapshots"] = [s for s in pf_raw.get("report_snapshots",[]) if s.get("id")!=snap_id]
+        tmp=_ENT_FILE5+".tmp"; open(tmp,"w").write(_json5.dumps(data,indent=2)); _os5.replace(tmp,_ENT_FILE5)
+        return jsonify({"ok":True}), 200
+    # POST — save a snapshot
+    body = request.get_json(silent=True) or {}
+    snap = {
+        "id":       str(__import__("uuid").uuid4())[:8],
+        "ts":       _dt5.now(_tz5.utc).isoformat(),
+        "label":    body.get("label", _dt5.now(_tz5.utc).strftime("%Y-%m")),
+        "html":     body.get("html",""),
+        "commentary": body.get("commentary",""),
+        "summary":  body.get("summary",{}),
+    }
+    pf_raw.setdefault("report_snapshots",[]).append(snap)
+    # Keep last 24
+    if len(pf_raw["report_snapshots"]) > 24:
+        pf_raw["report_snapshots"] = pf_raw["report_snapshots"][-24:]
+    tmp=_ENT_FILE5+".tmp"; open(tmp,"w").write(_json5.dumps(data,indent=2)); _os5.replace(tmp,_ENT_FILE5)
+    return jsonify({"id":snap["id"],"label":snap["label"],"ts":snap["ts"]}), 200
+
+
+# ── Scenario builder ──────────────────────────────────────────────────────────
+@app.route("/api/enterprise/portfolios/<pf_id>/scenarios", methods=["GET","POST","DELETE"])
+def ent_scenarios(pf_id):
+    from datetime import datetime as _dt6, timezone as _tz6
+    import json as _json6, os as _os6
+    _DATA_DIR6 = _os6.environ.get("ENTERPRISE_DATA_DIR", _os6.path.dirname(_os6.path.abspath(__file__)))
+    _ENT_FILE6 = _os6.path.join(_DATA_DIR6, "enterprise_state.json")
+    raw = open(_ENT_FILE6).read() if _os6.path.exists(_ENT_FILE6) else "{}"
+    data = _json6.loads(raw)
+    pf_raw = next((p for p in data.get("portfolios",[]) if p["id"]==pf_id), None)
+    if not pf_raw: return jsonify({"detail":"Not found"}), 404
+    if request.method == "GET":
+        return jsonify(pf_raw.get("scenarios",[])), 200
+    if request.method == "DELETE":
+        sid = request.args.get("id","")
+        pf_raw["scenarios"] = [s for s in pf_raw.get("scenarios",[]) if s.get("id")!=sid]
+        tmp=_ENT_FILE6+".tmp"; open(tmp,"w").write(_json6.dumps(data,indent=2)); _os6.replace(tmp,_ENT_FILE6)
+        return jsonify({"ok":True}), 200
+    body = request.get_json(silent=True) or {}
+    # Run the scenario and return impact
+    shocks = body.get("shocks",{})  # {ticker: pct_decimal}
+    positions = pf_raw.get("positions",[])
+    total_val = sum(float(p.get("qty",0)) * (D.fetch_live_price(p["ticker"],atlas_get) or float(p.get("entry_price",0))) for p in positions)
+    impacts = []
+    total_impact_pct = 0
+    for pos in positions:
+        t = pos["ticker"]
+        live = D.fetch_live_price(t, atlas_get) or float(pos.get("entry_price",0))
+        val  = float(pos.get("qty",0)) * live
+        w    = val/total_val if total_val > 0 else 0
+        shock = shocks.get(t, shocks.get("*", 0))
+        contrib = w * shock * 100
+        total_impact_pct += contrib
+        if shock != 0:
+            impacts.append({"ticker":t,"weight_pct":round(w*100,2),"shock_pct":round(shock*100,2),"contribution_pct":round(contrib,2)})
+    scenario = {
+        "id":          str(__import__("uuid").uuid4())[:8],
+        "name":        body.get("name","Custom Scenario"),
+        "shocks":      shocks,
+        "impacts":     impacts,
+        "total_impact_pct": round(total_impact_pct, 3),
+        "total_val":   round(total_val, 2),
+        "est_loss":    round(total_val * total_impact_pct/100, 2),
+        "ts":          _dt6.now(_tz6.utc).isoformat(),
+    }
+    if body.get("save"):
+        pf_raw.setdefault("scenarios",[]).append(scenario)
+        tmp=_ENT_FILE6+".tmp"; open(tmp,"w").write(_json6.dumps(data,indent=2)); _os6.replace(tmp,_ENT_FILE6)
+    return jsonify(scenario), 200
+
+
+# ── Rolling beta ──────────────────────────────────────────────────────────────
+@app.route("/api/enterprise/portfolios/<pf_id>/rolling_beta")
+def ent_rolling_beta(pf_id):
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail":"Not found"}), 404
+    days   = int(request.args.get("days",90))
+    window = int(request.args.get("window",20))
+    benchmark = request.args.get("benchmark","B:NCOMP")
+    positions = pf.get("positions",[])
+    # Get portfolio candles
+    closes_map = {}
+    for pos in positions:
+        cs = D.fetch_candles(pos["ticker"],days,atlas_get)
+        if len(cs) >= 2: closes_map[pos["ticker"]] = [c["close"] for c in cs]
+    if not closes_map: return jsonify({"beta30":[],"beta60":[],"dates":[]}), 200
+    # Get benchmark
+    _, secs = atlas_get("/securities", ttl=120)
+    all_secs = secs if isinstance(secs,list) else []
+    bm_tickers = [s["ticker"] for s in all_secs if not s.get("ticker","").startswith("TSE:") and _is_active(s.get("ticker",""))][:8]
+    bm_map = {}
+    for t in bm_tickers:
+        cs = D.fetch_candles(t,days,atlas_get)
+        if len(cs) >= 2: bm_map[t] = [c["close"] for c in cs]
+    if not bm_map: return jsonify({"beta30":[],"beta60":[],"dates":[]}), 200
+    min_len = min(min(len(v) for v in closes_map.values()), min(len(v) for v in bm_map.values()))
+    # Portfolio returns (equal weight)
+    tickers = list(closes_map.keys())
+    pf_rets = []
+    for i in range(1,min_len):
+        r = sum((closes_map[t][i]-closes_map[t][i-1])/closes_map[t][i-1] for t in tickers if closes_map[t][i-1]>0)/max(len(tickers),1)
+        pf_rets.append(r)
+    bm_tks = list(bm_map.keys())
+    bm_rets = []
+    for i in range(1,min_len):
+        r = sum((bm_map[t][i]-bm_map[t][i-1])/bm_map[t][i-1] for t in bm_tks if bm_map[t][i-1]>0)/max(len(bm_tks),1)
+        bm_rets.append(r)
+    def _rolling_beta(pf_r, bm_r, win):
+        betas = []
+        for i in range(win, len(pf_r)+1):
+            pr = pf_r[i-win:i]; br = bm_r[i-win:i]
+            pm = sum(pr)/win; bm_ = sum(br)/win
+            cov = sum((pr[j]-pm)*(br[j]-bm_) for j in range(win))/win
+            var = sum((b-bm_)**2 for b in br)/win
+            betas.append(round(cov/var,3) if var>0 else 0)
+        return betas
+    n = min(len(pf_rets),len(bm_rets))
+    pf_rets = pf_rets[:n]; bm_rets = bm_rets[:n]
+    b20 = _rolling_beta(pf_rets, bm_rets, 20)
+    b60 = _rolling_beta(pf_rets, bm_rets, min(60,n//2)) if n >= 30 else []
+    return jsonify({"beta20":b20,"beta60":b60,"n_obs":n}), 200
+
+
+# ── VaR backtest ──────────────────────────────────────────────────────────────
+@app.route("/api/enterprise/portfolios/<pf_id>/var_backtest")
+def ent_var_backtest(pf_id):
+    pf = ES.get_portfolio(pf_id)
+    if not pf: return jsonify({"detail":"Not found"}), 404
+    days = int(request.args.get("days",180))
+    positions = pf.get("positions",[])
+    closes_map = {}
+    for pos in positions:
+        cs = D.fetch_candles(pos["ticker"],days,atlas_get)
+        if len(cs) >= 5: closes_map[pos["ticker"]] = [c["close"] for c in cs]
+    if not closes_map: return jsonify({"detail":"Insufficient data","coverage_ratio":None}), 200
+    min_len = min(len(v) for v in closes_map.values())
+    tickers = list(closes_map.keys())
+    total_val = sum(float(p.get("qty",0)) * (D.fetch_live_price(p["ticker"],atlas_get) or float(p.get("entry_price",0))) for p in positions)
+    weights = {}
+    for p in positions:
+        t = p["ticker"]
+        if t in closes_map:
+            live = D.fetch_live_price(t,atlas_get) or float(p.get("entry_price",0))
+            weights[t] = float(p.get("qty",0))*live/total_val if total_val>0 else 0
+    port_rets = []
+    for i in range(1,min_len):
+        r = sum(weights.get(t,0)*(closes_map[t][i]-closes_map[t][i-1])/closes_map[t][i-1] for t in tickers if closes_map[t][i-1]>0)
+        port_rets.append(r)
+    # Rolling VaR backtest: use first half to estimate, second half to test
+    HALF = len(port_rets)//2
+    if HALF < 10: return jsonify({"detail":"Need more history","coverage_ratio":None}), 200
+    train = port_rets[:HALF]; test = port_rets[HALF:]
+    var95 = Q.var_hist(train, 0.95)
+    var99 = Q.var_hist(train, 0.99)
+    breaches95 = sum(1 for r in test if -r > var95)
+    breaches99 = sum(1 for r in test if -r > var99)
+    expected95 = round(len(test)*0.05, 1)
+    expected99 = round(len(test)*0.01, 1)
+    return jsonify({
+        "n_test":        len(test),
+        "var95_pct":     round(var95*100,3),
+        "var99_pct":     round(var99*100,3),
+        "breaches95":    breaches95,
+        "breaches99":    breaches99,
+        "expected95":    expected95,
+        "expected99":    expected99,
+        "coverage95":    round(1-breaches95/len(test),3) if test else None,
+        "coverage99":    round(1-breaches99/len(test),3) if test else None,
+        "port_rets":     [round(r*100,4) for r in port_rets],
+    }), 200
+
 @app.route("/api/enterprise/dashboard")
 def ent_dashboard():
     """Aggregate analytics across all portfolios."""
