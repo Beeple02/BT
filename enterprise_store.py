@@ -100,13 +100,36 @@ def add_position(pf_id: str, pos: dict) -> dict | None:
     data = _load()
     pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
     if not pf: return None
+    ticker     = pos.get("ticker", "").upper()
+    new_qty    = float(pos.get("qty", 0))
+    new_price  = float(pos.get("entry_price", 0))
+    pos_type   = pos.get("type", "long")
+    # Cost-basis blending: if same ticker+type already exists, blend avg cost
+    existing = next((p for p in pf.get("positions", [])
+                     if p.get("ticker","").upper() == ticker
+                     and p.get("type","long") == pos_type
+                     and not p.get("closed")), None)
+    if existing:
+        old_qty   = float(existing.get("qty", 0))
+        old_price = float(existing.get("entry_price", 0))
+        total_qty = old_qty + new_qty
+        blended   = round((old_price * old_qty + new_price * new_qty) / total_qty, 6) if total_qty > 0 else new_price
+        existing["qty"]         = total_qty
+        existing["entry_price"] = blended
+        existing.setdefault("add_history", []).append({
+            "qty": new_qty, "price": new_price, "ts": datetime.now(timezone.utc).isoformat(),
+            "notes": pos.get("notes","")
+        })
+        _audit(pf, "ADD_TO_POSITION", f"{ticker} +{new_qty}@{new_price} blended={blended}")
+        _save(data)
+        return existing
     pos["id"]          = str(uuid.uuid4())[:8]
     pos["added_at"]    = datetime.now(timezone.utc).isoformat()
-    pos["ticker"]      = pos.get("ticker", "").upper()
-    pos["qty"]         = float(pos.get("qty", 0))
-    pos["entry_price"] = float(pos.get("entry_price", 0))
+    pos["ticker"]      = ticker
+    pos["qty"]         = new_qty
+    pos["entry_price"] = new_price
     pf.setdefault("positions", []).append(pos)
-    _audit(pf, "ADD_POSITION", f"{pos['ticker']} qty={pos['qty']} entry={pos['entry_price']}")
+    _audit(pf, "ADD_POSITION", f"{ticker} qty={new_qty} entry={new_price}")
     _save(data)
     return pos
 
@@ -176,7 +199,8 @@ def update_portfolio_meta(pf_id: str, fields: dict) -> dict | None:
     data = _load()
     pf = next((p for p in data["portfolios"] if p["id"] == pf_id), None)
     if not pf: return None
-    allowed = {"name", "client", "notes", "strategy", "benchmark", "currency"}
+    allowed = {"name", "client", "notes", "strategy", "benchmark", "currency",
+               "target_allocation", "tags", "report_snapshots", "scenarios"}
     for k, v in fields.items():
         if k in allowed:
             pf[k] = v
