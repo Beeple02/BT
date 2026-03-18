@@ -32,11 +32,18 @@ window.ENT_PF_refresh = async function(){
 };
 
 window.epfTab = function(tab){
-  const tabs=['overview','positions','analytics','risk','benchmark','attribution','stress','realized','target','report','cashlog','audit'];
+  const tabs=['overview','positions','analytics','risk','benchmark','attribution','stress','realized','target','report','cashlog','audit','dividends','drawdown','beta','scenarios','varbt','tearsheet','snapshots'];
   document.querySelectorAll('.ent-tab').forEach(function(t,i){ t.classList.toggle('on', tabs[i]===tab); });
   document.querySelectorAll('.ent-sub-panel').forEach(function(p){ p.classList.toggle('on', p.id==='epf-'+tab); });
   if(tab==='benchmark') loadBenchmark();
   if(tab==='attribution'||tab==='stress'||tab==='analytics') loadDeepAnalytics();
+  if(tab==='drawdown')  loadDrawdown();
+  if(tab==='beta')      loadRollingBeta();
+  if(tab==='varbt')     loadVarBacktest();
+  if(tab==='dividends') loadDividends();
+  if(tab==='scenarios') loadScenarios();
+  if(tab==='snapshots') loadSnapshots();
+  if(tab==='tearsheet') { if(_pfData) generateTearsheet(); }
 };
 
 async function loadDeepAnalytics(){
@@ -816,32 +823,6 @@ function renderCashLog(){
 }
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
-window.renderAuditLog = async function(){
-  var tbody=document.getElementById('epf-audit-tbody');
-  if(!tbody) return;
-  var r=await api('/api/enterprise/portfolios/'+(_pfid||'')+'/audit_log');
-  var log=r.ok?r.d:[];
-  var fromStr=(document.getElementById('al-date-from')||{}).value||'';
-  var toStr=(document.getElementById('al-date-to')||{}).value||'';
-  if(fromStr) log=log.filter(function(e){return !e.ts||(e.ts.slice(0,10)>=fromStr);});
-  if(toStr)   log=log.filter(function(e){return !e.ts||(e.ts.slice(0,10)<=toStr);});
-  tbody.innerHTML=log.slice().reverse().map(function(e){
-    return '<tr><td style="color:var(--txt2);font-size:9px">'+(e.ts?new Date(e.ts).toLocaleString('en-GB'):'—')+'</td>'
-      +'<td style="color:var(--org);font-weight:700">'+e.action+'</td>'
-      +'<td style="color:var(--txt2)">'+(e.detail||'')+'</td></tr>';
-  }).join('')||'<tr><td colspan="3" style="padding:16px;color:var(--txt3);text-align:center">No audit events for selected period.</td></tr>';
-}
-
-// ── Notes save ────────────────────────────────────────────────────────────────
-window.saveNotes = async function(){
-  if(!_pfid||!_pfData) return;
-  var notes=(document.getElementById('epf-notes-area')||{}).value||'';
-  var strategy=(document.getElementById('epf-strategy-input')||{}).value||'';
-  var pf=ENT.portfolios.find(function(p){return p.id===_pfid;})||{};
-  await apiPost('/api/enterprise/portfolios',Object.assign({},pf,{id:_pfid,notes:notes,strategy:strategy}));
-  var bar=document.getElementById('cmd-st');
-  if(bar){bar.textContent='Notes saved';bar.style.color='var(--up)';setTimeout(function(){bar.textContent='ENTERPRISE SPACE';bar.style.color='var(--txt3)';},1500);}
-};
 
 // ── Position / Close modals ───────────────────────────────────────────────────
 function _moveToBody(id){var m=document.getElementById(id);if(m&&m.parentElement!==document.body)document.body.appendChild(m);}
@@ -888,46 +869,6 @@ window.updateClosePnlPreview = function(){
   el.style.color=pnl>=0?'var(--up)':'var(--dn)';
 };
 
-window.addPosition = async function(){
-  var type=document.getElementById('apm-type').value;
-  if(type==='close'){
-    var posId=document.getElementById('close-pos-select').value;
-    var closePrice=parseFloat(document.getElementById('close-price').value);
-    var closeQty=parseFloat(document.getElementById('close-qty').value)||null;
-    var closeDate=document.getElementById('close-date').value;
-    var notes=document.getElementById('apm-notes').value;
-    if(!posId){alert('Select a position to close.');return;}
-    if(!closePrice||closePrice<=0){alert('Enter a valid close price.');return;}
-    var pos=_pfData&&_pfData.positions.find(function(p){return p.id===posId;});
-    var ticker=pos?pos.ticker:'?';
-    var body={close_price:closePrice,close_date:closeDate,notes:notes};
-    if(closeQty)body.close_qty=closeQty;
-    var r=await apiPost('/api/enterprise/portfolios/'+_pfid+'/positions/'+posId+'/close',body);
-    if(!r.ok){alert('Error closing: '+(r.d.detail||'unknown'));return;}
-    hideAddPosModal();
-    document.getElementById('apm-type').value='long';
-    toggleCloseMode('long');
-    document.getElementById('apm-notes').value='';
-    await ENT_PF_refresh();
-    epfTab('realized');
-    var pnl=r.d.realised_pnl;
-    var bar=document.getElementById('cmd-st');
-    if(bar){bar.textContent=(r.d.removed?'CLOSED ':'PARTIAL CLOSE ')+ticker+' | PnL: '+(pnl>=0?'+':'')+'$'+f(pnl,2);bar.style.color=pnl>=0?'var(--up)':'var(--dn)';setTimeout(function(){bar.textContent='ENTERPRISE SPACE';bar.style.color='var(--txt3)';},4000);}
-    return;
-  }
-  var ticker=(document.getElementById('apm-ticker').value||'').trim().toUpperCase();
-  var qty=parseFloat(document.getElementById('apm-qty').value)||0;
-  var price=parseFloat(document.getElementById('apm-price').value)||0;
-  var date=document.getElementById('apm-date').value;
-  var notes=document.getElementById('apm-notes').value;
-  if(!ticker||!qty||!price){alert('Ticker, quantity and price required.');return;}
-  var r=await apiPost('/api/enterprise/portfolios/'+_pfid+'/positions',{ticker:ticker,qty:qty,entry_price:price,entry_date:date,notes:notes,type:type});
-  if(!r.ok){alert('Error adding position');return;}
-  hideAddPosModal();
-  ['apm-ticker','apm-qty','apm-price','apm-notes'].forEach(function(id){document.getElementById(id).value='';});
-  await ENT_PF_refresh();
-  epfTab('positions');
-};
 
 window.removePosition = async function(posId,ticker){
   if(!confirm('Remove '+ticker+' from portfolio?'))return;
@@ -1212,18 +1153,7 @@ window._rptDateFilter = _rptDateFilter;
 
 // ── NEW FEATURES BLOCK ──────────────────────────────────────────────────────
 
-// ── Extend epfTab for new tabs (inside IIFE, has access to private vars) ────
-var _origEpfTab = window.epfTab;
-window.epfTab = function(tab){
-  _origEpfTab(tab);
-  if(tab==='drawdown')  loadDrawdown();
-  if(tab==='beta')      loadRollingBeta();
-  if(tab==='varbt')     loadVarBacktest();
-  if(tab==='dividends') loadDividends();
-  if(tab==='scenarios') loadScenarios();
-  if(tab==='snapshots') loadSnapshots();
-  if(tab==='tearsheet') { if(_pfData) generateTearsheet(); }
-};
+
 
 window.addPosition = async function(){
   var type = document.getElementById('apm-type').value;
