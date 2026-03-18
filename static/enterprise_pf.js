@@ -93,8 +93,7 @@ async function loadBenchmark(){
 
 window.loadDeepAnalytics = loadDeepAnalytics;
 window.loadBenchmark = loadBenchmark;
-window.renderCashLog = function(){ renderCashLog(); };
-window.renderAuditLog = function(){ renderAuditLog(); };
+
 
 // ── Header ────────────────────────────────────────────────────────────────────
 function renderHeader(){
@@ -821,6 +820,26 @@ function renderCashLog(){
       +'</tr>';
   }).join('')||'<tr><td colspan="4" style="padding:16px;color:var(--txt3);text-align:center">No entries for selected period.</td></tr>';
 }
+
+window.renderCashLog = renderCashLog;
+
+async function renderAuditLog(){
+  var tbody=document.getElementById('epf-audit-tbody');
+  if(!tbody) return;
+  var r=await api('/api/enterprise/portfolios/'+(_pfid||'')+'/audit_log');
+  var log=r.ok?r.d:[];
+  var fromStr=(document.getElementById('al-date-from')||{}).value||'';
+  var toStr=(document.getElementById('al-date-to')||{}).value||'';
+  if(fromStr) log=log.filter(function(e){return !e.ts||(e.ts.slice(0,10)>=fromStr);});
+  if(toStr)   log=log.filter(function(e){return !e.ts||(e.ts.slice(0,10)<=toStr);});
+  tbody.innerHTML=log.slice().reverse().map(function(e){
+    return '<tr><td style="color:var(--txt2);font-size:9px">'+(e.ts?new Date(e.ts).toLocaleString('en-GB'):'—')+'</td>'
+      +'<td style="color:var(--org);font-weight:700">'+e.action+'</td>'
+      +'<td style="color:var(--txt2)">'+(e.detail||'')+'</td></tr>';
+  }).join('')||'<tr><td colspan="3" style="padding:16px;color:var(--txt3);text-align:center">No audit events for selected period.</td></tr>';
+}
+
+window.renderAuditLog = renderAuditLog;
 
 // ── Audit log ─────────────────────────────────────────────────────────────────
 
