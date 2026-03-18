@@ -1,0 +1,85 @@
+<!-- FIRM DASHBOARD SPACE -->
+<style>
+.firm-layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
+.firm-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.firm-tab{padding:6px 16px;font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--txt2);cursor:pointer;border-right:1px solid var(--bdr)}
+.firm-tab:hover{color:var(--wht)}
+.firm-tab.on{color:var(--org);border-bottom:2px solid var(--org);background:var(--bg2)}
+.firm-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
+.firm-panel.on{display:flex}
+.compliance-flag{border-left:3px solid var(--yel);padding:6px 10px;background:rgba(0,0,0,.2);margin-bottom:6px;font-size:10px}
+.compliance-flag.critical{border-color:var(--dn)}
+.compliance-flag.ok{border-color:var(--up)}
+</style>
+
+<div class="firm-layout" id="firm-inner">
+  <div class="firm-tabs">
+    <div class="firm-tab on" onclick="FIRM_tab('overview')">OVERVIEW</div>
+    <div class="firm-tab" onclick="FIRM_tab('exposure')">CROSS-PORTFOLIO RISK</div>
+    <div class="firm-tab" onclick="FIRM_tab('model')">MODEL PORTFOLIO</div>
+    <div class="firm-tab" onclick="FIRM_tab('compliance')">COMPLIANCE</div>
+    <div class="firm-tab" onclick="FIRM_tab('revenue')">REVENUE</div>
+  </div>
+
+  <div class="firm-panel on scroll" id="firm-overview" style="padding:12px;gap:10px;display:flex;flex-direction:column">
+    <div class="scards" style="grid-template-columns:repeat(5,1fr);border:1px solid var(--bdr);flex-shrink:0" id="firm-kpis"></div>
+    <div class="wrow" style="gap:0;flex-shrink:0;min-height:200px">
+      <div class="win" style="flex:2;border-right:0;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">AUM OVER TIME</span></div></div>
+        <div class="chart-wrap"><canvas id="firm-aum-chart"></canvas></div>
+      </div>
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">π</span><span class="wtitle">AUM BY PORTFOLIO</span></div></div>
+        <div class="chart-wrap"><canvas id="firm-pf-pie"></canvas></div>
+      </div>
+    </div>
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">Σ</span><span class="wtitle">ALL PORTFOLIOS</span></div></div>
+      <div style="overflow-x:auto"><table class="dt" style="width:100%" id="firm-pf-table"></table></div>
+    </div>
+  </div>
+
+  <div class="firm-panel scroll" id="firm-exposure" style="padding:12px;gap:10px;display:flex;flex-direction:column">
+    <div class="win" style="flex-shrink:0;min-height:200px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">↑</span><span class="wtitle">TOP TICKER EXPOSURES ACROSS ALL PORTFOLIOS</span></div></div>
+      <div class="chart-wrap"><canvas id="firm-exposure-chart"></canvas></div>
+    </div>
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">!</span><span class="wtitle">CONCENTRATION FLAGS (&gt;15% OF FIRM AUM)</span></div></div>
+      <div id="firm-conc-flags" style="padding:10px"></div>
+    </div>
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">FULL EXPOSURE TABLE</span></div></div>
+      <div id="firm-exposure-table" style="padding:10px"></div>
+    </div>
+  </div>
+
+  <div class="firm-panel scroll" id="firm-model" style="padding:12px;gap:10px;display:flex;flex-direction:column">
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">◎</span><span class="wtitle">MODEL PORTFOLIO — TARGET WEIGHTS</span></div>
+        <div class="wbar-r"><button class="wbtn" onclick="FIRM_saveModel()">SAVE MODEL</button></div>
+      </div>
+      <div id="firm-model-editor" style="padding:12px"></div>
+    </div>
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">≈</span><span class="wtitle">DRIFT PER PORTFOLIO</span></div></div>
+      <div id="firm-model-drift" style="padding:12px"></div>
+    </div>
+  </div>
+
+  <div class="firm-panel scroll" id="firm-compliance" style="padding:12px;gap:10px;display:flex;flex-direction:column">
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">!</span><span class="wtitle">COMPLIANCE FLAGS</span></div></div>
+      <div id="firm-compliance-list" style="padding:10px"></div>
+    </div>
+  </div>
+
+  <div class="firm-panel scroll" id="firm-revenue" style="padding:12px;gap:10px;display:flex;flex-direction:column">
+    <div class="scards" style="grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0" id="firm-rev-kpis"></div>
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">REVENUE BREAKDOWN BY PORTFOLIO</span></div></div>
+      <div id="firm-rev-table" style="padding:10px"></div>
+    </div>
+  </div>
+</div>
