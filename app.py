@@ -1487,7 +1487,7 @@ def enterprise():
 
 @app.route("/enterprise/page/<pg>")
 def enterprise_page(pg):
-    allowed = ["portfolio", "dashboard"]
+    allowed = ["portfolio", "dashboard", "clients", "firm"]
     if pg not in allowed: return "Not found", 404
     return render_template(f"enterprise/{pg}.html")
 
@@ -2476,6 +2476,241 @@ def ent_var_backtest(pf_id):
         "coverage99":    round(1-breaches99/len(test),3) if test else None,
         "port_rets":     [round(r*100,4) for r in port_rets],
     }), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── CLIENT MANAGEMENT SPACE ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_state():
+    import json as _j, os as _o
+    _DIR  = _o.environ.get("ENTERPRISE_DATA_DIR", _o.path.dirname(_o.path.abspath(__file__)))
+    _FILE = _o.path.join(_DIR, "enterprise_state.json")
+    if _o.path.exists(_FILE):
+        try: return _j.loads(open(_FILE).read()), _FILE
+        except: pass
+    return {"portfolios": [], "clients": []}, _FILE
+
+def _save_state(data, filepath):
+    import json as _j, os as _o
+    tmp = filepath + ".tmp"
+    with open(tmp, "w") as f: _j.dump(data, f, indent=2)
+    _o.replace(tmp, filepath)
+
+
+@app.route("/api/enterprise/clients", methods=["GET", "POST"])
+def ent_clients():
+    from datetime import datetime as _dt, timezone as _tz
+    data, fpath = _load_state()
+    if request.method == "GET":
+        return jsonify(data.get("clients", [])), 200
+    body = request.get_json(silent=True) or {}
+    clients = data.setdefault("clients", [])
+    if body.get("id"):
+        idx = next((i for i,c in enumerate(clients) if c["id"]==body["id"]), None)
+        if idx is not None: clients[idx] = body
+        else: clients.append(body)
+    else:
+        body["id"]         = str(__import__("uuid").uuid4())[:8]
+        body["created_at"] = _dt.now(_tz.utc).isoformat()
+        clients.append(body)
+    _save_state(data, fpath)
+    return jsonify(body), 200
+
+
+@app.route("/api/enterprise/clients/<cid>", methods=["GET", "PATCH", "DELETE"])
+def ent_client(cid):
+    data, fpath = _load_state()
+    clients = data.get("clients", [])
+    client  = next((c for c in clients if c["id"] == cid), None)
+    if not client: return jsonify({"detail": "Not found"}), 404
+    if request.method == "GET":  return jsonify(client), 200
+    if request.method == "DELETE":
+        data["clients"] = [c for c in clients if c["id"] != cid]
+        _save_state(data, fpath)
+        return jsonify({"ok": True}), 200
+    body = request.get_json(silent=True) or {}
+    client.update({k: v for k, v in body.items() if k != "id"})
+    _save_state(data, fpath)
+    return jsonify(client), 200
+
+
+@app.route("/api/enterprise/clients/<cid>/portal_token", methods=["POST"])
+def ent_client_portal(cid):
+    import secrets as _sec
+    from datetime import datetime as _dt2, timezone as _tz2
+    data, fpath = _load_state()
+    client = next((c for c in data.get("clients", []) if c["id"] == cid), None)
+    if not client: return jsonify({"detail": "Not found"}), 404
+    token = _sec.token_urlsafe(20)
+    client["portal_token"]   = token
+    client["portal_created"] = _dt2.now(_tz2.utc).isoformat()
+    # Find portfolios matching this client name
+    pf_ids = [p["id"] for p in data.get("portfolios", [])
+              if (p.get("client") or "").strip().lower() == (client.get("name") or "").strip().lower()]
+    client["portal_pf_ids"] = pf_ids
+    _save_state(data, fpath)
+    host = request.host_url.rstrip("/")
+    return jsonify({"token": token, "url": f"{host}/portal/{token}", "pf_ids": pf_ids}), 200
+
+
+@app.route("/portal/<token>")
+def client_portal(token):
+    """Read-only client portal — simple static view."""
+    data, _ = _load_state()
+    client = next((c for c in data.get("clients", []) if c.get("portal_token") == token), None)
+    if not client: return "<h2 style='font-family:monospace;color:#f44;padding:40px'>Invalid or expired portal link.</h2>", 404
+    pf_ids = client.get("portal_pf_ids", [])
+    portfolios = [p for p in data.get("portfolios", []) if p["id"] in pf_ids]
+    return render_template("enterprise/portal.html", client=client, portfolios=portfolios, token=token)
+
+
+@app.route("/api/enterprise/clients/<cid>/note", methods=["POST"])
+def ent_client_note(cid):
+    from datetime import datetime as _dt3, timezone as _tz3
+    data, fpath = _load_state()
+    client = next((c for c in data.get("clients", []) if c["id"] == cid), None)
+    if not client: return jsonify({"detail": "Not found"}), 404
+    body = request.get_json(silent=True) or {}
+    note = {"id": str(__import__("uuid").uuid4())[:8],
+            "ts": _dt3.now(_tz3.utc).isoformat(),
+            "text": body.get("text", ""),
+            "author": body.get("author", "PM")}
+    client.setdefault("notes_log", []).append(note)
+    _save_state(data, fpath)
+    return jsonify(note), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── FIRM DASHBOARD ANALYTICS ──────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/enterprise/firm_analytics")
+def ent_firm_analytics():
+    """
+    Firm-level: AUM over time, cross-portfolio exposure, model portfolio,
+    revenue estimate, compliance flags.
+    """
+    data, _ = _load_state()
+    portfolios = data.get("portfolios", [])
+
+    # ── Per-portfolio enrichment ──────────────────────────────────────────────
+    pf_rows = []
+    grand_value = 0.0; grand_cost = 0.0; grand_cash = 0.0
+    ticker_exposure = {}  # ticker → total $ across all portfolios
+
+    for pf in portfolios:
+        pf_value = 0.0; pf_cost = 0.0
+        for pos in pf.get("positions", []):
+            qty  = float(pos.get("qty", 0))
+            ep   = float(pos.get("entry_price", 0))
+            live = D.fetch_live_price(pos["ticker"], atlas_get) or ep
+            val  = qty * live
+            cost = qty * ep
+            pf_value += val; pf_cost += cost
+            ticker_exposure[pos["ticker"]] = ticker_exposure.get(pos["ticker"], 0) + val
+
+        cash = float(pf.get("cash", 0))
+        pnl  = pf_value - pf_cost
+        pnl_pct = round(pnl / pf_cost * 100, 2) if pf_cost > 0 else 0
+        aum  = pf_value + cash
+        grand_value += pf_value; grand_cost += pf_cost; grand_cash += cash
+
+        # Last activity date
+        last_act = ""
+        for pos in pf.get("positions", []):
+            ts = pos.get("added_at", "")
+            if ts > last_act: last_act = ts
+        for e in pf.get("cash_log", []):
+            ts = e.get("ts", "")
+            if ts > last_act: last_act = ts
+
+        pf_rows.append({
+            "id":        pf["id"],
+            "name":      pf.get("name", ""),
+            "client":    pf.get("client", ""),
+            "strategy":  pf.get("strategy", ""),
+            "value":     round(pf_value, 2),
+            "cost":      round(pf_cost, 2),
+            "cash":      round(cash, 2),
+            "aum":       round(aum, 2),
+            "pnl":       round(pnl, 2),
+            "pnl_pct":   pnl_pct,
+            "positions": len(pf.get("positions", [])),
+            "last_activity": last_act[:10] if last_act else "—",
+        })
+
+    grand_aum = grand_value + grand_cash
+    grand_pnl = grand_value - grand_cost
+    grand_pnl_pct = round(grand_pnl / grand_cost * 100, 2) if grand_cost > 0 else 0
+
+    # ── Cross-portfolio exposure ──────────────────────────────────────────────
+    top_exposures = sorted(
+        [{"ticker": t, "value": round(v, 2), "pct_of_aum": round(v/grand_aum*100, 2) if grand_aum > 0 else 0}
+         for t, v in ticker_exposure.items()],
+        key=lambda x: x["value"], reverse=True
+    )[:10]
+
+    # Flag tickers >15% of firm AUM
+    concentration_flags = [e for e in top_exposures if e["pct_of_aum"] > 15]
+
+    # ── Revenue estimate (AUM * 0.01 / 12 monthly) ──────────────────────────
+    mrr = round(grand_aum * 0.01 / 12, 2)
+    arr = round(mrr * 12, 2)
+
+    # ── Compliance flags ─────────────────────────────────────────────────────
+    from datetime import datetime as _dtc, timezone as _tzc, timedelta as _tdc
+    now_iso = _dtc.now(_tzc.utc).isoformat()
+    compliance = []
+    for pf in pf_rows:
+        if pf["positions"] > 0 and pf["last_activity"] != "—":
+            try:
+                days_inactive = (_dtc.now(_tzc.utc) - _dtc.fromisoformat(pf["last_activity"].replace("Z","+00:00"))).days
+                if days_inactive > 30:
+                    compliance.append({"type": "INACTIVE", "pf": pf["name"], "detail": f"No activity in {days_inactive} days"})
+            except: pass
+        if pf["positions"] == 0 and pf["aum"] > 0:
+            compliance.append({"type": "CASH_ONLY", "pf": pf["name"], "detail": "AUM held entirely in cash"})
+    for flag in concentration_flags:
+        compliance.append({"type": "CONCENTRATION", "pf": "FIRM", "detail": f"{flag['ticker']} is {flag['pct_of_aum']:.1f}% of firm AUM"})
+
+    # ── AUM history (synthetic from oldest position dates) ───────────────────
+    # Build a rough AUM timeline from cash_log deposit dates across all portfolios
+    aum_events = []
+    for pf in portfolios:
+        for e in pf.get("cash_log", []):
+            aum_events.append({"date": (e.get("ts","") or "")[:10], "amount": float(e.get("amount",0))})
+    aum_events.sort(key=lambda x: x["date"])
+    running = 0.0; aum_timeline = []
+    for e in aum_events:
+        running += e["amount"]
+        if aum_timeline and aum_timeline[-1]["date"] == e["date"]:
+            aum_timeline[-1]["aum"] = round(running, 2)
+        else:
+            aum_timeline.append({"date": e["date"], "aum": round(running, 2)})
+    # Always include current AUM as latest point
+    from datetime import datetime as _dtau
+    aum_timeline.append({"date": _dtau.now().strftime("%Y-%m-%d"), "aum": round(grand_aum, 2)})
+
+    return jsonify({
+        "portfolios":           pf_rows,
+        "summary": {
+            "grand_aum":        round(grand_aum, 2),
+            "grand_value":      round(grand_value, 2),
+            "grand_cash":       round(grand_cash, 2),
+            "grand_pnl":        round(grand_pnl, 2),
+            "grand_pnl_pct":    grand_pnl_pct,
+            "num_portfolios":   len(portfolios),
+            "num_clients":      len(data.get("clients", [])),
+            "mrr":              mrr,
+            "arr":              arr,
+        },
+        "top_exposures":        top_exposures,
+        "concentration_flags":  concentration_flags,
+        "compliance":           compliance,
+        "aum_timeline":         aum_timeline,
+    }), 200
+
 
 @app.route("/api/enterprise/dashboard")
 def ent_dashboard():
