@@ -62,6 +62,14 @@
 .modal-row input,.modal-row select,.modal-row textarea{background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;width:100%}
 .modal-row input:focus,.modal-row textarea:focus{border-color:var(--org)}
 .modal-footer{padding:10px 14px;background:var(--bg3);border-top:1px solid var(--bdr);display:flex;gap:8px;justify-content:flex-end}
+/* Space switcher */
+.space-btn{padding:0 14px;font-size:8px;font-weight:700;letter-spacing:1.5px;color:var(--txt3);cursor:pointer;height:100%;display:flex;align-items:center;transition:all .1s;border-right:1px solid var(--bdr)}
+.space-btn:hover{color:var(--wht);background:var(--bg4)}
+.space-btn.active{color:var(--org);background:var(--bg2);border-bottom:2px solid var(--org)}
+/* Space panels */
+#space-portfolio{display:flex;flex-direction:column;flex:1;overflow:hidden}
+#space-clients{display:none;flex:1;overflow:hidden;flex-direction:column}
+#space-firm{display:none;flex:1;overflow:hidden;flex-direction:column}
 </style>
 </head>
 <body>
@@ -84,6 +92,13 @@
 
 <div id="tape"><div id="tape-inner"><span class="loading" style="height:auto;font-size:10px">LOADING…</span></div></div>
 
+<div id="space-portfolio">
+<div id="spacebar" style="display:flex;align-items:stretch;background:#0a0a0a;border-bottom:1px solid var(--bdr);flex-shrink:0;height:28px">
+  <span style="padding:0 10px;font-size:8px;letter-spacing:2px;color:var(--txt3);display:flex;align-items:center;border-right:1px solid var(--bdr);flex-shrink:0">SPACE</span>
+  <span class="space-btn active" id="space-btn-portfolio" onclick="switchSpace('portfolio')">◼ PORTFOLIO</span>
+  <span class="space-btn" id="space-btn-clients" onclick="switchSpace('clients')">◼ CLIENTS</span>
+  <span class="space-btn" id="space-btn-firm" onclick="switchSpace('firm')">◼ FIRM DASHBOARD</span>
+</div>
 <div id="pfbar">
   <div class="pf-tab dashboard active" data-pfid="__dash__" onclick="swPF('__dash__')">
     <span class="pf-tab-key">F1</span>
@@ -92,9 +107,17 @@
   <!-- portfolio tabs injected here -->
   <div class="pf-add-btn" id="pf-add-btn" onclick="showNewPFModal()" title="New portfolio">＋</div>
 </div>
-
 <div id="ent-panels">
   <div class="ent-panel active" id="ep-__dash__"></div>
+</div>
+</div>
+
+<div id="space-clients">
+  <div id="cms-root" style="flex:1;overflow:hidden"></div>
+</div>
+
+<div id="space-firm">
+  <div id="firm-root" style="flex:1;overflow:hidden"></div>
 </div>
 
 <div id="cmdbar">
@@ -445,8 +468,81 @@ async function init(){
     if(r.ok){ ENT.secs=r.d; buildTape(r.d); }
   }, 90000);
 }
+// ── Space switcher ────────────────────────────────────────────────────────────
+var _spaceLoaded = {portfolio: false, clients: false, firm: false};
+
+function switchSpace(space){
+  ['portfolio','clients','firm'].forEach(function(s){
+    document.getElementById('space-'+s).style.display = s===space ? (s==='portfolio'?'flex':'flex') : 'none';
+    var btn = document.getElementById('space-btn-'+s);
+    if(btn) btn.classList.toggle('active', s===space);
+  });
+  if(space==='clients' && !_spaceLoaded.clients){ loadCMS(); _spaceLoaded.clients=true; }
+  if(space==='firm'    && !_spaceLoaded.firm)   { loadFirm(); _spaceLoaded.firm=true; }
+}
+
+// ── CMS ───────────────────────────────────────────────────────────────────────
+var _cmsData = null;
+var _cmsView = 'list'; // 'list' | 'detail'
+var _cmsSelected = null;
+
+async function loadCMS(){
+  const root = document.getElementById('cms-root');
+  if(!root) return;
+  root.innerHTML = '<div class="loading">LOADING CLIENTS…</div>';
+
+  // Inject CMS HTML once
+  if(!root.dataset.loaded){
+    const r = await fetch('/enterprise/page/clients');
+    if(!r.ok){ root.innerHTML='<div class="err-banner">Failed to load CMS page</div>'; return; }
+    const html = await r.text();
+    const doc  = new DOMParser().parseFromString(html,'text/html');
+    const styles = [...doc.querySelectorAll('style')];
+    styles.forEach(s=>{ s.remove(); const ns=document.createElement('style'); ns.textContent=s.textContent; document.head.appendChild(ns); });
+    root.innerHTML = doc.body.innerHTML;
+    root.dataset.loaded = '1';
+  }
+  await refreshClients();
+}
+
+async function refreshClients(){
+  const r = await api('/api/enterprise/clients');
+  _cmsData = r.ok ? r.d : [];
+  renderClientList();
+}
+
+function renderClientList(){
+  if(typeof window.CMS_renderList === 'function') window.CMS_renderList(_cmsData);
+}
+
+window.loadCMS = loadCMS;
+window.refreshClients = refreshClients;
+
+// ── FIRM ──────────────────────────────────────────────────────────────────────
+async function loadFirm(){
+  const root = document.getElementById('firm-root');
+  if(!root) return;
+  root.innerHTML = '<div class="loading">LOADING FIRM ANALYTICS…</div>';
+
+  if(!root.dataset.loaded){
+    const r = await fetch('/enterprise/page/firm');
+    if(!r.ok){ root.innerHTML='<div class="err-banner">Failed to load Firm page</div>'; return; }
+    const html = await r.text();
+    const doc  = new DOMParser().parseFromString(html,'text/html');
+    const styles = [...doc.querySelectorAll('style')];
+    styles.forEach(s=>{ s.remove(); const ns=document.createElement('style'); ns.textContent=s.textContent; document.head.appendChild(ns); });
+    root.innerHTML = doc.body.innerHTML;
+    root.dataset.loaded = '1';
+  }
+  if(typeof window.FIRM_load === 'function') await window.FIRM_load();
+}
+
+window.loadFirm = loadFirm;
+
 init();
 </script>
 
 <script src="/static/enterprise_pf.js"></script>
+<script src="/static/enterprise_cms.js"></script>
+<script src="/static/enterprise_firm.js"></script>
 </body>
