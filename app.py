@@ -2731,6 +2731,245 @@ def ent_firm_analytics():
     }), 200
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── FIRM SETTINGS ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/enterprise/firm_settings", methods=["GET", "POST"])
+def ent_firm_settings():
+    from datetime import datetime as _dts, timezone as _tzs
+    data, fpath = _load_state()
+    if request.method == "GET":
+        return jsonify(data.get("firm_settings", {})), 200
+    body = request.get_json(silent=True) or {}
+    data["firm_settings"] = body
+    _save_state(data, fpath)
+    return jsonify(body), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── MORNING BRIEF ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/enterprise/morning_brief")
+def ent_morning_brief():
+    """
+    Daily morning summary:
+    - P&L delta vs last snapshot
+    - Biggest movers in held positions
+    - Overdue client reviews
+    - Active compliance flags
+    - Portfolios drifted from target
+    - Total firm AUM
+    """
+    from datetime import datetime as _dtm, timezone as _tzm, timedelta as _tdm
+    data, _ = _load_state()
+    portfolios   = data.get("portfolios", [])
+    clients      = data.get("clients", [])
+    settings     = data.get("firm_settings", {})
+    today        = _dtm.now(_tzm.utc).strftime("%Y-%m-%d")
+
+    # ── Position movers ───────────────────────────────────────────────────────
+    movers = []
+    grand_value = 0.0; grand_cost = 0.0
+    for pf in portfolios:
+        for pos in pf.get("positions", []):
+            ep   = float(pos.get("entry_price", 0))
+            qty  = float(pos.get("qty", 0))
+            live = D.fetch_live_price(pos["ticker"], atlas_get) or ep
+            val  = qty * live; cost = qty * ep
+            pnl_pct = (val - cost) / cost * 100 if cost > 0 else 0
+            grand_value += val; grand_cost += cost
+            movers.append({
+                "ticker":   pos["ticker"],
+                "pf_name":  pf.get("name",""),
+                "pnl_pct":  round(pnl_pct, 2),
+                "pnl":      round(val - cost, 2),
+                "value":    round(val, 2),
+            })
+    movers.sort(key=lambda x: abs(x["pnl_pct"]), reverse=True)
+    top_movers = movers[:8]
+
+    # ── Overdue client reviews ────────────────────────────────────────────────
+    overdue_reviews = []
+    for c in clients:
+        freq_days = {"monthly": 30, "quarterly": 90, "annual": 365}.get(
+            c.get("review_frequency", "quarterly"), 90)
+        last = c.get("last_review_date", c.get("created_at", ""))[:10]
+        if last:
+            try:
+                days_since = (_dtm.now(_tzm.utc) - _dtm.fromisoformat(last + "T00:00:00+00:00")).days
+                if days_since >= freq_days:
+                    overdue_reviews.append({
+                        "client_id":   c["id"],
+                        "client_name": c.get("name",""),
+                        "days_overdue": days_since - freq_days,
+                        "last_review":  last,
+                        "frequency":    c.get("review_frequency","quarterly"),
+                    })
+            except: pass
+
+    # ── Compliance flags ──────────────────────────────────────────────────────
+    max_pos_pct  = float(settings.get("max_position_pct", 40))
+    max_hhi      = float(settings.get("max_hhi", 4000))
+    flags = []
+    for pf in portfolios:
+        positions = pf.get("positions", [])
+        total_val = sum(float(p.get("qty",0)) * (D.fetch_live_price(p["ticker"],atlas_get) or float(p.get("entry_price",0))) for p in positions)
+        if total_val > 0:
+            for pos in positions:
+                live = D.fetch_live_price(pos["ticker"], atlas_get) or float(pos.get("entry_price",0))
+                w = float(pos.get("qty",0)) * live / total_val * 100
+                if w > max_pos_pct:
+                    flags.append({"type":"OVERWEIGHT","pf":pf.get("name",""),"detail":f"{pos['ticker']} is {w:.1f}% of {pf.get('name','')}"})
+
+    # ── Rebalancing needed ─────────────────────────────────────────────────────
+    rebal_needed = []
+    drift_threshold = float(settings.get("drift_alert_pct", 5))
+    for pf in portfolios:
+        targets = pf.get("target_allocation", {})
+        if not targets: continue
+        positions = pf.get("positions", [])
+        total_val = sum(float(p.get("qty",0)) * (D.fetch_live_price(p["ticker"],atlas_get) or float(p.get("entry_price",0))) for p in positions)
+        if total_val <= 0: continue
+        for pos in positions:
+            live = D.fetch_live_price(pos["ticker"],atlas_get) or float(pos.get("entry_price",0))
+            actual = float(pos.get("qty",0)) * live / total_val * 100
+            target = float(targets.get(pos["ticker"], 0))
+            drift  = actual - target
+            if abs(drift) >= drift_threshold:
+                rebal_needed.append({"pf":pf.get("name",""),"ticker":pos["ticker"],"drift":round(drift,1),"actual":round(actual,1),"target":round(target,1)})
+
+    return jsonify({
+        "date":            today,
+        "grand_aum":       round(grand_value + sum(float(p.get("cash",0)) for p in portfolios), 2),
+        "grand_pnl":       round(grand_value - grand_cost, 2),
+        "grand_pnl_pct":   round((grand_value - grand_cost) / grand_cost * 100, 2) if grand_cost > 0 else 0,
+        "top_movers":      top_movers,
+        "overdue_reviews": overdue_reviews,
+        "flags":           flags,
+        "rebal_needed":    rebal_needed,
+        "num_portfolios":  len(portfolios),
+        "num_clients":     len(clients),
+    }), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── CLIENT REVIEW SCHEDULER ──────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/enterprise/clients/<cid>/review", methods=["POST"])
+def ent_log_review(cid):
+    """Log that a client review was completed."""
+    from datetime import datetime as _dtr, timezone as _tzr
+    data, fpath = _load_state()
+    client = next((c for c in data.get("clients",[]) if c["id"]==cid), None)
+    if not client: return jsonify({"detail":"Not found"}), 404
+    body = request.get_json(silent=True) or {}
+    today = _dtr.now(_tzr.utc).strftime("%Y-%m-%d")
+    review = {
+        "id":     str(__import__("uuid").uuid4())[:8],
+        "date":   body.get("date", today),
+        "notes":  body.get("notes",""),
+        "ts":     _dtr.now(_tzr.utc).isoformat(),
+    }
+    client.setdefault("review_log", []).append(review)
+    client["last_review_date"] = review["date"]
+    if body.get("frequency"):
+        client["review_frequency"] = body["frequency"]
+    _save_state(data, fpath)
+    return jsonify(review), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── FIRM-WIDE REALIZED P&L ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/enterprise/firm_realized")
+def ent_firm_realized():
+    data, _ = _load_state()
+    trades = []
+    total_realized = 0.0; total_dividends = 0.0
+    for pf in data.get("portfolios",[]):
+        for pos in pf.get("positions",[]):
+            for c in pos.get("closes",[]):
+                pnl = float(c.get("realised_pnl",0))
+                total_realized += pnl
+                trades.append({
+                    "pf_name":    pf.get("name",""),
+                    "client":     pf.get("client",""),
+                    "ticker":     pos["ticker"],
+                    "close_date": c.get("close_date",""),
+                    "close_qty":  c.get("close_qty"),
+                    "close_price":c.get("close_price"),
+                    "realised_pnl": pnl,
+                    "notes":      c.get("notes",""),
+                })
+            for d in pos.get("dividends",[]):
+                amt = float(d.get("amount",0))
+                total_dividends += amt
+                trades.append({
+                    "pf_name":    pf.get("name",""),
+                    "client":     pf.get("client",""),
+                    "ticker":     pos["ticker"],
+                    "close_date": d.get("date",""),
+                    "close_qty":  None,
+                    "close_price":None,
+                    "realised_pnl": amt,
+                    "notes":      f"Dividend: {d.get('note','')}",
+                    "type":       "dividend",
+                })
+    trades.sort(key=lambda x: x.get("close_date",""), reverse=True)
+    return jsonify({
+        "trades":           trades,
+        "total_realized":   round(total_realized, 2),
+        "total_dividends":  round(total_dividends, 2),
+        "total_income":     round(total_realized + total_dividends, 2),
+    }), 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── FIRM ATTRIBUTION OVER TIME ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/enterprise/firm_attribution")
+def ent_firm_attribution():
+    """Monthly attribution: which portfolios drove firm-level returns each month."""
+    data, _ = _load_state()
+    portfolios = data.get("portfolios",[])
+    days = int(request.args.get("days", 180))
+
+    monthly_by_pf = {}  # {month: {pf_name: contribution_pct}}
+
+    for pf in portfolios:
+        positions = pf.get("positions",[])
+        if not positions: continue
+        for pos in positions:
+            cs = D.fetch_candles(pos["ticker"], days, atlas_get)
+            if len(cs) < 5: continue
+            qty = float(pos.get("qty",0)); ep = float(pos.get("entry_price",0))
+            cost = qty * ep
+            if cost <= 0: continue
+            # Group daily returns by month
+            for i in range(1, len(cs)):
+                if not cs[i-1]["close"]: continue
+                day_ret = (cs[i]["close"] - cs[i-1]["close"]) / cs[i-1]["close"]
+                month   = cs[i]["date"][:7]
+                contrib = day_ret * (cost / 10000)  # normalised contribution
+                monthly_by_pf.setdefault(month, {})
+                monthly_by_pf[month][pf.get("name","")] =                     monthly_by_pf[month].get(pf.get("name",""),0) + round(contrib*100, 4)
+
+    # Sort months
+    months = sorted(monthly_by_pf.keys())
+    pf_names = list({pf.get("name","") for pf in portfolios if pf.get("positions")})
+
+    return jsonify({
+        "months":   months,
+        "pf_names": pf_names,
+        "data":     {m: monthly_by_pf[m] for m in months},
+    }), 200
+
 @app.route("/api/enterprise/dashboard")
 def ent_dashboard():
     """Aggregate analytics across all portfolios."""
