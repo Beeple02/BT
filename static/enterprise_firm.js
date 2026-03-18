@@ -10,6 +10,14 @@ var _briefData = null;
 
 var FIRM_TABS = ['brief','overview','exposure','rebalance','reviews','realized','attribution','model','compliance','revenue','settings'];
 
+// Currency symbol helper — 10 R$ = 1 A£
+function _ccy(){ return _firmSettings.currency==='AP' ? 'A£' : 'R$'; }
+function _fmtAum(v){
+  var sym = _ccy();
+  if(_firmSettings.currency==='AP') v = v/10;  // convert from R$ base to A£
+  return sym+fk(v);
+}
+
 window.FIRM_load = async function(){
   var r = await api('/api/enterprise/firm_settings');
   if(r.ok) _firmSettings = r.d;
@@ -37,7 +45,7 @@ function FIRM_applySettings(){
   var s = _firmSettings;
   var set = function(id, v){ var el=document.getElementById(id); if(el&&v!=null) el.value=v; };
   set('s-firm-name',   s.firm_name);
-  set('s-currency',    s.currency||'USD');
+  set('s-currency',    s.currency||'RD');
   set('s-disclaimer',  s.disclaimer);
   set('s-mgmt-fee',    s.mgmt_fee);
   set('s-perf-fee',    s.perf_fee);
@@ -78,9 +86,18 @@ window.FIRM_saveSettings = async function(){
   var st = document.getElementById('settings-status');
   if(r.ok){
     _firmSettings = r.d;
-    if(st){ st.textContent='✓ Settings saved'; st.style.color='var(--up)'; setTimeout(function(){st.textContent='';},2500); }
+    if(st){ st.textContent='✓ Settings saved — refreshing…'; st.style.color='var(--up)'; setTimeout(function(){st.textContent='';},3000); }
     var bar=document.getElementById('cmd-st');
     if(bar){bar.textContent='Firm settings saved';bar.style.color='var(--up)';setTimeout(function(){bar.textContent='ENTERPRISE SPACE';bar.style.color='var(--txt3)';},2000);}
+    // Re-render every panel that uses settings
+    if(_firmData){
+      FIRM_renderOverview();
+      FIRM_renderRevenue();
+      FIRM_renderCompliance();
+    }
+    if(_briefData) FIRM_renderBrief();
+    var thEl=document.getElementById('rebal-threshold');
+    if(thEl) thEl.textContent=_firmSettings.drift_alert_pct||5;
   } else {
     if(st){ st.textContent='Error saving'; st.style.color='var(--dn)'; }
   }
@@ -223,7 +240,7 @@ function FIRM_renderOverview(){
   var d = _firmData; var s = d.summary;
   var kpis = document.getElementById('firm-kpis');
   if(kpis) kpis.innerHTML=[
-    {l:'TOTAL AUM',  v:'$'+fk(s.grand_aum), c:'var(--wht)'},
+    {l:'TOTAL AUM',  v:_fmtAum(s.grand_aum), c:'var(--wht)'},
     {l:'TOTAL P&L',  v:(s.grand_pnl>=0?'+':'')+'$'+fk(Math.abs(s.grand_pnl)), c:s.grand_pnl>=0?'var(--up)':'var(--dn)'},
     {l:'RETURN',     v:(s.grand_pnl_pct>=0?'+':'')+s.grand_pnl_pct.toFixed(2)+'%', c:s.grand_pnl_pct>=0?'var(--up)':'var(--dn)'},
     {l:'PORTFOLIOS', v:s.num_portfolios, c:'var(--wht)'},
@@ -460,18 +477,22 @@ function FIRM_renderCompliance(){
 
 function FIRM_renderRevenue(){
   var d=_firmData; var s=d.summary;
-  var fee = parseFloat(_firmSettings.mgmt_fee)||1;
+  var fee = parseFloat(_firmSettings.mgmt_fee)||1;  // %/month
+  var sym = _ccy();
   var kpis=document.getElementById('firm-rev-kpis');
   if(kpis) kpis.innerHTML=[
-    {l:'TOTAL AUM',v:'$'+fk(s.grand_aum),c:'var(--wht)'},
-    {l:'EST. MRR ('+fee+'% AUM)',v:'$'+fk(s.grand_aum*fee/100/12),c:'var(--up)'},
-    {l:'EST. ARR',v:'$'+fk(s.grand_aum*fee/100),c:'var(--up)'},
-    {l:'AVG AUM / PORTFOLIO',v:s.num_portfolios?'$'+fk(s.grand_aum/s.num_portfolios):'—',c:'var(--cyn)'},
+    {l:'TOTAL AUM',v:_fmtAum(s.grand_aum),c:'var(--wht)'},
+    {l:'EST. MRR ('+fee+'%/mo)',v:_fmtAum(s.grand_aum*fee/100),c:'var(--up)'},
+    {l:'EST. ARR (x12)',v:_fmtAum(s.grand_aum*fee/100*12),c:'var(--up)'},
+    {l:'AVG AUM / PORTFOLIO',v:s.num_portfolios?_fmtAum(s.grand_aum/s.num_portfolios):'—',c:'var(--cyn)'},
   ].map(function(k){return '<div class="sc"><div class="sc-l">'+k.l+'</div><div class="sc-v" style="color:'+k.c+'">'+k.v+'</div></div>';}).join('');
 
   var tbl=document.getElementById('firm-rev-table');
-  if(tbl) tbl.innerHTML='<table class="dt" style="width:100%"><thead><tr><th>PORTFOLIO</th><th>CLIENT</th><th class="r">AUM</th><th class="r">EST. MRR</th><th class="r">EST. ARR</th></tr></thead><tbody>'
-    +d.portfolios.map(function(p){var mrr=Math.round(p.aum*fee/100/12);return '<tr><td style="color:var(--wht);font-weight:600">'+p.name+'</td><td style="color:var(--org)">'+p.client+'</td><td class="r">$'+fk(p.aum)+'</td><td class="r" style="color:var(--up)">$'+fk(mrr)+'</td><td class="r" style="color:var(--up)">$'+fk(mrr*12)+'</td></tr>';}).join('')+'</tbody></table>';
+  if(tbl) tbl.innerHTML='<table class="dt" style="width:100%"><thead><tr><th>PORTFOLIO</th><th>CLIENT</th><th class="r">AUM</th><th class="r">MRR</th><th class="r">ARR</th></tr></thead><tbody>'
+    +d.portfolios.map(function(p){
+      var mrr=p.aum*fee/100; var arr=mrr*12;
+      return '<tr><td style="color:var(--wht);font-weight:600">'+p.name+'</td><td style="color:var(--org)">'+p.client+'</td><td class="r">'+_fmtAum(p.aum)+'</td><td class="r" style="color:var(--up)">'+_fmtAum(mrr)+'</td><td class="r" style="color:var(--up)">'+_fmtAum(arr)+'</td></tr>';
+    }).join('')+'</tbody></table>';
 }
 
 })();
