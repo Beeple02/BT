@@ -283,7 +283,7 @@ window.CMS_loadPfLinker = async function(cid){
         +'<td><input type="checkbox" data-pfid="'+pf.id+'" '+(checked?'checked':'')+' style="accent-color:var(--org);cursor:pointer"></td>'
         +'<td style="color:var(--wht);font-weight:600">'+pf.name+'</td>'
         +'<td style="color:var(--txt2)">'+(pf.client||'—')+clientMatch+'</td>'
-        +'<td class="r" style="color:var(--txt2)">'+(pf.positions||0)+'</td>'
+        +'<td class="r" style="color:var(--txt2)">'+(Array.isArray(pf.positions)?pf.positions.length:(pf.positions||0))+'</td>'
         +'</tr>';
     }).join('')
     +'</tbody></table>'
