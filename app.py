@@ -2565,6 +2565,25 @@ def client_portal(token):
     return render_template("enterprise/portal.html", client=client, portfolios=portfolios, token=token)
 
 
+@app.route("/api/enterprise/clients/<cid>/portfolios", methods=["GET", "POST"])
+def ent_client_portfolios(cid):
+    """GET: returns linked portfolio IDs. POST: sets linked_pf_ids list."""
+    data, fpath = _load_state()
+    client = next((c for c in data.get("clients", []) if c["id"] == cid), None)
+    if not client: return jsonify({"detail": "Not found"}), 404
+    if request.method == "GET":
+        linked = client.get("linked_pf_ids", [])
+        portfolios = [{"id": p["id"], "name": p.get("name",""), "client": p.get("client","")}
+                      for p in data.get("portfolios", []) if p["id"] in linked]
+        return jsonify({"linked_pf_ids": linked, "portfolios": portfolios}), 200
+    body = request.get_json(silent=True) or {}
+    client["linked_pf_ids"] = body.get("pf_ids", [])
+    # Also update portal_pf_ids to stay in sync
+    client["portal_pf_ids"] = client["linked_pf_ids"]
+    _save_state(data, fpath)
+    return jsonify({"linked_pf_ids": client["linked_pf_ids"]}), 200
+
+
 @app.route("/api/enterprise/clients/<cid>/note", methods=["POST"])
 def ent_client_note(cid):
     from datetime import datetime as _dt3, timezone as _tz3
