@@ -69,6 +69,7 @@ window.CMS_renderDetail = function(client){
     +'<div class="cms-tab" onclick="CMS_tab(\'mandate\')">MANDATE</div>'
     +'<div class="cms-tab" onclick="CMS_tab(\'portal\')">PORTAL LINK</div>'
     +'<div class="cms-tab" onclick="CMS_tab(\'notes\')">NOTES</div>'
+    +'<div class="cms-tab" onclick="CMS_tab(\'portfolios\')" id="cms-tab-portfolios">PORTFOLIOS</div>'
     +'</div>'
     // Profile panel
     +'<div class="cms-panel on scroll" id="cms-panel-profile">'
@@ -124,16 +125,22 @@ window.CMS_renderDetail = function(client){
       return '<div class="note-item"><div class="note-ts"><span class="note-author">'+(n.author||'PM')+'</span>'+new Date(n.ts).toLocaleString('en-GB')+'</div><div>'+n.text+'</div></div>';
     }).join('')||'<div style="color:var(--txt3);font-size:10px">No notes yet.</div>')
     +'</div></div>'
+    // Portfolios panel
+    +'<div class="cms-panel scroll" id="cms-panel-portfolios">'
+    +'<div style="font-size:9px;color:var(--txt3);margin-bottom:12px">Link portfolios to this client. Linked portfolios appear in their portal and firm analytics.</div>'
+    +'<div id="cms-pf-linker"><div style="color:var(--txt3);font-size:10px">Loading portfolios…</div></div>'
+    +'</div>'
     +'</div>';
 };
 
 window.CMS_tab = function(tab){
   document.querySelectorAll('.cms-tab').forEach(function(t,i){
-    t.classList.toggle('on',['profile','mandate','portal','notes'][i]===tab);
+    t.classList.toggle('on',['profile','mandate','portal','notes','portfolios'][i]===tab);
   });
   document.querySelectorAll('.cms-panel').forEach(function(p){
     p.classList.toggle('on', p.id==='cms-panel-'+tab);
   });
+  if(tab==='portfolios' && _selected) CMS_loadPfLinker(_selected.id);
 };
 
 window.CMS_saveClient = async function(){
@@ -247,6 +254,57 @@ window.CMS_createClient = async function(){
   _clients.push(r.d);
   CMS_renderList(_clients);
   CMS_select(r.d.id);
+};
+
+window.CMS_loadPfLinker = async function(cid){
+  var el = document.getElementById('cms-pf-linker');
+  if(!el) return;
+
+  // Fetch all portfolios + current links in parallel
+  var rAll  = await api('/api/enterprise/portfolios');
+  var rLinked = await api('/api/enterprise/clients/'+cid+'/portfolios');
+  if(!rAll.ok){ el.innerHTML='<div style="color:var(--dn);font-size:10px">Failed to load portfolios.</div>'; return; }
+
+  var allPfs  = rAll.d || [];
+  var linkedIds = (rLinked.ok ? rLinked.d.linked_pf_ids : []) || [];
+
+  if(!allPfs.length){
+    el.innerHTML='<div style="color:var(--txt3);font-size:10px">No portfolios exist yet. Create one in the PORTFOLIO space first.</div>';
+    return;
+  }
+
+  el.innerHTML = '<table class="dt" style="width:100%;margin-bottom:12px">'
+    +'<thead><tr><th style="width:32px"></th><th>PORTFOLIO</th><th>CLIENT FIELD</th><th class="r">POSITIONS</th></tr></thead>'
+    +'<tbody>'
+    +allPfs.map(function(pf){
+      var checked = linkedIds.indexOf(pf.id) !== -1;
+      var clientMatch = (pf.client||'').trim() ? '' : '<span style="font-size:8px;color:var(--yel)"> (no client set)</span>';
+      return '<tr>'
+        +'<td><input type="checkbox" data-pfid="'+pf.id+'" '+(checked?'checked':'')+' style="accent-color:var(--org);cursor:pointer"></td>'
+        +'<td style="color:var(--wht);font-weight:600">'+pf.name+'</td>'
+        +'<td style="color:var(--txt2)">'+(pf.client||'—')+clientMatch+'</td>'
+        +'<td class="r" style="color:var(--txt2)">'+(pf.positions||0)+'</td>'
+        +'</tr>';
+    }).join('')
+    +'</tbody></table>'
+    +'<button class="btn on btn-xs" onclick="CMS_savePfLinks(&quot;'+cid+'&quot;)">SAVE LINKS →</button>'
+    +'<div id="cms-pf-link-status" style="display:inline-block;margin-left:10px;font-size:9px"></div>';
+};
+
+window.CMS_savePfLinks = async function(cid){
+  var checked = [];
+  document.querySelectorAll('#cms-pf-linker input[type=checkbox]').forEach(function(cb){
+    if(cb.checked) checked.push(cb.dataset.pfid);
+  });
+  var r = await apiPost('/api/enterprise/clients/'+cid+'/portfolios', {pf_ids: checked});
+  var st = document.getElementById('cms-pf-link-status');
+  if(r.ok){
+    if(st){ st.textContent = '✓ '+checked.length+' portfolio(s) linked'; st.style.color='var(--up)'; }
+    // Update local client object
+    if(_selected) _selected.linked_pf_ids = checked;
+  } else {
+    if(st){ st.textContent = 'Error saving'; st.style.color='var(--dn)'; }
+  }
 };
 
 })();
