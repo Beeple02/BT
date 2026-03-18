@@ -23,6 +23,10 @@ window.FIRM_tab = function(tab){
   document.querySelectorAll('.firm-panel').forEach(function(p){
     p.classList.toggle('on', p.id==='firm-'+tab);
   });
+  // Resize charts after panel becomes visible
+  setTimeout(function(){
+    Object.values(_firmCharts).forEach(function(c){ if(c&&c.resize) c.resize(); });
+  }, 50);
 };
 
 function FIRM_renderOverview(){
