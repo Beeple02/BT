@@ -22,7 +22,7 @@ window.CMS_renderList = function(clients){
       +'<div class="ci-name">'+c.name+'</div>'
       +'<div class="ci-meta" style="display:flex;gap:8px">'
       +'<span style="color:'+rc+'">'+((c.risk_profile||'—').toUpperCase())+'</span>'
-      +(c.aum_tier?'<span>'+c.aum_tier.toUpperCase()+'</span>':'')
+      +(c.discord?'<span style="color:var(--cyn)">'+c.discord+'</span>':c.ign?'<span>'+c.ign+'</span>':'')
       +(c.onboarding_date?'<span>'+c.onboarding_date+'</span>':'')
       +'</div>'
       +'</div>';
@@ -74,8 +74,8 @@ window.CMS_renderDetail = function(client){
     +'<div class="cms-panel on scroll" id="cms-panel-profile">'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
     +'<div class="field-row"><label>CLIENT NAME</label><input id="edit-name" value="'+(client.name||'')+'"></div>'
-    +'<div class="field-row"><label>CONTACT EMAIL</label><input id="edit-email" type="email" value="'+(client.email||'')+'"></div>'
-    +'<div class="field-row"><label>PHONE</label><input id="edit-phone" value="'+(client.phone||'')+'"></div>'
+    +'<div class="field-row"><label>DISCORD @</label><input id="edit-discord" value="'+(client.discord||'')+'"></div>'
+    +'<div class="field-row"><label>IGN</label><input id="edit-ign" value="'+(client.ign||'')+'"></div>'
     +'<div class="field-row"><label>RISK PROFILE</label><select id="edit-risk">'
     +'<option value="conservative"'+(client.risk_profile==='conservative'?' selected':'')+'>Conservative</option>'
     +'<option value="moderate"'+(client.risk_profile==='moderate'?' selected':'')+'>Moderate</option>'
@@ -88,7 +88,7 @@ window.CMS_renderDetail = function(client){
     +'<option value="institutional"'+(client.aum_tier==='institutional'?' selected':'')+'>Institutional</option>'
     +'</select></div>'
     +'<div class="field-row"><label>ONBOARDING DATE</label><input id="edit-onboard" type="date" value="'+(client.onboarding_date||'')+'"></div>'
-    +'<div class="field-row"><label>JURISDICTION</label><input id="edit-jurisdiction" value="'+(client.jurisdiction||'')+'"></div>'
+    +'<div class="field-row"><label>JURISDICTION</label><input id="edit-jurisdiction" placeholder="e.g. Redmont, Alexandria" value="'+(client.jurisdiction||'')+'"></div>'
     +'<div class="field-row" style="grid-column:1/-1"><label>OVERVIEW NOTES</label><textarea id="edit-notes" rows="3">'+(client.notes||'')+'</textarea></div>'
     +'</div></div>'
     // Mandate panel
@@ -140,8 +140,8 @@ window.CMS_saveClient = async function(){
   if(!_selected) return;
   var body = Object.assign({}, _selected, {
     name:            (document.getElementById('edit-name')||{}).value || _selected.name,
-    email:           (document.getElementById('edit-email')||{}).value||'',
-    phone:           (document.getElementById('edit-phone')||{}).value||'',
+    discord:         (document.getElementById('edit-discord')||{}).value||'',
+    ign:             (document.getElementById('edit-ign')||{}).value||'',
     risk_profile:    (document.getElementById('edit-risk')||{}).value||'moderate',
     aum_tier:        (document.getElementById('edit-tier')||{}).value||'uhnw',
     onboarding_date: (document.getElementById('edit-onboard')||{}).value||'',
@@ -232,8 +232,8 @@ window.CMS_createClient = async function(){
   if(!name.trim()){ alert('Client name required'); return; }
   var body = {
     name: name,
-    email:           (document.getElementById('nc-email')||{}).value||'',
-    phone:           (document.getElementById('nc-phone')||{}).value||'',
+    discord:         (document.getElementById('nc-discord')||{}).value||'',
+    ign:             (document.getElementById('nc-ign')||{}).value||'',
     risk_profile:    (document.getElementById('nc-risk')||{}).value||'moderate',
     aum_tier:        (document.getElementById('nc-tier')||{}).value||'uhnw',
     onboarding_date: (document.getElementById('nc-onboard')||{}).value||'',
