@@ -66,30 +66,34 @@ def tse_get(path, params=None, ttl=60):
 
 _session = requests.Session()
 _session.mount("http://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=8, max_retries=0))
-API_KEY          = os.environ.get("NER_API_KEY") or ""
-AUTH_H           = {"Content-Type": "application/json", "X-API-Key": API_KEY}
+# NER_API_KEY is the PLATFORM key — identifies our terminal to NER on every request.
+# It is NEVER used to view any user's portfolio. All user-facing authenticated
+# endpoints require the user to supply their own Discord User ID + passcode.
+NER_PLATFORM_KEY = os.environ.get("NER_API_KEY") or ""
+API_KEY          = NER_PLATFORM_KEY  # alias kept for any remaining public-route uses
+AUTH_H           = {"Content-Type": "application/json", "X-API-Key": NER_PLATFORM_KEY}
 PUB_H            = {"Content-Type": "application/json"}
-NER_PLATFORM_KEY = os.environ.get("NER_PLATFORM_KEY") or API_KEY  # platform key for passcode flow
 
 def _passcode_headers(user_id: str, passcode: str) -> dict:
-    """Build headers for partner-site passcode flow.
-    Sends platform API key + user's Discord ID + their time-limited passcode."""
+    """Build headers for a user request via the passcode flow.
+    Platform key (X-API-Key) identifies us as the partner site.
+    User ID + passcode identify which user is trading."""
     return {
-        "Content-Type":  "application/json",
-        "X-API-Key":     NER_PLATFORM_KEY,
-        "X-NER-User-Id": str(user_id),
+        "Content-Type":   "application/json",
+        "X-API-Key":      NER_PLATFORM_KEY,
+        "X-NER-User-Id":  str(user_id),
         "X-NER-Passcode": str(passcode),
     }
 
-def _get_user_auth(req) -> dict:
-    """Resolve auth headers for a request.
-    If the request contains x-ner-user-id + x-ner-passcode, use passcode flow.
-    Otherwise fall back to the server's own API key (personal account)."""
+def _get_user_auth(req) -> dict | None:
+    """Extract user auth from request headers.
+    Returns passcode headers if user_id + passcode present, else None.
+    None means: no user logged in — caller should return 401."""
     user_id  = req.headers.get("X-NER-User-Id") or req.args.get("ner_user_id")
     passcode = req.headers.get("X-NER-Passcode") or req.args.get("ner_passcode")
     if user_id and passcode:
         return _passcode_headers(user_id, passcode)
-    return AUTH_H  # personal account fallback
+    return None  # no user credentials — do not fall back to platform key
 _cache: dict = {}
 
 _sse_queues: set = set()
@@ -366,14 +370,13 @@ def ohlcv(ticker):
 @app.route("/api/portfolio")
 def portfolio():
     auth_hdrs = _get_user_auth(request)
-    # Passcode flow: direct request to NER with user-specific headers
-    if auth_hdrs is not AUTH_H:
-        try:
-            r = _session.get(f"{NER_BASE}/portfolio", headers=auth_hdrs, timeout=8)
-            return jsonify(r.json()), r.status_code
-        except Exception as e:
-            return jsonify({"detail": str(e)}), 503
-    s, d = cached_get("/portfolio", auth=True, ttl=0); return jsonify(d), s  # always live
+    if not auth_hdrs:
+        return jsonify({"detail": "Login required — set your Discord ID and passcode in the terminal."}), 401
+    try:
+        r = _session.get(f"{NER_BASE}/portfolio", headers=auth_hdrs, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 503
 
 # ── Trading ───────────────────────────────────────────────────────────────────
 def tse_post(path, payload):
@@ -411,10 +414,12 @@ def _is_tse(payload):
 
 def _route_order(ner_path, side, order_type, payload, req=None):
     """Route to TSE exchange for TSE tickers, NER for everything else.
-    req: Flask request object — if provided, extracts passcode auth for client accounts."""
+    req: Flask request object — passcode auth required for NER orders."""
     if _is_tse(payload):
         return tse_post("/api/v1/orders", _build_tse_order(payload, side, order_type))
-    auth_hdrs = _get_user_auth(req) if req else AUTH_H
+    auth_hdrs = _get_user_auth(req) if req else None
+    if not auth_hdrs:
+        return 401, {"detail": "Login required — set your Discord ID and passcode in the terminal."}
     return ner_post(ner_path, payload, auth_headers=auth_hdrs)
 
 
@@ -3100,28 +3105,34 @@ def transactions():
     if s_atl == 200: return jsonify(d_atl), 200
     params = {"limit": limit, "offset": offset}
     if ttype: params["type"] = ttype
-    s, d = cached_get("/transactions", params=params, auth=True, ttl=10)  # short cache
-    return jsonify(d), s
+    auth_hdrs = _get_user_auth(request)
+    if not auth_hdrs:
+        return jsonify({"detail": "Login required"}), 401
+    try:
+        r = _session.get(f"{NER_BASE}/transactions", headers=auth_hdrs, params=params, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 503
 
 # ── OPEN ORDERS ────────────────────────────────────────────────────────────────
 @app.route("/api/orders_open")
 def orders_open():
     auth_hdrs = _get_user_auth(request)
-    if auth_hdrs is not AUTH_H:
-        try:
-            r = _session.get(f"{NER_BASE}/orders", headers=auth_hdrs, timeout=8)
-            return jsonify(r.json()), r.status_code
-        except Exception as e:
-            return jsonify({"detail": str(e)}), 503
-    s, d = cached_get("/orders", auth=True, ttl=5)
-    return jsonify(d), s
+    if not auth_hdrs:
+        return jsonify({"detail": "Login required"}), 401
+    try:
+        r = _session.get(f"{NER_BASE}/orders", headers=auth_hdrs, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 503
 
 @app.route("/api/orders_open/<order_id>", methods=["DELETE"])
 def cancel_order(order_id):
     auth_hdrs = _get_user_auth(request)
-    url = f"{NER_BASE}/orders/{order_id}"
+    if not auth_hdrs:
+        return jsonify({"detail": "Login required"}), 401
     try:
-        r = _session.delete(url, headers=auth_hdrs, timeout=(4, 8))
+        r = _session.delete(f"{NER_BASE}/orders/{order_id}", headers=auth_hdrs, timeout=(4, 8))
         return jsonify(r.json()), r.status_code
     except: return jsonify({"detail":"Error"}), 503
 
@@ -3129,14 +3140,13 @@ def cancel_order(order_id):
 @app.route("/api/funds")
 def funds():
     auth_hdrs = _get_user_auth(request)
-    if auth_hdrs is not AUTH_H:
-        try:
-            r = _session.get(f"{NER_BASE}/funds", headers=auth_hdrs, timeout=8)
-            return jsonify(r.json()), r.status_code
-        except Exception as e:
-            return jsonify({"detail": str(e)}), 503
-    s, d = cached_get("/funds", auth=True, ttl=8)
-    return jsonify(d), s
+    if not auth_hdrs:
+        return jsonify({"detail": "Login required"}), 401
+    try:
+        r = _session.get(f"{NER_BASE}/funds", headers=auth_hdrs, timeout=8)
+        return jsonify(r.json()), r.status_code
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 503
 
 # ── ROLLING CORRELATION + PAIRS SPREAD ────────────────────────────────────────
 @app.route("/api/rolling_correlation")
