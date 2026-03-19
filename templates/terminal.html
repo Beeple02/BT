@@ -714,12 +714,18 @@ async function updateSessionStats(){
   }
 
   // ── P&L + session equity spark ───────────────────────────────
-  if(pfR.ok) {
+  if(pfR.s === 401) {
+    // Not logged in — prompt user to set up account
+    const pnlEl=document.getElementById('tb-pnl');
+    if(pnlEl){pnlEl.textContent='LOGIN';pnlEl.style.color='var(--txt3)';pnlEl.style.cursor='pointer';pnlEl.onclick=()=>showNerAuth();}
+    const authEl=document.getElementById('tb-ner-auth');
+    if(authEl){authEl.textContent='○ ACCOUNT';authEl.style.color='var(--yel)';}
+  } else if(pfR.ok) {
     const holds=pfR.d.holdings||[];
     const pnl=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
     const totalEq = pfR.d.total_equity||1;
     const pnlEl=document.getElementById('tb-pnl');
-    if(pnlEl){pnlEl.textContent=(pnl>=0?'+':'')+f(pnl,0);pnlEl.style.color=gcI(pnl/Math.abs(totalEq)*100);}
+    if(pnlEl){pnlEl.textContent=(pnl>=0?'+':'')+f(pnl,0);pnlEl.style.color=gcI(pnl/Math.abs(totalEq)*100);pnlEl.style.cursor='';pnlEl.onclick=null;}
     // Track equity over session
     window._sessionEquity.push(totalEq);
     if(window._sessionEquity.length>120) window._sessionEquity.shift();
