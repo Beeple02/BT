@@ -66,6 +66,9 @@
   <div class="tb-seg" id="tb-alerts" style="cursor:pointer;display:none" onclick="sw('al')">
     <span style="color:var(--dn);font-weight:700" id="tb-alert-ct">0</span><span class="l" style="margin-left:4px">ALERTS</span>
   </div>
+  <div class="tb-seg" style="cursor:pointer;padding:0 10px;border-right:1px solid var(--bdr)" onclick="showNerAuth()" title="NER account credentials">
+    <span id="tb-ner-auth" style="font-size:9px;letter-spacing:1.5px;color:var(--txt3);font-family:var(--font)">○ ACCOUNT</span>
+  </div>
   <div class="tb-seg tb-right" style="cursor:pointer;user-select:none" title="Click to toggle UTC / local time" onclick="BB._utcMode=!BB._utcMode;tick()">
     <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
     &nbsp;<span id="tb-tz" style="color:var(--txt3);font-size:9px;letter-spacing:.5px">LCL</span>
@@ -920,5 +923,111 @@ window.drawSessionSpark = function(pts){
   canvas.style.boxShadow=up?'0 0 4px rgba(0,200,83,.6)':'0 0 4px rgba(244,67,54,.5)';
 };
 </script>
+
+<!-- ── NER ACCOUNT MODAL ──────────────────────────────────────────────────── -->
+<div id="ner-auth-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--org);width:420px;font-size:11px">
+    <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:10px;font-weight:700;letter-spacing:2px;color:var(--org)">NER ACCOUNT</span>
+      <span style="cursor:pointer;color:var(--txt2);font-size:14px" onclick="hideNerAuth()">&#x2715;</span>
+    </div>
+    <div style="padding:16px">
+      <div style="font-size:10px;color:var(--txt2);margin-bottom:14px;line-height:1.7">
+        Enter your Discord User ID and passcode to trade as your NER account.<br>
+        Create a passcode in the NER Discord with <span style="color:var(--cyn)">/passcode</span>.
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;display:block;margin-bottom:4px">DISCORD USER ID</label>
+        <input id="ner-user-id" placeholder="e.g. 123456789012345678" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:6px 8px;outline:none">
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;display:block;margin-bottom:4px">PASSCODE</label>
+        <input id="ner-passcode" type="password" placeholder="your time-limited passcode" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:6px 8px;outline:none">
+      </div>
+      <div id="ner-auth-status" style="font-size:10px;min-height:16px;margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="flex:1" onclick="hideNerAuth()">CANCEL</button>
+        <button class="btn on" style="flex:2" onclick="saveNerAuth()">VERIFY &amp; SAVE &#x2192;</button>
+        <button class="btn" style="color:var(--dn);border-color:var(--dn)" onclick="clearNerAuth()">CLEAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var saved = _loadNerCreds();
+  if(saved) _updateNerAuthIndicator(true, saved.user_id);
+})();
+
+function _loadNerCreds(){
+  try{ return JSON.parse(localStorage.getItem('ner_auth')||'null'); }catch(e){ return null; }
+}
+function _updateNerAuthIndicator(active, user_id){
+  var el = document.getElementById('tb-ner-auth');
+  if(!el) return;
+  el.style.color = active ? 'var(--up)' : 'var(--txt3)';
+  el.title = active ? 'NER account: '+user_id : 'No NER account — click to set up';
+  el.textContent = active ? '● ACCOUNT' : '○ ACCOUNT';
+}
+window.showNerAuth = function(){
+  var saved = _loadNerCreds();
+  if(saved){
+    document.getElementById('ner-user-id').value = saved.user_id||'';
+    document.getElementById('ner-passcode').value = saved.passcode||'';
+  }
+  document.getElementById('ner-auth-status').textContent = '';
+  document.getElementById('ner-auth-modal').style.display = 'flex';
+  document.getElementById('ner-user-id').focus();
+};
+window.hideNerAuth = function(){
+  document.getElementById('ner-auth-modal').style.display = 'none';
+};
+window.clearNerAuth = function(){
+  localStorage.removeItem('ner_auth');
+  _updateNerAuthIndicator(false);
+  var st = document.getElementById('ner-auth-status');
+  if(st){ st.style.color='var(--txt2)'; st.textContent='Credentials cleared.'; }
+};
+window.saveNerAuth = async function(){
+  var user_id  = document.getElementById('ner-user-id').value.trim();
+  var passcode = document.getElementById('ner-passcode').value.trim();
+  var st       = document.getElementById('ner-auth-status');
+  if(!user_id||!passcode){ st.style.color='var(--dn)'; st.textContent='Both fields required.'; return; }
+  st.style.color='var(--txt2)'; st.textContent='Verifying...';
+  var r = await apiPost('/api/ner_auth/validate', {user_id, passcode});
+  if(r.ok){
+    localStorage.setItem('ner_auth', JSON.stringify({user_id, passcode}));
+    _updateNerAuthIndicator(true, user_id);
+    st.style.color='var(--up)'; st.textContent='Valid — credentials saved.';
+    setTimeout(hideNerAuth, 1200);
+  } else {
+    st.style.color='var(--dn)';
+    st.textContent = (r.d&&r.d.detail)||'Invalid credentials.';
+  }
+};
+window.getNerAuthHeaders = function(){
+  var c = _loadNerCreds();
+  if(!c) return {};
+  return {'X-NER-User-Id': c.user_id, 'X-NER-Passcode': c.passcode};
+};
+// Patch api() to auto-inject NER auth headers for trading/account routes
+(function(){
+  var _origApi = window.api;
+  var AUTH_ROUTES = ['/api/portfolio','/api/funds','/api/orders'];
+  window.api = async function(path, opts){
+    opts = opts||{};
+    var needsAuth = AUTH_ROUTES.some(function(r){ return path.startsWith(r); });
+    if(needsAuth){
+      var extra = window.getNerAuthHeaders();
+      if(extra['X-NER-User-Id']){
+        opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers||{}, extra)});
+      }
+    }
+    return _origApi(path, opts);
+  };
+})();
+</script>
+
 </body>
 </html>
