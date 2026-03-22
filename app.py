@@ -271,31 +271,40 @@ def tse_market(symbol):
 
 @app.route("/api/tse/orders")
 def tse_orders_open():
-    """TSE open orders for the authenticated user."""
-    s, d = tse_get("/api/v1/orders", params={"status": "open", "limit": 100}, ttl=5)
-    # Normalise to list — TSE returns array directly
-    orders = d if isinstance(d, list) else d.get("orders", d.get("open_orders", []))
-    return jsonify({"orders": orders}), s
+    """TSE open orders for the authenticated user. Requires X-TSE-User-Key header."""
+    hdrs = _tse_user_headers(request)
+    try:
+        r = _session.get(f"{TSE_BASE}/api/v1/orders", headers=hdrs,
+                         params={"status": "open", "limit": 100}, timeout=8)
+        d = r.json() if r.content else {}
+        orders = d if isinstance(d, list) else d.get("orders", d.get("open_orders", []))
+        return jsonify({"orders": orders}), r.status_code
+    except Exception as e:
+        return jsonify({"orders": [], "detail": str(e)}), 503
 
 @app.route("/api/tse/orders/history")
 def tse_orders_history():
-    """TSE filled/cancelled order history for the authenticated user."""
+    """TSE filled/cancelled order history for the authenticated user. Requires X-TSE-User-Key."""
+    hdrs = _tse_user_headers(request)
     limit = request.args.get("limit", 200)
-    # Fetch filled and cancelled separately then merge
-    s1, d1 = tse_get("/api/v1/orders", params={"status": "filled",   "limit": limit}, ttl=15)
-    s2, d2 = tse_get("/api/v1/orders", params={"status": "partial",  "limit": limit}, ttl=15)
-    s3, d3 = tse_get("/api/v1/orders", params={"status": "cancelled","limit": limit}, ttl=30)
-    def _lst(d): return d if isinstance(d, list) else d.get("orders", d.get("history", []))
-    orders = _lst(d1) + _lst(d2) + _lst(d3)
-    # Sort newest first
-    orders.sort(key=lambda o: o.get("updated_at") or o.get("created_at") or "", reverse=True)
+    def _fetch(status):
+        try:
+            r = _session.get(f"{TSE_BASE}/api/v1/orders", headers=hdrs,
+                             params={"status": status, "limit": limit}, timeout=8)
+            d = r.json() if r.content else {}
+            return d if isinstance(d, list) else d.get("orders", d.get("history", []))
+        except Exception:
+            return []
+    orders = _fetch("filled") + _fetch("partial") + _fetch("cancelled")
+    orders.sort(key=lambda o: o.get("updated_ts") or o.get("updated_at") or o.get("created_ts") or o.get("created_at") or "", reverse=True)
     return jsonify({"orders": orders}), 200
 
 @app.route("/api/tse/orders/<order_id>", methods=["DELETE"])
 def tse_cancel_order(order_id):
-    """Cancel a TSE order by ID."""
+    """Cancel a TSE order by ID. Requires X-TSE-User-Key header."""
+    hdrs = _tse_user_headers(request)
     try:
-        r = _session.delete(f"{TSE_BASE}/api/v1/orders/{order_id}", headers=TSE_H, timeout=(4, 8))
+        r = _session.delete(f"{TSE_BASE}/api/v1/orders/{order_id}", headers=hdrs, timeout=(4, 8))
         try: return jsonify(r.json()), r.status_code
         except: return jsonify({"detail": "Cancelled"}), r.status_code
     except Exception as e:
@@ -379,10 +388,18 @@ def portfolio():
         return jsonify({"detail": str(e)}), 503
 
 # ── Trading ───────────────────────────────────────────────────────────────────
-def tse_post(path, payload):
+def _tse_user_headers(req=None):
+    """Return TSE headers using the user's personal API key if provided, else platform key."""
+    user_key = (req.headers.get("X-TSE-User-Key") or "").strip() if req else ""
+    if user_key:
+        return {"X-API-Key": user_key, "Content-Type": "application/json"}
+    return dict(TSE_H)
+
+def tse_post(path, payload, req=None):
     """POST to TSE exchange API."""
     try:
-        r = _session.post(f"{TSE_BASE}{path}", headers=TSE_H, json=payload, timeout=(4, 10))
+        hdrs = _tse_user_headers(req)
+        r = _session.post(f"{TSE_BASE}{path}", headers=hdrs, json=payload, timeout=(4, 10))
         try:
             d = r.json()
         except Exception:
@@ -416,7 +433,7 @@ def _route_order(ner_path, side, order_type, payload, req=None):
     """Route to TSE exchange for TSE tickers, NER for everything else.
     req: Flask request object — passcode auth required for NER orders."""
     if _is_tse(payload):
-        return tse_post("/api/v1/orders", _build_tse_order(payload, side, order_type))
+        return tse_post("/api/v1/orders", _build_tse_order(payload, side, order_type), req=req)
     auth_hdrs = _get_user_auth(req) if req else None
     if not auth_hdrs:
         return 401, {"detail": "Login required — set your Discord ID and passcode in the terminal."}
