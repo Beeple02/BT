@@ -301,9 +301,27 @@ def tse_cancel_order(order_id):
     except Exception as e:
         return jsonify({"detail": str(e)}), 503
 
+@app.route("/api/tse/portfolio")
+def tse_portfolio():
+    """TSE account portfolio (holdings + balances) from TSE API."""
+    s, d = tse_get("/api/v1/account/portfolio", ttl=10)
+    return jsonify(d), s
+
+@app.route("/api/tse/account")
+def tse_account():
+    """TSE account summary from TSE API."""
+    s, d = tse_get("/api/v1/account", ttl=10)
+    return jsonify(d), s
+
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
-    s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify({"market_price": d.get("market_price")} if s==200 else d), s
+    if ticker.upper().startswith("TSE:"):
+        symbol = ticker.split(":", 1)[1]
+        s, d = tse_get(f"/api/v1/stocks/{symbol}", ttl=15)
+        px = d.get("current_price") if s == 200 else None
+        return jsonify({"market_price": px} if px is not None else d), s
+    s, d = atlas_get(f"/price/{ticker}", ttl=15)
+    return jsonify({"market_price": d.get("market_price")} if s==200 else d), s
 
 @app.route("/api/shareholders")
 def shareholders():
@@ -327,8 +345,11 @@ def orderbook():
 
 @app.route("/api/orderbook/<path:ticker>")
 def orderbook_ticker(ticker):
-    """Single-ticker orderbook — proxies to Atlas /orderbook/{ticker}.
-    Handles both NER tickers (BB) and TSE tickers (TSE:ECO) since Atlas aggregates both."""
+    """Single-ticker orderbook. TSE tickers go to TSE API; NER tickers go to Atlas."""
+    if ticker.upper().startswith("TSE:"):
+        symbol = ticker.split(":", 1)[1]
+        s, d = tse_get(f"/api/v1/market/{symbol}/orderbook", ttl=5)
+        return jsonify(d), s
     s, d = atlas_get(f"/orderbook/{ticker}", ttl=5)
     if s != 200:
         return jsonify({"detail": "Orderbook unavailable", "status": s}), s
@@ -344,27 +365,30 @@ def price_history(ticker):
 
 @app.route("/api/history/<path:ticker>")
 def trade_history(ticker):
-    """Raw trade history from Atlas — used by TSE ticker page for recent prints."""
+    """Raw trade history. TSE tickers go to TSE API; NER tickers go to Atlas."""
     limit = int(request.args.get("limit", 50))
+    if ticker.upper().startswith("TSE:"):
+        symbol = ticker.split(":", 1)[1]
+        s, d = tse_get(f"/api/v1/market/{symbol}/trades", params={"limit": limit}, ttl=15)
+        return jsonify(d), s
     s, d = atlas_get(f"/history/{ticker}", params={"limit": limit}, ttl=15)
     return jsonify(d), s
 
 @app.route("/api/analytics/ohlcv/<path:ticker>")
 def ohlcv(ticker):
     days = request.args.get("days", 30)
+    if ticker.upper().startswith("TSE:"):
+        symbol = ticker.split(":", 1)[1]
+        s, d = tse_get(f"/api/v1/market/{symbol}/candles", params={"days": days}, ttl=120)
+        if s != 200 or not isinstance(d, dict):
+            return jsonify({"ticker": ticker, "candles": [], "detail": "No data"}), 200
+        d["candles"] = _norm_candles(d.get("candles", []))
+        d.setdefault("ticker", ticker)
+        return jsonify(d), 200
     s, d = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=120)
     if s != 200 or not isinstance(d, dict):
         return jsonify({"ticker": ticker, "candles": [], "detail": "No data"}), 200
-    # Debug: log raw candle shape for TSE tickers so we can see the date format
-    if ticker.startswith("TSE:"):
-        raw_candles = d.get("candles", [])
-        sample = raw_candles[:2] if raw_candles else []
-        print(f"[ohlcv debug] {ticker}: {len(raw_candles)} candles, keys={list(sample[0].keys()) if sample else []}, sample={sample}", flush=True)
-    # Normalise candle dates
     d["candles"] = _norm_candles(d.get("candles", []))
-    if ticker.startswith("TSE:"):
-        normed = d["candles"]
-        print(f"[ohlcv debug] {ticker}: after norm, {len(normed)} candles, first_date={normed[0].get('date') if normed else None}", flush=True)
     return jsonify(d), 200
 
 @app.route("/api/portfolio")
@@ -1286,14 +1310,13 @@ def backtest():
     if not ticker:
         return jsonify({"detail": "ticker required"}), 400
 
-    # TSE tickers: Atlas /analytics/ohlcv returns empty candles.
-    # Use /history/{ticker} (price_history) instead — same source as market page.
+    # TSE tickers: fetch candles directly from TSE API
     if ticker.startswith("TSE:"):
-        s2, raw2 = atlas_get(f"/history/{ticker}", params={"days": 365, "limit": 5000}, ttl=60)
+        _sym = ticker.split(":", 1)[1]
+        s2, raw2 = tse_get(f"/api/v1/market/{_sym}/candles", params={"days": 365}, ttl=60)
         if s2 != 200:
             return jsonify(raw2), s2
-        pts = raw2.get("data", []) if isinstance(raw2, dict) else raw2
-        candles = _build_candles_from_history(pts, days)
+        candles = _norm_candles(raw2.get("candles", raw2 if isinstance(raw2, list) else []), days=days)
     else:
         status, raw = atlas_get(f"/analytics/ohlcv/{ticker}", params={"days": days}, ttl=60)
         if status != 200:
@@ -3122,7 +3145,25 @@ def orders_open():
         return jsonify({"detail": "Login required"}), 401
     try:
         r = _session.get(f"{NER_BASE}/orders", headers=auth_hdrs, timeout=8)
-        return jsonify(r.json()), r.status_code
+        data = r.json()
+        # NER may return array or {"orders":[...]} — normalise to array
+        orders = data if isinstance(data, list) else data.get("orders", data.get("open_orders", []))
+        return jsonify(orders), r.status_code
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 503
+
+@app.route("/api/ner/transactions")
+def ner_transactions():
+    """User-specific transaction history from NER (passcode auth required)."""
+    auth_hdrs = _get_user_auth(request)
+    if not auth_hdrs:
+        return jsonify({"detail": "Login required"}), 401
+    limit = request.args.get("limit", 200)
+    try:
+        r = _session.get(f"{NER_BASE}/transactions", headers=auth_hdrs, params={"limit": limit}, timeout=8)
+        data = r.json()
+        txs = data if isinstance(data, list) else data.get("transactions", data.get("history", []))
+        return jsonify(txs), r.status_code
     except Exception as e:
         return jsonify({"detail": str(e)}), 503
 
