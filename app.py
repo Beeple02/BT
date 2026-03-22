@@ -310,6 +310,17 @@ def tse_cancel_order(order_id):
     except Exception as e:
         return jsonify({"detail": str(e)}), 503
 
+@app.route("/api/tse/account/portfolio")
+def tse_account_portfolio():
+    """TSE account portfolio (holdings + cash). Requires X-TSE-User-Key header."""
+    hdrs = _tse_user_headers(request)
+    try:
+        r = _session.get(f"{TSE_BASE}/api/v1/account/portfolio", headers=hdrs, timeout=(4, 10))
+        try: return jsonify(r.json()), r.status_code
+        except: return jsonify({"detail": "Bad response from TSE"}), 502
+    except Exception as e:
+        return jsonify({"detail": str(e)}), 503
+
 @app.route("/api/market_price/<ticker>")
 def market_price(ticker):
     s, d = atlas_get(f"/price/{ticker}", ttl=15); return jsonify({"market_price": d.get("market_price")} if s==200 else d), s
