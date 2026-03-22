@@ -6,6 +6,7 @@
   <span class="pf-sp act" data-sp="overview" onclick="pfSubpage(this)">OVERVIEW</span>
   <span class="pf-sp"     data-sp="ner"      onclick="pfSubpage(this)">NER PORTFOLIO</span>
   <span class="pf-sp"     data-sp="tse"      onclick="pfSubpage(this)">TSE PORTFOLIO</span>
+  <span class="pf-sp"     data-sp="all"      onclick="pfSubpage(this)">ALL EXCHANGES</span>
 </div>
 
 <!-- ══ OVERVIEW sub-page ══ -->
@@ -58,18 +59,18 @@
 
 <!-- Tab bar -->
 <div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
-  <span class="pf-tab active" data-t="overview" onclick="pfTab(this)">OVERVIEW</span>
-  <span class="pf-tab" data-t="risk"     onclick="pfTab(this)">RISK</span>
-  <span class="pf-tab" data-t="equity"   onclick="pfTab(this)">EQUITY CURVE</span>
-  <span class="pf-tab" data-t="liq"      onclick="pfTab(this)">LIQUIDITY</span>
-  <span class="pf-tab" data-t="stress"   onclick="pfTab(this)">STRESS TEST</span>
-  <span class="pf-tab" data-t="attr"     onclick="pfTab(this)">ATTRIBUTION</span>
+  <span class="pf-tab active" data-t="overview" data-pfx="" onclick="pfTab(this,'')">OVERVIEW</span>
+  <span class="pf-tab" data-t="risk"     data-pfx="" onclick="pfTab(this,'')">RISK</span>
+  <span class="pf-tab" data-t="equity"   data-pfx="" onclick="pfTab(this,'')">EQUITY CURVE</span>
+  <span class="pf-tab" data-t="liq"      data-pfx="" onclick="pfTab(this,'')">LIQUIDITY</span>
+  <span class="pf-tab" data-t="stress"   data-pfx="" onclick="pfTab(this,'')">STRESS TEST</span>
+  <span class="pf-tab" data-t="attr"     data-pfx="" onclick="pfTab(this,'')">ATTRIBUTION</span>
   <span style="margin-left:auto;display:flex;align-items:center;padding:0 10px">
     <button class="btn btn-xs" onclick="loadPF()">REFRESH</button>
   </span>
 </div>
 
-<div class="pf-view active" id="pv-overview" style="flex:1;overflow:hidden">
+<div class="pf-view active" data-pfx="" id="pv-overview" style="flex:1;overflow:hidden">
   <div class="wrow" style="height:100%">
     <div class="win" style="width:300px;border-right:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">HOLDINGS</span></div></div>
@@ -86,7 +87,7 @@
   </div>
 </div>
 
-<div class="pf-view" id="pv-risk" style="flex:1;overflow:hidden;display:none">
+<div class="pf-view" data-pfx="" id="pv-risk" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
     <div class="win" style="width:230px;border-right:0;display:flex;flex-direction:column">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION</span></div></div>
@@ -109,7 +110,7 @@
   </div>
 </div>
 
-<div class="pf-view" id="pv-equity" style="flex:1;overflow:hidden;display:none">
+<div class="pf-view" data-pfx="" id="pv-equity" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
     <div class="win" style="flex:2;border-right:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PORTFOLIO EQUITY CURVE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Reconstructed from holdings</div></div>
@@ -128,7 +129,7 @@
   </div>
 </div>
 
-<div class="pf-view" id="pv-liq" style="flex:1;overflow:hidden;display:none">
+<div class="pf-view" data-pfx="" id="pv-liq" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
     <div class="win" style="flex:1;border-right:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">LIQUIDATION ANALYSIS</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">20% of orderbook depth per day</div></div>
@@ -148,22 +149,22 @@
   </div>
 </div>
 
-<div class="pf-view" id="pv-stress" style="flex:1;overflow:hidden;display:none">
+<div class="pf-view" data-pfx="" id="pv-stress" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
     <div class="win" style="width:300px;border-right:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SCENARIO ENGINE</span></div></div>
       <div style="padding:10px;display:flex;flex-direction:column;gap:10px">
         <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px">PRESETS</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          <button class="btn btn-xs" onclick="applyPreset(-0.10)">-10% ALL</button>
-          <button class="btn btn-xs" onclick="applyPreset(-0.20)">-20% ALL</button>
-          <button class="btn btn-xs" onclick="applyPreset(-0.50)">-50% CRASH</button>
-          <button class="btn btn-xs" onclick="applyPreset(0.10)">+10% ALL</button>
-          <button class="btn btn-xs" onclick="applyPreset(0.20)">+20% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.10,'')">-10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.20,'')">-20% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.50,'')">-50% CRASH</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.10,'')">+10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.20,'')">+20% ALL</button>
         </div>
         <div style="border-top:1px solid var(--bdr);padding-top:8px;font-size:9px;color:var(--txt3);letter-spacing:1.5px">CUSTOM PER HOLDING</div>
         <div id="sc-rows" style="display:flex;flex-direction:column;gap:5px"></div>
-        <button class="btn btn-xs on" onclick="runScenario()" style="align-self:flex-start;margin-top:4px">RUN SIMULATION</button>
+        <button class="btn btn-xs on" onclick="runScenario('')" style="align-self:flex-start;margin-top:4px">RUN SIMULATION</button>
       </div>
     </div>
     <div class="wcol" style="flex:1">
@@ -179,8 +180,7 @@
   </div>
 </div>
 
-<!-- ATTRIBUTION VIEW -->
-<div class="pf-view" id="pv-attr" style="flex:1;overflow:hidden;display:none">
+<div class="pf-view" data-pfx="" id="pv-attr" style="flex:1;overflow:hidden;display:none">
   <div class="wrow" style="height:100%">
     <div class="win" style="width:300px;border-right:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">P&amp;L CONTRIBUTION</span></div></div>
@@ -200,31 +200,317 @@
 
 <!-- ══ TSE PORTFOLIO sub-page ══ -->
 <div id="psp-tse" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-  <div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr)">
-    <div class="sc"><div class="sc-l">CASH</div><div class="sc-v wht" id="tse-cash">—</div></div>
-    <div class="sc"><div class="sc-l">AVAILABLE</div><div class="sc-v up" id="tse-avail">—</div></div>
-    <div class="sc"><div class="sc-l">STOCKS VALUE</div><div class="sc-v wht" id="tse-stocks-val">—</div></div>
-    <div class="sc"><div class="sc-l">TOTAL VALUE</div><div class="sc-v wht" id="tse-total-val">—</div></div>
-    <div class="sc"><div class="sc-l">DAY CHANGE</div><div class="sc-v" id="tse-day-chg">—</div></div>
-    <div class="sc"><div class="sc-l">POSITIONS</div><div class="sc-v cyn" id="tse-pos-ct">—</div></div>
-  </div>
-  <div class="wrow" style="flex:1;overflow:hidden">
-    <div class="win" style="width:340px;border-right:0;display:flex;flex-direction:column">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">HOLDINGS</span></div><div class="wbar-r"><button class="btn btn-xs" onclick="loadTSEPortfolio()">REFRESH</button></div></div>
-      <div class="scroll" id="tse-holds"><div class="loading">—</div></div>
+<div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr)">
+  <div class="sc"><div class="sc-l">CASH</div><div class="sc-v wht" id="tse-cash">—</div></div>
+  <div class="sc"><div class="sc-l">AVAILABLE</div><div class="sc-v up" id="tse-avail">—</div></div>
+  <div class="sc"><div class="sc-l">STOCKS VALUE</div><div class="sc-v wht" id="tse-stocks-val">—</div></div>
+  <div class="sc"><div class="sc-l">TOTAL VALUE</div><div class="sc-v wht" id="tse-total-val">—</div></div>
+  <div class="sc"><div class="sc-l">DAY CHANGE</div><div class="sc-v" id="tse-day-chg">—</div></div>
+  <div class="sc"><div class="sc-l">POSITIONS</div><div class="sc-v cyn" id="tse-pos-ct">—</div></div>
+</div>
+<div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span class="pf-tab active" data-t="overview" data-pfx="x" onclick="pfTab(this,'x')">OVERVIEW</span>
+  <span class="pf-tab" data-t="risk"     data-pfx="x" onclick="pfTab(this,'x')">RISK</span>
+  <span class="pf-tab" data-t="equity"   data-pfx="x" onclick="pfTab(this,'x')">EQUITY CURVE</span>
+  <span class="pf-tab" data-t="liq"      data-pfx="x" onclick="pfTab(this,'x')">LIQUIDITY</span>
+  <span class="pf-tab" data-t="stress"   data-pfx="x" onclick="pfTab(this,'x')">STRESS TEST</span>
+  <span class="pf-tab" data-t="attr"     data-pfx="x" onclick="pfTab(this,'x')">ATTRIBUTION</span>
+  <span class="pf-tab" data-t="txns"     data-pfx="x" onclick="pfTab(this,'x')">TRANSACTIONS</span>
+  <span style="margin-left:auto;display:flex;align-items:center;padding:0 10px">
+    <button class="btn btn-xs" onclick="loadTSEPortfolioFull()">REFRESH</button>
+  </span>
+</div>
+<!-- TSE OVERVIEW -->
+<div class="pf-view active" data-pfx="x" id="xpv-overview" style="flex:1;overflow:hidden">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">HOLDINGS</span></div></div>
+      <div class="scroll" id="xpf-holds"><div class="loading">LOADING</div></div>
     </div>
-    <div class="win" style="flex:1;display:flex;flex-direction:column">
-      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">RECENT TRANSACTIONS</span></div></div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">ALLOCATION</span></div></div>
+      <div class="chart-wrap"><canvas id="xpf-pie"></canvas></div>
+    </div>
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">P&L BY HOLDING</span></div></div>
+      <div class="chart-wrap"><canvas id="xpf-pnl"></canvas></div>
+    </div>
+  </div>
+</div>
+<!-- TSE RISK -->
+<div class="pf-view" data-pfx="x" id="xpv-risk" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:230px;border-right:0;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION</span></div></div>
+      <div class="scroll" id="xpf-risk-conc" style="flex:1;overflow-y:auto"><div class="loading">LOADING</div></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bdr)">
+      <div class="win" style="flex:1;border-bottom:1px solid var(--bdr)">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CORRELATION MATRIX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Pearson daily returns · Atlas data</div></div>
+        <div class="scroll" style="padding:8px" id="xpf-corr"><div class="loading">LOADING</div></div>
+      </div>
+      <div class="win" style="height:160px;border-top:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">VAR CONTRIBUTION</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">95% confidence, 1-day</div></div>
+        <div class="scroll" style="padding:6px" id="xpf-var-contrib"><div class="loading">LOADING</div></div>
+      </div>
+    </div>
+    <div class="win" style="width:260px;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RISK METRICS</span></div></div>
+      <div class="scroll" style="padding:6px;flex:1" id="xpf-risk-met"><div class="loading">LOADING</div></div>
+    </div>
+  </div>
+</div>
+<!-- TSE EQUITY CURVE -->
+<div class="pf-view" data-pfx="x" id="xpv-equity" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">PORTFOLIO EQUITY CURVE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Atlas price history</div></div>
+      <div class="chart-wrap"><canvas id="xpf-eq-c"></canvas></div>
+    </div>
+    <div class="wcol" style="flex:1">
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">DRAWDOWN</span></div></div>
+        <div class="chart-wrap"><canvas id="xpf-dd-c"></canvas></div>
+      </div>
+      <div class="win" style="flex:1;min-height:40px">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERFORMANCE</span></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr" id="xpf-perf-met"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- TSE LIQUIDITY -->
+<div class="pf-view" data-pfx="x" id="xpv-liq" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">LIQUIDATION ANALYSIS</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Atlas orderbook · 20% depth/day</div></div>
+      <div class="scroll">
+        <table class="dt"><thead><tr>
+          <th>TICKER</th><th class="r">SHARES</th><th class="r">MKT VAL</th>
+          <th class="r">OB DEPTH</th><th class="r">DAYS TO LIQ</th><th class="r">SLIP%</th><th class="r">LIQ SCORE</th>
+        </tr></thead>
+        <tbody id="xpf-liq-tbl"><tr><td colspan="7" class="loading">LOADING</td></tr></tbody></table>
+      </div>
+    </div>
+    <div class="win" style="width:250px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">LIQUIDITY SUMMARY</span></div></div>
+      <div style="padding:10px;font-size:11px" id="xpf-liq-sum"><div class="loading">LOADING</div></div>
+    </div>
+  </div>
+</div>
+<!-- TSE STRESS TEST -->
+<div class="pf-view" data-pfx="x" id="xpv-stress" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SCENARIO ENGINE</span></div></div>
+      <div style="padding:10px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px">PRESETS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          <button class="btn btn-xs" onclick="applyPreset(-0.10,'x')">-10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.20,'x')">-20% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.50,'x')">-50% CRASH</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.10,'x')">+10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.20,'x')">+20% ALL</button>
+        </div>
+        <div style="border-top:1px solid var(--bdr);padding-top:8px;font-size:9px;color:var(--txt3);letter-spacing:1.5px">CUSTOM PER HOLDING</div>
+        <div id="xsc-rows" style="display:flex;flex-direction:column;gap:5px"></div>
+        <button class="btn btn-xs on" onclick="runScenario('x')" style="align-self:flex-start;margin-top:4px">RUN SIMULATION</button>
+      </div>
+    </div>
+    <div class="wcol" style="flex:1">
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SCENARIO RESULT</span></div></div>
+        <div style="padding:12px;font-size:11px" id="xsc-result"><div class="loading">CONFIGURE AND RUN A SCENARIO</div></div>
+      </div>
+      <div class="win" style="flex:1;min-height:40px">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">IMPACT BY HOLDING</span></div></div>
+        <div class="chart-wrap"><canvas id="xsc-bar-c"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- TSE ATTRIBUTION -->
+<div class="pf-view" data-pfx="x" id="xpv-attr" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">P&amp;L CONTRIBUTION</span></div></div>
+      <div class="scroll" id="xpf-attr-list"><div class="loading">LOADING</div></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CONTRIBUTION WATERFALL</span></div></div>
+      <div class="chart-wrap"><canvas id="xpf-attr-c"></canvas></div>
+    </div>
+    <div class="win" style="width:220px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">ATTRIBUTION SUMMARY</span></div></div>
+      <div style="padding:8px;font-size:11px" id="xpf-attr-sum"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+<!-- TSE TRANSACTIONS -->
+<div class="pf-view" data-pfx="x" id="xpv-txns" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">RECENT TRANSACTIONS</span></div></div>
       <div class="scroll">
         <table class="dt"><thead><tr>
           <th>TIME</th><th>TICKER</th><th>SIDE</th>
           <th class="r">QTY</th><th class="r">AVG PRICE</th><th class="r">VALUE</th><th>STATUS</th>
         </tr></thead>
-        <tbody id="tse-txns"><tr><td colspan="7" class="loading">—</td></tr></tbody></table>
+        <tbody id="x-tse-txns"><tr><td colspan="7" class="loading">—</td></tr></tbody></table>
       </div>
     </div>
   </div>
+</div>
 </div><!-- /psp-tse -->
+
+<!-- ══ ALL EXCHANGES sub-page ══ -->
+<div id="psp-all" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+<div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr)">
+  <div class="sc"><div class="sc-l">NER CASH</div><div class="sc-v wht" id="a-ner-cash">—</div></div>
+  <div class="sc"><div class="sc-l">TSE CASH</div><div class="sc-v cyn" id="a-tse-cash">—</div></div>
+  <div class="sc"><div class="sc-l">NER EQUITY</div><div class="sc-v wht" id="a-ner-eq">—</div></div>
+  <div class="sc"><div class="sc-l">TSE STOCKS</div><div class="sc-v cyn" id="a-tse-eq">—</div></div>
+  <div class="sc"><div class="sc-l">COMBINED</div><div class="sc-v up" id="a-total">—</div></div>
+  <div class="sc"><div class="sc-l">TOTAL P&L</div><div class="sc-v" id="a-pnl">—</div></div>
+</div>
+<div style="display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span class="pf-tab active" data-t="overview" data-pfx="a" onclick="pfTab(this,'a')">OVERVIEW</span>
+  <span class="pf-tab" data-t="risk"     data-pfx="a" onclick="pfTab(this,'a')">RISK</span>
+  <span class="pf-tab" data-t="equity"   data-pfx="a" onclick="pfTab(this,'a')">EQUITY CURVE</span>
+  <span class="pf-tab" data-t="liq"      data-pfx="a" onclick="pfTab(this,'a')">LIQUIDITY</span>
+  <span class="pf-tab" data-t="stress"   data-pfx="a" onclick="pfTab(this,'a')">STRESS TEST</span>
+  <span class="pf-tab" data-t="attr"     data-pfx="a" onclick="pfTab(this,'a')">ATTRIBUTION</span>
+  <span style="margin-left:auto;display:flex;align-items:center;padding:0 10px">
+    <button class="btn btn-xs" onclick="loadAllExchanges()">REFRESH</button>
+  </span>
+</div>
+<!-- ALL OVERVIEW -->
+<div class="pf-view active" data-pfx="a" id="apv-overview" style="flex:1;overflow:hidden">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">COMBINED HOLDINGS</span></div></div>
+      <div class="scroll" id="apf-holds"><div class="loading">LOADING</div></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">ALLOCATION</span></div></div>
+      <div class="chart-wrap"><canvas id="apf-pie"></canvas></div>
+    </div>
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">P&L BY HOLDING</span></div></div>
+      <div class="chart-wrap"><canvas id="apf-pnl"></canvas></div>
+    </div>
+  </div>
+</div>
+<!-- ALL RISK -->
+<div class="pf-view" data-pfx="a" id="apv-risk" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:230px;border-right:0;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">CONCENTRATION</span></div></div>
+      <div class="scroll" id="apf-risk-conc" style="flex:1;overflow-y:auto"><div class="loading">LOADING</div></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--bdr)">
+      <div class="win" style="flex:1;border-bottom:1px solid var(--bdr)">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CORRELATION MATRIX</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Pearson daily returns · Atlas</div></div>
+        <div class="scroll" style="padding:8px" id="apf-corr"><div class="loading">LOADING</div></div>
+      </div>
+      <div class="win" style="height:160px;border-top:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">VAR CONTRIBUTION</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">95% confidence, 1-day</div></div>
+        <div class="scroll" style="padding:6px" id="apf-var-contrib"><div class="loading">LOADING</div></div>
+      </div>
+    </div>
+    <div class="win" style="width:260px;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">RISK METRICS</span></div></div>
+      <div class="scroll" style="padding:6px;flex:1" id="apf-risk-met"><div class="loading">LOADING</div></div>
+    </div>
+  </div>
+</div>
+<!-- ALL EQUITY CURVE -->
+<div class="pf-view" data-pfx="a" id="apv-equity" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">COMBINED EQUITY CURVE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">NER + TSE · Atlas price history</div></div>
+      <div class="chart-wrap"><canvas id="apf-eq-c"></canvas></div>
+    </div>
+    <div class="wcol" style="flex:1">
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">DRAWDOWN</span></div></div>
+        <div class="chart-wrap"><canvas id="apf-dd-c"></canvas></div>
+      </div>
+      <div class="win" style="flex:1;min-height:40px">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">PERFORMANCE</span></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr" id="apf-perf-met"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ALL LIQUIDITY -->
+<div class="pf-view" data-pfx="a" id="apv-liq" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">LIQUIDATION ANALYSIS</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">Atlas orderbook · 20% depth/day</div></div>
+      <div class="scroll">
+        <table class="dt"><thead><tr>
+          <th>TICKER</th><th class="r">SHARES</th><th class="r">MKT VAL</th>
+          <th class="r">OB DEPTH</th><th class="r">DAYS TO LIQ</th><th class="r">SLIP%</th><th class="r">LIQ SCORE</th>
+        </tr></thead>
+        <tbody id="apf-liq-tbl"><tr><td colspan="7" class="loading">LOADING</td></tr></tbody></table>
+      </div>
+    </div>
+    <div class="win" style="width:250px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">LIQUIDITY SUMMARY</span></div></div>
+      <div style="padding:10px;font-size:11px" id="apf-liq-sum"><div class="loading">LOADING</div></div>
+    </div>
+  </div>
+</div>
+<!-- ALL STRESS TEST -->
+<div class="pf-view" data-pfx="a" id="apv-stress" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">SCENARIO ENGINE</span></div></div>
+      <div style="padding:10px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px">PRESETS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          <button class="btn btn-xs" onclick="applyPreset(-0.10,'a')">-10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.20,'a')">-20% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(-0.50,'a')">-50% CRASH</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.10,'a')">+10% ALL</button>
+          <button class="btn btn-xs" onclick="applyPreset(0.20,'a')">+20% ALL</button>
+        </div>
+        <div style="border-top:1px solid var(--bdr);padding-top:8px;font-size:9px;color:var(--txt3);letter-spacing:1.5px">CUSTOM PER HOLDING</div>
+        <div id="asc-rows" style="display:flex;flex-direction:column;gap:5px"></div>
+        <button class="btn btn-xs on" onclick="runScenario('a')" style="align-self:flex-start;margin-top:4px">RUN SIMULATION</button>
+      </div>
+    </div>
+    <div class="wcol" style="flex:1">
+      <div class="win" style="flex:1;border-bottom:0">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">SCENARIO RESULT</span></div></div>
+        <div style="padding:12px;font-size:11px" id="asc-result"><div class="loading">CONFIGURE AND RUN A SCENARIO</div></div>
+      </div>
+      <div class="win" style="flex:1;min-height:40px">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">IMPACT BY HOLDING</span></div></div>
+        <div class="chart-wrap"><canvas id="asc-bar-c"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ALL ATTRIBUTION -->
+<div class="pf-view" data-pfx="a" id="apv-attr" style="flex:1;overflow:hidden;display:none">
+  <div class="wrow" style="height:100%">
+    <div class="win" style="width:300px;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">P&amp;L CONTRIBUTION</span></div></div>
+      <div class="scroll" id="apf-attr-list"><div class="loading">LOADING</div></div>
+    </div>
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">CONTRIBUTION WATERFALL</span></div></div>
+      <div class="chart-wrap"><canvas id="apf-attr-c"></canvas></div>
+    </div>
+    <div class="win" style="width:220px">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">3</span><span class="wtitle">ATTRIBUTION SUMMARY</span></div></div>
+      <div style="padding:8px;font-size:11px" id="apf-attr-sum"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+</div><!-- /psp-all -->
 
 </div><!-- /root -->
 
@@ -243,12 +529,24 @@
 
 <script>
 (function(){
-let _pf=null,_histories={},_pie=null,_pnlC=null,_eqC=null,_ddC=null,_scBarC=null,_attrC=null,_livePrices={},_liveIv=null;
+// ── state ─────────────────────────────────────────────────────────────────────
+let _pf=null,_histories={};
+let _nerCtx=null, _tseCtx=null, _allCtx=null;
+let _livePrices={},_liveIv=null;
 const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+const round4=v=>Math.round(v*10000)/10000;
+// Sanitize ticker for use in element IDs (replace non-alphanumeric with _)
+const tid=t=>t.replace(/[^a-zA-Z0-9]/g,'_');
+// Get element by prefix+id
+const gEl=(ctx,base)=>document.getElementById(ctx.pfx+base);
+// ticker color: TSE tickers cyan, NER tickers white
+const tkCol=t=>t.startsWith('TSE:')?'var(--cyn)':'var(--wht)';
+
+// ── sub-page routing ──────────────────────────────────────────────────────────
 window.PAGE_pf_onShow=function(){
   window._activePfSp=window._activePfSp||'overview';
-  // Restore active sub-page tab highlight without switching
   document.querySelectorAll('.pf-sp').forEach(t=>{
     t.classList.toggle('act',t.dataset.sp===window._activePfSp);
   });
@@ -259,12 +557,12 @@ window.pfSubpage=function(el){
   document.querySelectorAll('.pf-sp').forEach(t=>t.classList.remove('act'));
   el.classList.add('act');
   window._activePfSp=el.dataset.sp;
-  ['psp-overview','psp-ner','psp-tse'].forEach(id=>{
+  ['psp-overview','psp-ner','psp-tse','psp-all'].forEach(id=>{
     const d=document.getElementById(id);
-    if(d){d.style.display='none';}
+    if(d) d.style.display='none';
   });
   const active=document.getElementById('psp-'+el.dataset.sp);
-  if(active){active.style.display='flex';}
+  if(active) active.style.display='flex';
   loadActivePfSubpage();
 };
 
@@ -272,30 +570,35 @@ window.loadActivePfSubpage=function(){
   const sp=window._activePfSp||'overview';
   if(sp==='overview') loadOverview();
   else if(sp==='ner') loadPF();
-  else if(sp==='tse') loadTSEPortfolio();
+  else if(sp==='tse') loadTSEPortfolioFull();
+  else if(sp==='all') loadAllExchanges();
 };
-const round4=v=>Math.round(v*10000)/10000;
 
-window.pfTab=function(el){
-  document.querySelectorAll('.pf-tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.pf-view').forEach(v=>v.style.display='none');
+// ── tab switching (generic, scoped by data-pfx) ───────────────────────────────
+window.pfTab=function(el,pfx){
+  pfx=pfx||'';
+  document.querySelectorAll(`.pf-tab[data-pfx="${pfx}"]`).forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll(`.pf-view[data-pfx="${pfx}"]`).forEach(v=>v.style.display='none');
   el.classList.add('active');
-  const v=document.getElementById('pv-'+el.dataset.t); if(v) v.style.display='flex';
-  if(_pf){
-    if(el.dataset.t==='equity') renderEquityCurve();
-    if(el.dataset.t==='liq')    renderLiquidity();
-    if(el.dataset.t==='risk')   renderRisk();
-    if(el.dataset.t==='stress') renderStress();
-    if(el.dataset.t==='attr')   renderAttribution();
-  }
+  const v=document.getElementById(pfx+'pv-'+el.dataset.t);
+  if(v) v.style.display='flex';
+  const ctx=pfx===''?_nerCtx:pfx==='x'?_tseCtx:_allCtx;
+  if(!ctx) return;
+  if(el.dataset.t==='overview') renderOvPanel(ctx);
+  if(el.dataset.t==='equity')   renderEquityCurve(ctx);
+  if(el.dataset.t==='liq')      renderLiquidity(ctx);
+  if(el.dataset.t==='risk')     renderRisk(ctx);
+  if(el.dataset.t==='stress')   renderStress(ctx);
+  if(el.dataset.t==='attr')     renderAttribution(ctx);
 };
 
+// ── NER portfolio ─────────────────────────────────────────────────────────────
 window.loadPF=async function(){
   document.getElementById('pf-holds').innerHTML='<div class="loading">LOADING</div>';
   const r=await api('/api/portfolio');
-  if(!r.ok){ document.getElementById('pf-holds').innerHTML=`<div class="alert err">${r.d.detail||'Auth failed'}</div>`; return; }
+  if(!r.ok){document.getElementById('pf-holds').innerHTML=`<div class="alert err">${r.d.detail||'Auth failed'}</div>`;return;}
   _pf=r.d;
-  const holds=_pf.holdings||[], bal=_pf.balance||0, res=_pf.reserved_balance||0;
+  const holds=_pf.holdings||[],bal=_pf.balance||0,res=_pf.reserved_balance||0;
 
   await Promise.all(holds.map(async h=>{
     const r2=await api(`/api/analytics/ohlcv/${h.ticker}?days=90`);
@@ -304,8 +607,8 @@ window.loadPF=async function(){
     }
   }));
 
-  const S=(id,v,c)=>{ const e=document.getElementById(id); if(!e) return; e.textContent=v; if(c) e.style.color=c; };
-  S('pf-cash',f(bal)); S('pf-res',f(res)); S('pf-eq',f(_pf.total_equity)); S('pf-av',f(bal-res));
+  const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+  S('pf-cash',f(bal));S('pf-res',f(res));S('pf-eq',f(_pf.total_equity));S('pf-av',f(bal-res));
   const totalPNL=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
   S('pf-pnl-tot',(totalPNL>=0?'+':'')+f(totalPNL),gc(totalPNL));
   const health=calcHealth(holds,bal,_pf.total_equity);
@@ -314,19 +617,149 @@ window.loadPF=async function(){
   const effN=weights.reduce((s,w)=>s+w*w,0)>0?(1/weights.reduce((s,w)=>s+w*w,0)).toFixed(1):'—';
   S('pf-div',effN);
 
-  renderOverview(holds,bal);
+  _nerCtx={holds,bal,totalEq:_pf.total_equity||0,histories:_histories,charts:{},pfx:''};
+  renderOvPanel(_nerCtx);
   startLivePnL(holds);
-  const at=document.querySelector('.pf-tab.active');
-  if(at) pfTab(at);
+  const at=document.querySelector('.pf-tab[data-pfx=""].active');
+  if(at) pfTab(at,'');
 };
 
-function renderOverview(holds,bal){
-  document.getElementById('pf-holds').innerHTML=holds.length?holds.map((h,i)=>{
+// ── TSE portfolio ─────────────────────────────────────────────────────────────
+window.loadTSEPortfolioFull=async function(){
+  const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+  const holdsEl=document.getElementById('xpf-holds');
+  const txnsEl=document.getElementById('x-tse-txns');
+  if(holdsEl) holdsEl.innerHTML='<div class="loading">Loading…</div>';
+  if(txnsEl) txnsEl.innerHTML='<tr><td colspan="7" class="loading">Loading…</td></tr>';
+
+  const r=await api('/api/tse/account/portfolio');
+  if(!r.ok){
+    const noKey=r.s===0||r.s===401;
+    const msg=noKey?'▸ No TSE key — <button onclick="showTseAuth()" style="font-size:8px;color:var(--cyn);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);padding:1px 7px;cursor:pointer;font-family:var(--font)">SET KEY →</button>':'TSE error: '+(r.d?.detail||r.s);
+    if(holdsEl) holdsEl.innerHTML=`<div style="padding:10px;font-size:9px;color:var(--cyn)">${msg}</div>`;
+    if(txnsEl) txnsEl.innerHTML=`<tr><td colspan="7" style="padding:8px;color:var(--txt3)">—</td></tr>`;
+    return;
+  }
+  const pf=r.d;
+  const dayChg=pf.day_change||0,dayChgPct=pf.day_change_percent||0;
+  S('tse-cash',f(pf.cash_balance||0));
+  S('tse-avail',f(pf.available_balance||0),'var(--up)');
+  S('tse-stocks-val',f(pf.stocks_value||0));
+  S('tse-total-val',f(pf.total_value||0));
+  S('tse-day-chg',(dayChg>=0?'+':'')+f(dayChg)+' ('+dayChgPct.toFixed(2)+'%)',gc(dayChg));
+  const rawHolds=pf.stock_holdings||[];
+  S('tse-pos-ct',rawHolds.length,'var(--cyn)');
+
+  // Normalize to common shape
+  const holds=rawHolds.map(h=>{
+    const qty=h.quantity||0,avg=h.avg_price||0,cur=h.current_price||avg;
+    return{ticker:'TSE:'+(h.symbol||h.ticker||'?'),quantity:qty,market_value:qty*cur,cost_basis:qty*avg,avg_price:avg};
+  });
+  const bal=pf.cash_balance||0,totalEq=(pf.total_value||0);
+
+  // Fetch price histories via Atlas for all TSE holdings
+  const tseH={};
+  await Promise.all(holds.map(async h=>{
+    const r2=await api(`/api/analytics/ohlcv/${h.ticker}?days=90`);
+    if(r2.ok&&r2.d.candles&&r2.d.candles.length){
+      tseH[h.ticker]=r2.d.candles.map(c=>({timestamp:c.date,price:c.close}));
+    }
+  }));
+
+  _tseCtx={holds,bal,totalEq,histories:tseH,charts:{},pfx:'x'};
+
+  // Populate transactions tab
+  const txns=pf.transactions||[];
+  if(txnsEl) txnsEl.innerHTML=txns.length?txns.slice(0,50).map(t=>{
+    const side=(t.side||t.type||'').toLowerCase();
+    const sideCol=side.includes('buy')?'var(--up)':side.includes('sell')?'var(--dn)':'var(--txt3)';
+    const ts=t.timestamp||t.created_at||t.updated_at||'';
+    const tStr=ts?new Date(ts).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short',hour12:false}):'—';
+    const qty=t.quantity||t.qty||0;
+    const px=+(t.price||t.avg_price||0);
+    const val=qty&&px?qty*px:null;
+    return`<tr>
+      <td class="dim" style="font-size:9px">${tStr}</td>
+      <td class="wht" style="font-weight:700">TSE:${t.symbol||t.ticker||'—'}</td>
+      <td style="color:${sideCol};font-weight:700">${side.toUpperCase()||'—'}</td>
+      <td class="r">${qty?qty.toLocaleString():'—'}</td>
+      <td class="r yel">${px?'$'+f(px,4):'—'}</td>
+      <td class="r wht">${val!=null?'$'+f(val,2):'—'}</td>
+      <td class="dim" style="font-size:9px">${t.status||'—'}</td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="7" class="loading">No transactions</td></tr>';
+
+  // Render active tab
+  const at=document.querySelector('.pf-tab[data-pfx="x"].active');
+  if(at) pfTab(at,'x'); else renderOvPanel(_tseCtx);
+};
+
+// ── ALL EXCHANGES ─────────────────────────────────────────────────────────────
+window.loadAllExchanges=async function(){
+  const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+  const holdsEl=document.getElementById('apf-holds');
+  if(holdsEl) holdsEl.innerHTML='<div class="loading">Loading…</div>';
+
+  const [nerR,tseR]=await Promise.all([
+    api('/api/portfolio'),
+    api('/api/tse/account/portfolio')
+  ]);
+
+  let nerHolds=[],nerCash=0,nerEq=0;
+  if(nerR.ok){
+    nerCash=nerR.d.balance||0;nerEq=nerR.d.total_equity||0;
+    nerHolds=nerR.d.holdings||[];
+  }
+
+  let tseHolds=[],tseCash=0,tseStocks=0;
+  if(tseR.ok){
+    tseCash=tseR.d.cash_balance||0;tseStocks=tseR.d.stocks_value||0;
+    tseHolds=(tseR.d.stock_holdings||[]).map(h=>{
+      const qty=h.quantity||0,avg=h.avg_price||0,cur=h.current_price||avg;
+      return{ticker:'TSE:'+(h.symbol||h.ticker||'?'),quantity:qty,market_value:qty*cur,cost_basis:qty*avg,avg_price:avg};
+    });
+  }
+
+  const allHolds=[...nerHolds,...tseHolds];
+  const allBal=nerCash+tseCash;
+  const allEq=nerEq+tseStocks+tseCash;
+  const allPnl=allHolds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+
+  S('a-ner-cash',nerR.ok?f(nerCash):'ERR','');
+  S('a-tse-cash',tseR.ok?f(tseCash):(tseR.s===0||tseR.s===401?'NO KEY':'ERR'),'var(--cyn)');
+  S('a-ner-eq',nerR.ok?f(nerEq):'—','');
+  S('a-tse-eq',tseR.ok?f(tseStocks):'—','var(--cyn)');
+  S('a-total',f(allEq),'var(--up)');
+  S('a-pnl',(allPnl>=0?'+':'')+f(allPnl),gc(allPnl));
+
+  // Fetch price histories for all holdings via Atlas
+  const allH={};
+  await Promise.all(allHolds.map(async h=>{
+    const r2=await api(`/api/analytics/ohlcv/${h.ticker}?days=90`);
+    if(r2.ok&&r2.d.candles&&r2.d.candles.length){
+      allH[h.ticker]=r2.d.candles.map(c=>({timestamp:c.date,price:c.close}));
+    }
+  }));
+
+  _allCtx={holds:allHolds,bal:allBal,totalEq:allEq,histories:allH,charts:{},pfx:'a'};
+
+  const at=document.querySelector('.pf-tab[data-pfx="a"].active');
+  if(at) pfTab(at,'a'); else renderOvPanel(_allCtx);
+};
+
+// ══ GENERIC RENDER ENGINE ═════════════════════════════════════════════════════
+
+// ── OVERVIEW tab ──────────────────────────────────────────────────────────────
+function renderOvPanel(ctx){
+  const {holds,bal,totalEq,pfx}=ctx;
+  const el=gEl(ctx,'pf-holds');
+  if(el) el.innerHTML=holds.length?holds.map((h,i)=>{
     const pnl=(h.market_value||0)-(h.cost_basis||0),pp=h.cost_basis?pnl/h.cost_basis*100:0;
-    const avg=h.quantity?h.cost_basis/h.quantity:0,wt=_pf.total_equity?(h.market_value||0)/_pf.total_equity*100:0;
-    return `<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+    const avg=h.quantity?h.cost_basis/h.quantity:0,wt=totalEq?(h.market_value||0)/totalEq*100:0;
+    const col=tkCol(h.ticker);
+    return`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:13px;font-weight:700;color:var(--wht)">${h.ticker}</span>
+        <span style="font-size:13px;font-weight:700;color:${col}">${h.ticker}</span>
         <div style="display:flex;gap:3px;align-items:center">
           <button class="act-b" onclick="pfQuickOrder('${h.ticker}','buy')">B</button>
           <button class="act-s" onclick="pfQuickOrder('${h.ticker}','sell')">S</button>
@@ -342,31 +775,37 @@ function renderOverview(holds,bal){
     </div>`;
   }).join(''):'<div class="loading">NO HOLDINGS</div>';
 
-  _pie=dc(_pie);
-  const vals=[...holds.map(h=>h.market_value||0),bal],lbls=[...holds.map(h=>h.ticker),'CASH'];
-  if(vals.some(v=>v>0)) _pie=mkDoughnut(document.getElementById('pf-pie'),lbls,vals,COLS.slice(0,vals.length));
+  ctx.charts.pie=dc(ctx.charts.pie);
+  const pieEl=gEl(ctx,'pf-pie');
+  if(pieEl){
+    const vals=[...holds.map(h=>h.market_value||0),bal],lbls=[...holds.map(h=>h.ticker),'CASH'];
+    if(vals.some(v=>v>0)) ctx.charts.pie=mkDoughnut(pieEl,lbls,vals,COLS.slice(0,vals.length));
+  }
 
-  _pnlC=dc(_pnlC);
-  if(holds.length){
+  ctx.charts.pnl=dc(ctx.charts.pnl);
+  const pnlEl=gEl(ctx,'pf-pnl');
+  if(pnlEl&&holds.length){
     const pnls=holds.map(h=>(h.market_value||0)-(h.cost_basis||0));
-    _pnlC=mkBar(document.getElementById('pf-pnl'),holds.map(h=>h.ticker),pnls,pnls.map(p=>p>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'));
+    ctx.charts.pnl=mkBar(pnlEl,holds.map(h=>h.ticker),pnls,pnls.map(p=>p>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'));
   }
 }
 
-function renderRisk(){
-  const holds=_pf.holdings||[];
+// ── RISK tab ──────────────────────────────────────────────────────────────────
+function renderRisk(ctx){
+  const {holds,totalEq,histories,pfx}=ctx;
   if(!holds.length) return;
   const sortedHolds=[...holds].sort((a,b)=>(b.market_value||0)-(a.market_value||0));
-  document.getElementById('pf-risk-conc').innerHTML=sortedHolds.map(h=>{
-    const w=((h.market_value||0)/Math.max(_pf.total_equity,1)*100);
+  const concEl=gEl(ctx,'pf-risk-conc');
+  if(concEl) concEl.innerHTML=sortedHolds.map(h=>{
+    const w=((h.market_value||0)/Math.max(totalEq,1)*100);
     const pnl=(h.market_value||0)-(h.cost_basis||0);
     const pnlPct=h.cost_basis&&h.cost_basis>0?pnl/h.cost_basis*100:0;
     const rc=w>50?'var(--dn)':w>30?'var(--org)':'var(--sel)';
-    const hist=_histories[h.ticker];
+    const hist=histories[h.ticker];
     const dayChg=hist&&hist.length>=2?((hist[hist.length-1].price-hist[hist.length-2].price)/hist[hist.length-2].price*100):null;
-    return `<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+    return`<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
-        <span class="wht" style="font-weight:700;font-size:11px">${h.ticker}</span>
+        <span style="font-weight:700;font-size:11px;color:${tkCol(h.ticker)}">${h.ticker}</span>
         <span style="color:${gc(pnl)};font-size:10px;font-weight:700">${pnl>=0?'+':''}${f(pnl)}</span>
       </div>
       <div style="display:flex;justify-content:space-between;margin-bottom:3px">
@@ -380,188 +819,134 @@ function renderRisk(){
     </div>`;
   }).join('');
 
-  // Correlation matrix
-  const tickers=holds.map(h=>h.ticker).filter(t=>_histories[t]&&_histories[t].length>2);
-  if(tickers.length>=2){
-    function rets(t){ const h=_histories[t]; return h.map((p,i)=>i?((p.price-h[i-1].price)/h[i-1].price):0).slice(1); }
-    function pearson(a,b){
-      const n=Math.min(a.length,b.length); if(n<2) return null;
-      const am=a.slice(0,n).reduce((s,v)=>s+v,0)/n,bm=b.slice(0,n).reduce((s,v)=>s+v,0)/n;
-      const num=a.slice(0,n).reduce((s,v,i)=>s+(v-am)*(b[i]-bm),0);
-      const da=Math.sqrt(a.slice(0,n).reduce((s,v)=>s+(v-am)**2,0)),db=Math.sqrt(b.slice(0,n).reduce((s,v)=>s+(v-bm)**2,0));
-      return (da&&db)?Math.round(num/da/db*100)/100:null;
-    }
-    const r={}; tickers.forEach(t=>{r[t]=rets(t);});
-    const cc=v=>{if(v===null)return '#333';if(v>=0.8)return '#b71c1c';if(v>=0.5)return '#e65100';if(v>=0.2)return '#f9a825';if(v>=-0.2)return '#37474f';if(v>=-0.5)return '#0277bd';return '#1b5e20';};
-    let html=`<table style="border-collapse:collapse;font-size:11px"><tr><td></td>${tickers.map(t=>`<th style="padding:3px 8px;color:var(--txt3);font-size:9px">${t}</th>`).join('')}</tr>`;
-    tickers.forEach(t1=>{
-      html+=`<tr><td style="padding:3px 8px;color:var(--txt2);font-weight:700;font-size:9px;white-space:nowrap">${t1}</td>`;
-      tickers.forEach(t2=>{const v=t1===t2?1:pearson(r[t1],r[t2]); html+=`<td style="padding:5px 10px;text-align:center;background:${cc(v)};color:#fff;font-size:10px">${v!==null?v.toFixed(2):'—'}</td>`;});
-      html+='</tr>';
-    });
-    html+='</table><div style="margin-top:6px;font-size:9px;color:var(--txt3)">Red=correlated risk · Blue=diversification benefit</div>';
-    document.getElementById('pf-corr').innerHTML=html;
-  } else {
-    document.getElementById('pf-corr').innerHTML='<span class="dim">Need 2+ holdings with price history</span>';
-  }
-
-  const weights=holds.map(h=>(h.market_value||0)/Math.max(_pf.total_equity,1));
-  const hhi=weights.reduce((s,w)=>s+w*w,0), maxW=Math.max(...weights.filter(w=>w>0),0)*100;
-
-  // ── helpers ──────────────────────────────────────────────────────────────
-  const calcRets = hist => hist&&hist.length>=2
-    ? hist.map((p,i)=>i?((p.price-hist[i-1].price)/Math.max(hist[i-1].price,0.0001)):0).slice(1)
-    : null;
-
-  // Per-holding return arrays — use whatever history exists, no minimum cutoff
-  const holdRets = holds.map(h => calcRets(_histories[h.ticker]));
-
-  // Portfolio daily returns — only use holdings that HAVE history, weighted by their share of invested equity
-  const validIdx  = holds.map((_,i)=>i).filter(i=>holdRets[i]&&holdRets[i].length>=2);
-  const validLens = validIdx.map(i=>holdRets[i].length);
-  const portRets  = [];
-  if(validIdx.length){
-    const minLen2 = Math.min(...validLens);
-    const totalValidMV = validIdx.reduce((s,i)=>(s+(holds[i].market_value||0)),0)||1;
-    for(let di=0;di<minLen2;di++){
-      let r=0;
-      validIdx.forEach(i=>{
-        const w=(holds[i].market_value||0)/totalValidMV;
-        const arr=holdRets[i];
-        r+=w*(arr[arr.length-minLen2+di]||0);
+  // Correlation matrix (price history from Atlas)
+  const tickers=holds.map(h=>h.ticker).filter(t=>histories[t]&&histories[t].length>2);
+  const corrEl=gEl(ctx,'pf-corr');
+  if(corrEl){
+    if(tickers.length>=2){
+      function rets(t){const h=histories[t];return h.map((p,i)=>i?((p.price-h[i-1].price)/h[i-1].price):0).slice(1);}
+      function pearson(a,b){
+        const n=Math.min(a.length,b.length);if(n<2)return null;
+        const am=a.slice(0,n).reduce((s,v)=>s+v,0)/n,bm=b.slice(0,n).reduce((s,v)=>s+v,0)/n;
+        const num=a.slice(0,n).reduce((s,v,i)=>s+(v-am)*(b[i]-bm),0);
+        const da=Math.sqrt(a.slice(0,n).reduce((s,v)=>s+(v-am)**2,0)),db=Math.sqrt(b.slice(0,n).reduce((s,v)=>s+(v-bm)**2,0));
+        return(da&&db)?Math.round(num/da/db*100)/100:null;
+      }
+      const r={};tickers.forEach(t=>{r[t]=rets(t);});
+      const cc=v=>{if(v===null)return '#333';if(v>=0.8)return '#b71c1c';if(v>=0.5)return '#e65100';if(v>=0.2)return '#f9a825';if(v>=-0.2)return '#37474f';if(v>=-0.5)return '#0277bd';return '#1b5e20';};
+      let html=`<table style="border-collapse:collapse;font-size:11px"><tr><td></td>${tickers.map(t=>`<th style="padding:3px 8px;color:var(--txt3);font-size:9px">${t}</th>`).join('')}</tr>`;
+      tickers.forEach(t1=>{
+        html+=`<tr><td style="padding:3px 8px;color:var(--txt2);font-weight:700;font-size:9px;white-space:nowrap">${t1}</td>`;
+        tickers.forEach(t2=>{const v=t1===t2?1:pearson(r[t1],r[t2]);html+=`<td style="padding:5px 10px;text-align:center;background:${cc(v)};color:#fff;font-size:10px">${v!==null?v.toFixed(2):'—'}</td>`;});
+        html+='</tr>';
       });
-      portRets.push(r);
-    }
-  }
-
-  // ── stat helpers — all degrade gracefully to null with <2 points ─────────
-  const annVol = r => {
-    if(!r||r.length<2) return null;
-    const avg=r.reduce((s,v)=>s+v,0)/r.length;
-    return Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/r.length)*(252**.5)*100;
-  };
-  // VaR/CVaR: fall back to single point if only 1-2 obs
-  const var95 = r => {
-    if(!r||r.length<1) return null;
-    const s=[...r].sort((a,b)=>a-b);
-    return -s[Math.max(0,Math.floor(s.length*0.05)-1)]*100;
-  };
-  const cvar95 = r => {
-    if(!r||r.length<1) return null;
-    const s=[...r].sort((a,b)=>a-b);
-    const cut=Math.max(1,Math.floor(s.length*0.05));
-    return -(s.slice(0,cut).reduce((a,b)=>a+b,0)/cut)*100;
-  };
-  const sortino = r => {
-    if(!r||r.length<3) return null;
-    const neg=r.filter(v=>v<0); if(!neg.length) return null;
-    const dd=Math.sqrt(neg.reduce((s,v)=>s+v*v,0)/neg.length)*(252**.5);
-    const avg=r.reduce((s,v)=>s+v,0)/r.length*252;
-    return dd>0?(avg/dd).toFixed(2):null;
-  };
-  const skewKurt = r => {
-    if(!r||r.length<3) return {skew:null,kurt:null};
-    const n=r.length,avg=r.reduce((s,v)=>s+v,0)/n;
-    const std=Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/n);
-    if(!std) return {skew:null,kurt:null};
-    return {
-      skew:(r.reduce((s,v)=>s+((v-avg)/std)**3,0)/n).toFixed(2),
-      kurt:((r.reduce((s,v)=>s+((v-avg)/std)**4,0)/n)-3).toFixed(2)
-    };
-  };
-  const fmt = (v,suffix,decimals=2) => v!=null&&!isNaN(v) ? v.toFixed(decimals)+suffix : '—';
-  const gc2 = v => v===null||v===undefined||isNaN(+v)?'var(--txt)':(+v>=0?'var(--up)':'var(--dn)');
-
-  const portVolNum = annVol(portRets);
-  const pVaR       = var95(portRets);
-  const pCVaR      = cvar95(portRets);
-  const sortR      = sortino(portRets);
-  const {skew,kurt}= skewKurt(portRets);
-
-  // Sharpe
-  let portSharpe = null;
-  if(portRets.length>=3){
-    const avg=portRets.reduce((s,v)=>s+v,0)/portRets.length*252;
-    const std=annVol(portRets);
-    if(std&&std>0) portSharpe = avg/(std/100);
-  }
-
-  // Max drawdown
-  let peak3=(_pf.total_equity||10000), maxDD3=0;
-  portRets.forEach(r=>{ const v=peak3*(1+r); if(v>peak3) peak3=v; maxDD3=Math.max(maxDD3,(peak3-v)/peak3*100); });
-
-  // ── render metrics ────────────────────────────────────────────────────────
-  const sh = lbl=>`<div style="font-size:8px;letter-spacing:2px;color:var(--txt3);padding:8px 4px 3px;border-bottom:1px solid var(--bdr);margin-bottom:2px">${lbl}</div>`;
-  const rm2= (k,v,c)=>`<div class="rm"><span class="k">${k}</span><span class="v" style="color:${c||'var(--txt)'}">${v}</span></div>`;
-
-  document.getElementById('pf-risk-met').innerHTML =
-    sh('PORTFOLIO') +
-    rm2('HOLDINGS',        holds.length,                                          'var(--wht)') +
-    rm2('EFF. HOLDINGS',   (1/Math.max(hhi,0.0001)).toFixed(1),                  'var(--wht)') +
-    rm2('TOP WEIGHT',      maxW.toFixed(1)+'%',                                   maxW>50?'var(--dn)':maxW>30?'var(--yel)':'var(--up)') +
-    rm2('CASH RATIO',      fmt((_pf.balance||0)/Math.max(_pf.total_equity,1)*100,'%'), '') +
-    rm2('HEALTH',          calcHealth(holds,_pf.balance,_pf.total_equity)+'/100', 'var(--cyn)') +
-    sh('RETURN / RISK') +
-    rm2('ANN. VOLATILITY', fmt(portVolNum,'% pa',1),                              'var(--yel)') +
-    rm2('SHARPE RATIO',    fmt(portSharpe,'',2),                                  gc2(portSharpe)) +
-    rm2('SORTINO RATIO',   sortR||'—',                                            gc2(sortR)) +
-    rm2('MAX DRAWDOWN',    maxDD3>0?'-'+maxDD3.toFixed(2)+'%':'0.00%',            maxDD3>0?'var(--dn)':'var(--up)') +
-    sh('TAIL RISK') +
-    rm2('VAR 95% (1D)',    pVaR!=null?  '-'+pVaR.toFixed(2)+'%':'—',             'var(--dn)') +
-    rm2('CVAR 95% (1D)',   pCVaR!=null? '-'+pCVaR.toFixed(2)+'%':'—',            'var(--dn)') +
-    sh('DISTRIBUTION') +
-    rm2('SKEWNESS',        skew!=null?skew:'—',  skew&&+skew<-0.5?'var(--dn)':skew&&+skew>0.5?'var(--up)':'var(--txt)') +
-    rm2('EXCESS KURTOSIS', kurt!=null?kurt:'—',  kurt&&+kurt>1?'var(--yel)':'var(--txt)') +
-    sh('DATA') +
-    rm2('HISTORY PTS',     portRets.length||0,                                    'var(--txt3)') +
-    rm2('TICKERS W/ DATA', validIdx.length+'/'+holds.length,                      validIdx.length===holds.length?'var(--up)':'var(--yel)');
-
-  // ── VaR contribution — include ALL holdings, use vol proxy if <2 rets ────
-  const varContribs = holds.map((h,i)=>{
-    const r = holdRets[i];
-    const mv = h.market_value||0;
-    let varPct;
-    if(r&&r.length>=1){
-      varPct = var95(r);
+      html+='</table><div style="margin-top:6px;font-size:9px;color:var(--txt3)">Red=correlated risk · Blue=diversification benefit</div>';
+      corrEl.innerHTML=html;
     } else {
-      // No history — use portfolio vol as proxy
-      varPct = portVolNum!=null ? portVolNum/100/Math.sqrt(252)*1.645 : null;
+      corrEl.innerHTML='<span class="dim">Need 2+ holdings with price history (via Atlas)</span>';
     }
-    return { ticker:h.ticker, varPct, varDollar: varPct!=null?mv*varPct/100:null, weight:(weights[i]||0)*100, hasData:!!(r&&r.length>=1) };
+  }
+
+  const weights=holds.map(h=>(h.market_value||0)/Math.max(totalEq,1));
+  const hhi=weights.reduce((s,w)=>s+w*w,0),maxW=Math.max(...weights.filter(w=>w>0),0)*100;
+
+  const calcRets=hist=>hist&&hist.length>=2?hist.map((p,i)=>i?((p.price-hist[i-1].price)/Math.max(hist[i-1].price,0.0001)):0).slice(1):null;
+  const holdRets=holds.map(h=>calcRets(histories[h.ticker]));
+  const validIdx=holds.map((_,i)=>i).filter(i=>holdRets[i]&&holdRets[i].length>=2);
+  const validLens=validIdx.map(i=>holdRets[i].length);
+  const portRets=[];
+  if(validIdx.length){
+    const minLen2=Math.min(...validLens);
+    const totalValidMV=validIdx.reduce((s,i)=>(s+(holds[i].market_value||0)),0)||1;
+    for(let di=0;di<minLen2;di++){
+      let rv=0;
+      validIdx.forEach(i=>{const w=(holds[i].market_value||0)/totalValidMV;const arr=holdRets[i];rv+=w*(arr[arr.length-minLen2+di]||0);});
+      portRets.push(rv);
+    }
+  }
+
+  const annVol=r=>{if(!r||r.length<2)return null;const avg=r.reduce((s,v)=>s+v,0)/r.length;return Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/r.length)*(252**.5)*100;};
+  const var95=r=>{if(!r||r.length<1)return null;const s=[...r].sort((a,b)=>a-b);return-s[Math.max(0,Math.floor(s.length*0.05)-1)]*100;};
+  const cvar95=r=>{if(!r||r.length<1)return null;const s=[...r].sort((a,b)=>a-b);const cut=Math.max(1,Math.floor(s.length*0.05));return-(s.slice(0,cut).reduce((a,b)=>a+b,0)/cut)*100;};
+  const sortino=r=>{if(!r||r.length<3)return null;const neg=r.filter(v=>v<0);if(!neg.length)return null;const dd=Math.sqrt(neg.reduce((s,v)=>s+v*v,0)/neg.length)*(252**.5);const avg=r.reduce((s,v)=>s+v,0)/r.length*252;return dd>0?(avg/dd).toFixed(2):null;};
+  const skewKurt=r=>{if(!r||r.length<3)return{skew:null,kurt:null};const n=r.length,avg=r.reduce((s,v)=>s+v,0)/n;const std=Math.sqrt(r.reduce((s,v)=>s+(v-avg)**2,0)/n);if(!std)return{skew:null,kurt:null};return{skew:(r.reduce((s,v)=>s+((v-avg)/std)**3,0)/n).toFixed(2),kurt:((r.reduce((s,v)=>s+((v-avg)/std)**4,0)/n)-3).toFixed(2)};};
+  const fmt=(v,suffix,decimals=2)=>v!=null&&!isNaN(v)?v.toFixed(decimals)+suffix:'—';
+  const gc2=v=>v===null||v===undefined||isNaN(+v)?'var(--txt)':(+v>=0?'var(--up)':'var(--dn)');
+
+  const portVolNum=annVol(portRets),pVaR=var95(portRets),pCVaR=cvar95(portRets),sortR=sortino(portRets),{skew,kurt}=skewKurt(portRets);
+  let portSharpe=null;
+  if(portRets.length>=3){const avg=portRets.reduce((s,v)=>s+v,0)/portRets.length*252;const std=annVol(portRets);if(std&&std>0)portSharpe=avg/(std/100);}
+  let peak3=(totalEq||10000),maxDD3=0;
+  portRets.forEach(rv=>{const v=peak3*(1+rv);if(v>peak3)peak3=v;maxDD3=Math.max(maxDD3,(peak3-v)/peak3*100);});
+
+  const sh=lbl=>`<div style="font-size:8px;letter-spacing:2px;color:var(--txt3);padding:8px 4px 3px;border-bottom:1px solid var(--bdr);margin-bottom:2px">${lbl}</div>`;
+  const rm2=(k,v,c)=>`<div class="rm"><span class="k">${k}</span><span class="v" style="color:${c||'var(--txt)'}">${v}</span></div>`;
+  const metEl=gEl(ctx,'pf-risk-met');
+  if(metEl) metEl.innerHTML=
+    sh('PORTFOLIO')+
+    rm2('HOLDINGS',holds.length,'var(--wht)')+
+    rm2('EFF. HOLDINGS',(1/Math.max(hhi,0.0001)).toFixed(1),'var(--wht)')+
+    rm2('TOP WEIGHT',maxW.toFixed(1)+'%',maxW>50?'var(--dn)':maxW>30?'var(--yel)':'var(--up)')+
+    rm2('CASH RATIO',fmt((ctx.bal||0)/Math.max(totalEq,1)*100,'%'),'')+
+    rm2('HEALTH',calcHealth(holds,ctx.bal,totalEq)+'/100','var(--cyn)')+
+    sh('RETURN / RISK')+
+    rm2('ANN. VOLATILITY',fmt(portVolNum,'% pa',1),'var(--yel)')+
+    rm2('SHARPE RATIO',fmt(portSharpe,'',2),gc2(portSharpe))+
+    rm2('SORTINO RATIO',sortR||'—',gc2(sortR))+
+    rm2('MAX DRAWDOWN',maxDD3>0?'-'+maxDD3.toFixed(2)+'%':'0.00%',maxDD3>0?'var(--dn)':'var(--up)')+
+    sh('TAIL RISK')+
+    rm2('VAR 95% (1D)',pVaR!=null?'-'+pVaR.toFixed(2)+'%':'—','var(--dn)')+
+    rm2('CVAR 95% (1D)',pCVaR!=null?'-'+pCVaR.toFixed(2)+'%':'—','var(--dn)')+
+    sh('DISTRIBUTION')+
+    rm2('SKEWNESS',skew!=null?skew:'—',skew&&+skew<-0.5?'var(--dn)':skew&&+skew>0.5?'var(--up)':'var(--txt)')+
+    rm2('EXCESS KURTOSIS',kurt!=null?kurt:'—',kurt&&+kurt>1?'var(--yel)':'var(--txt)')+
+    sh('DATA')+
+    rm2('HISTORY PTS',portRets.length||0,'var(--txt3)')+
+    rm2('TICKERS W/ DATA',validIdx.length+'/'+holds.length,validIdx.length===holds.length?'var(--up)':'var(--yel)');
+
+  // VaR contribution
+  const varContribs=holds.map((h,i)=>{
+    const rv=holdRets[i];const mv=h.market_value||0;
+    let varPct=rv&&rv.length>=1?var95(rv):portVolNum!=null?portVolNum/100/Math.sqrt(252)*1.645:null;
+    return{ticker:h.ticker,varPct,varDollar:varPct!=null?mv*varPct/100:null,weight:(weights[i]||0)*100,hasData:!!(rv&&rv.length>=1)};
   }).filter(x=>x.varDollar!=null).sort((a,b)=>b.varDollar-a.varDollar);
 
-  const maxVarD = Math.max(...varContribs.map(x=>x.varDollar),1);
-  document.getElementById('pf-var-contrib').innerHTML = varContribs.length ? varContribs.map(x=>`
-    <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bdr)">
-      <span style="width:48px;font-size:9px;color:${x.hasData?'var(--wht)':'var(--txt3)'};font-weight:700">${x.ticker}${x.hasData?'':'*'}</span>
-      <div style="flex:1;height:6px;background:var(--bg3)">
-        <div style="width:${Math.min(100,(x.varDollar/maxVarD*100)).toFixed(1)}%;height:100%;background:${x.hasData?'rgba(244,67,54,.65)':'rgba(244,67,54,.25)'}"></div>
-      </div>
-      <span style="width:52px;text-align:right;font-size:9px;color:var(--dn)">-${x.varDollar.toFixed(0)}</span>
-      <span style="width:38px;text-align:right;font-size:9px;color:var(--txt3)">${x.varPct.toFixed(2)}%</span>
-    </div>`).join('') + (varContribs.some(x=>!x.hasData)?'<div style="font-size:8px;color:var(--txt3);padding:4px 2px">* estimated from portfolio vol</div>':'')
-  : '<div class="dim">Insufficient history</div>';
+  const varEl=gEl(ctx,'pf-var-contrib');
+  if(varEl){
+    const maxVarD=Math.max(...varContribs.map(x=>x.varDollar),1);
+    varEl.innerHTML=varContribs.length?varContribs.map(x=>`
+      <div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bdr)">
+        <span style="width:64px;font-size:9px;color:${x.hasData?tkCol(x.ticker):'var(--txt3)'};font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.ticker}${x.hasData?'':'*'}</span>
+        <div style="flex:1;height:6px;background:var(--bg3)"><div style="width:${Math.min(100,(x.varDollar/maxVarD*100)).toFixed(1)}%;height:100%;background:${x.hasData?'rgba(244,67,54,.65)':'rgba(244,67,54,.25)'}"></div></div>
+        <span style="width:52px;text-align:right;font-size:9px;color:var(--dn)">-${x.varDollar.toFixed(0)}</span>
+        <span style="width:38px;text-align:right;font-size:9px;color:var(--txt3)">${x.varPct.toFixed(2)}%</span>
+      </div>`).join('')+(varContribs.some(x=>!x.hasData)?'<div style="font-size:8px;color:var(--txt3);padding:4px 2px">* estimated from portfolio vol</div>':'')
+    :'<div class="dim">Insufficient history</div>';
+  }
 }
 
-function renderEquityCurve(){
-  const holds=_pf.holdings||[]; if(!holds.length) return;
-  const validHolds=holds.filter(h=>_histories[h.ticker]&&_histories[h.ticker].length>=2);
-  const allH=validHolds.map(h=>_histories[h.ticker]);
+// ── EQUITY CURVE tab ──────────────────────────────────────────────────────────
+function renderEquityCurve(ctx){
+  const {holds,bal,histories,pfx}=ctx;
+  if(!holds.length) return;
+  const validHolds=holds.filter(h=>histories[h.ticker]&&histories[h.ticker].length>=2);
+  const allH=validHolds.map(h=>histories[h.ticker]);
+  const eqEl=gEl(ctx,'pf-eq-c');
   if(!allH.length){
-    const cw=document.getElementById('pf-eq-c')?.closest('.chart-wrap');
-    if(cw) cw.innerHTML='<div class="loading">Insufficient price history — check back once more candles are available</div>';
+    const cw=eqEl?.closest('.chart-wrap');
+    if(cw) cw.innerHTML='<div class="loading">Insufficient price history from Atlas — check back once more candles are available</div>';
     return;
   }
   const minLen=Math.min(...allH.map(h=>h.length));
   const dates=allH[0].slice(-minLen).map(p=>(p.timestamp||'').slice(0,10));
-  const cash=_pf.balance||0;
+  const cash=bal||0;
   const eqSeries=dates.map((_,di)=>{
     let mv=0;
-    validHolds.forEach(h=>{ const hist=_histories[h.ticker]; if(!hist) return; const off=hist.length-minLen; mv+=h.quantity*(hist[off+di]?.price??0); });
+    validHolds.forEach(h=>{const hist=histories[h.ticker];if(!hist)return;const off=hist.length-minLen;mv+=h.quantity*(hist[off+di]?.price??0);});
     return round4(mv+cash);
   });
   let peak=eqSeries[0];
-  const ddSeries=eqSeries.map(v=>{ if(v>peak) peak=v; return peak>0?round4((v-peak)/peak*100):0; });
+  const ddSeries=eqSeries.map(v=>{if(v>peak)peak=v;return peak>0?round4((v-peak)/peak*100):0;});
   const startEq=eqSeries[0],endEq=eqSeries[eqSeries.length-1];
   const totalRet=startEq?(endEq-startEq)/startEq*100:0;
   const maxDD=Math.abs(Math.min(...ddSeries));
@@ -571,15 +956,19 @@ function renderEquityCurve(){
   const sharpe=stdR>0?(avgR/stdR*(252**.5)).toFixed(2):'—';
   const calmar=maxDD>0?(totalRet/maxDD).toFixed(2):'—';
 
-  _eqC=dc(_eqC);
-  _eqC=mkLine(document.getElementById('pf-eq-c'),dates,[{data:eqSeries,borderColor:'#cc9900',borderWidth:2,pointRadius:0,fill:true,backgroundColor:'rgba(204,153,0,.06)',tension:.2}]);
-
-  _ddC=dc(_ddC);
-  _ddC=new Chart(document.getElementById('pf-dd-c'),{type:'line',data:{labels:dates,datasets:[{data:ddSeries,borderColor:'rgba(244,67,54,.8)',borderWidth:1.2,pointRadius:0,fill:true,backgroundColor:'rgba(244,67,54,.1)',tension:.2}]},
-    options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` DD: ${c.parsed.y.toFixed(2)}%`}}},
-    scales:{x:{grid:{color:'#1a1a1a'},ticks:{maxTicksLimit:6,maxRotation:0,color:'#444'}},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v.toFixed(1)+'%'}}}}});
-
-  document.getElementById('pf-perf-met').innerHTML=[
+  if(eqEl){
+    ctx.charts.eq=dc(ctx.charts.eq);
+    ctx.charts.eq=mkLine(eqEl,dates,[{data:eqSeries,borderColor:'#cc9900',borderWidth:2,pointRadius:0,fill:true,backgroundColor:'rgba(204,153,0,.06)',tension:.2}]);
+  }
+  const ddEl=gEl(ctx,'pf-dd-c');
+  if(ddEl){
+    ctx.charts.dd=dc(ctx.charts.dd);
+    ctx.charts.dd=new Chart(ddEl,{type:'line',data:{labels:dates,datasets:[{data:ddSeries,borderColor:'rgba(244,67,54,.8)',borderWidth:1.2,pointRadius:0,fill:true,backgroundColor:'rgba(244,67,54,.1)',tension:.2}]},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>` DD: ${c.parsed.y.toFixed(2)}%`}}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{maxTicksLimit:6,maxRotation:0,color:'#444'}},y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v.toFixed(1)+'%'}}}}});
+  }
+  const perfEl=gEl(ctx,'pf-perf-met');
+  if(perfEl) perfEl.innerHTML=[
     ['TOTAL RETURN',`${totalRet>=0?'+':''}${totalRet.toFixed(2)}%`,gc(totalRet)],
     ['MAX DRAWDOWN',`-${maxDD.toFixed(2)}%`,'var(--dn)'],
     ['SHARPE',sharpe,gc(parseFloat(sharpe))],
@@ -589,14 +978,18 @@ function renderEquityCurve(){
   ].map(([k,v,c])=>`<div style="padding:5px 8px;border:1px solid var(--bdr);margin:-1px 0 0 -1px"><div style="font-size:9px;color:var(--txt3)">${k}</div><div style="font-size:12px;font-weight:700;color:${c};font-variant-numeric:tabular-nums">${v}</div></div>`).join('');
 }
 
-async function renderLiquidity(){
-  const holds=_pf.holdings||[]; if(!holds.length) return;
-  document.getElementById('pf-liq-tbl').innerHTML='<tr><td colspan="7" class="loading">LOADING ORDERBOOKS</td></tr>';
-  const results=await Promise.all(holds.map(async h=>{ const r=await api(`/api/liquidity/${h.ticker}`); return {h,ok:r.ok,d:r.d}; }));
-  const tb=document.getElementById('pf-liq-tbl'); tb.innerHTML='';
+// ── LIQUIDITY tab (async, Atlas orderbook) ────────────────────────────────────
+async function renderLiquidity(ctx){
+  const {holds}=ctx;
+  if(!holds.length) return;
+  const tblEl=gEl(ctx,'pf-liq-tbl'),sumEl=gEl(ctx,'pf-liq-sum');
+  if(tblEl) tblEl.innerHTML='<tr><td colspan="7" class="loading">LOADING ORDERBOOKS (Atlas)</td></tr>';
+  const results=await Promise.all(holds.map(async h=>{const r=await api(`/api/liquidity/${h.ticker}`);return{h,ok:r.ok,d:r.d};}));
+  if(!tblEl) return;
+  tblEl.innerHTML='';
   let illiqCount=0;
   results.forEach(({h,ok,d})=>{
-    if(!ok){ tb.innerHTML+=`<tr><td>${h.ticker}</td><td colspan="6" class="dim">Unavailable</td></tr>`; return; }
+    if(!ok){tblEl.innerHTML+=`<tr><td style="color:${tkCol(h.ticker)};font-weight:700">${h.ticker}</td><td colspan="6" class="dim">Unavailable</td></tr>`;return;}
     const qty=h.quantity||0;
     const totalDepth=(d.total_bid_qty||0)+(d.total_ask_qty||0);
     const safeVol=totalDepth*0.20;
@@ -604,35 +997,47 @@ async function renderLiquidity(){
     const slip=d.slippage_sell?.length?d.slippage_sell[Math.min(1,d.slippage_sell.length-1)]?.slippage_pct||0:0;
     const rc=dtl>30?'dn':dtl>7?'yel':'up';
     if(dtl>7) illiqCount++;
-    tb.innerHTML+=`<tr><td><strong class="wht">${h.ticker}</strong></td><td class="r">${qty.toLocaleString()}</td><td class="r">${f(h.market_value)}</td><td class="r dim">${fk(totalDepth)}</td><td class="r ${rc}" style="font-weight:700">${dtl>=999?'>999':dtl}d</td><td class="r ${slip>0.5?'dn':slip>0.1?'yel':'up'}">${slip.toFixed(3)}%</td><td class="r cyn">${(d.liquidity_score||0).toFixed(3)}</td></tr>`;
+    tblEl.innerHTML+=`<tr><td><strong style="color:${tkCol(h.ticker)}">${h.ticker}</strong></td><td class="r">${qty.toLocaleString()}</td><td class="r">${f(h.market_value)}</td><td class="r dim">${fk(totalDepth)}</td><td class="r ${rc}" style="font-weight:700">${dtl>=999?'>999':dtl}d</td><td class="r ${slip>0.5?'dn':slip>0.1?'yel':'up'}">${slip.toFixed(3)}%</td><td class="r cyn">${(d.liquidity_score||0).toFixed(3)}</td></tr>`;
   });
-  document.getElementById('pf-liq-sum').innerHTML=`
+  if(sumEl) sumEl.innerHTML=`
     <div class="rm"><span class="k">HOLDINGS</span><span class="v wht">${results.length}</span></div>
     <div class="rm"><span class="k">ILLIQUID &gt;7d</span><span class="v ${illiqCount>0?'dn':'up'}">${illiqCount}</span></div>
-    <div style="margin-top:10px;font-size:9px;color:var(--txt3);line-height:1.6">Days to liquidate at 20% of total orderbook depth per day, including estimated sell-side slippage.</div>`;
+    <div style="margin-top:10px;font-size:9px;color:var(--txt3);line-height:1.6">Days to liquidate at 20% of total Atlas orderbook depth per day, including estimated sell-side slippage.</div>`;
 }
 
-function renderStress(){
-  const holds=_pf.holdings||[];
-  document.getElementById('sc-rows').innerHTML=holds.map((h,i)=>`
+// ── STRESS TEST tab ────────────────────────────────────────────────────────────
+function renderStress(ctx){
+  const {holds,pfx}=ctx;
+  const rowsEl=gEl(ctx,'sc-rows');
+  if(rowsEl) rowsEl.innerHTML=holds.map((h,i)=>`
     <div style="display:flex;align-items:center;gap:6px;font-size:10px">
-      <span style="width:52px;color:${COLS[i%COLS.length]};font-weight:700">${h.ticker}</span>
-      <input type="number" id="sc-${h.ticker}" value="0" step="1" style="width:58px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 4px">
+      <span style="width:64px;color:${COLS[i%COLS.length]};font-weight:700;overflow:hidden;text-overflow:ellipsis">${h.ticker}</span>
+      <input type="number" id="${pfx}sc-${tid(h.ticker)}" value="0" step="1" style="width:58px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 4px">
       <span class="dim">%</span>
     </div>`).join('');
 }
 
-window.applyPreset=function(chg){
-  (_pf.holdings||[]).forEach(h=>{ const el=document.getElementById('sc-'+h.ticker); if(el) el.value=(chg*100).toFixed(0); });
+window.applyPreset=function(chg,pfx){
+  pfx=pfx||'';
+  const ctx=pfx===''?_nerCtx:pfx==='x'?_tseCtx:_allCtx;
+  if(!ctx) return;
+  ctx.holds.forEach(h=>{const el=document.getElementById(pfx+'sc-'+tid(h.ticker));if(el)el.value=(chg*100).toFixed(0);});
 };
 
-window.runScenario=function(){
-  if(!_pf) return;
-  const holds=_pf.holdings||[]; if(!holds.length) return;
-  const impacts=holds.map(h=>{ const chg=parseFloat(document.getElementById('sc-'+h.ticker)?.value||0)/100; const orig=h.market_value||0; return {ticker:h.ticker,orig,newVal:orig*(1+chg),delta:orig*chg}; });
-  const origEq=_pf.total_equity||0,newEq=(_pf.balance||0)+impacts.reduce((s,x)=>s+x.newVal,0),delta=newEq-origEq;
+window.runScenario=function(pfx){
+  pfx=pfx||'';
+  const ctx=pfx===''?_nerCtx:pfx==='x'?_tseCtx:_allCtx;
+  if(!ctx||!ctx.holds.length) return;
+  const {holds,bal,totalEq}=ctx;
+  const impacts=holds.map(h=>{
+    const chg=parseFloat(document.getElementById(pfx+'sc-'+tid(h.ticker))?.value||0)/100;
+    const orig=h.market_value||0;
+    return{ticker:h.ticker,orig,newVal:orig*(1+chg),delta:orig*chg};
+  });
+  const origEq=totalEq||0,newEq=(bal||0)+impacts.reduce((s,x)=>s+x.newVal,0),delta=newEq-origEq;
   const dpct=origEq?delta/origEq*100:0;
-  document.getElementById('sc-result').innerHTML=`
+  const resEl=gEl(ctx,'sc-result');
+  if(resEl) resEl.innerHTML=`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:12px">
       <div style="padding:8px;border:1px solid var(--bdr)"><div style="font-size:9px;color:var(--txt3)">ORIGINAL EQUITY</div><div style="font-size:18px;font-weight:700;color:var(--wht)">${f(origEq)}</div></div>
       <div style="padding:8px;border:1px solid var(--bdr);border-left:0"><div style="font-size:9px;color:var(--txt3)">STRESSED EQUITY</div><div style="font-size:18px;font-weight:700;color:${gc(delta)}">${f(newEq)}</div></div>
@@ -641,212 +1046,97 @@ window.runScenario=function(){
       <span>DELTA <strong style="color:${gc(delta)}">${delta>=0?'+':''}${f(delta)}</strong></span>
       <span>(<strong style="color:${gc(dpct)}">${dpct>=0?'+':''}${dpct.toFixed(2)}%</strong>)</span>
     </div>
-    <div style="margin-top:10px">${impacts.map(x=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px"><span class="wht">${x.ticker}</span><span style="color:${gc(x.delta)}">${x.delta>=0?'+':''}${f(x.delta)}</span></div>`).join('')}</div>`;
-  _scBarC=dc(_scBarC);
-  _scBarC=mkBar(document.getElementById('sc-bar-c'),impacts.map(x=>x.ticker),impacts.map(x=>x.delta),impacts.map(x=>x.delta>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'));
+    <div style="margin-top:10px">${impacts.map(x=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px"><span style="color:${tkCol(x.ticker)}">${x.ticker}</span><span style="color:${gc(x.delta)}">${x.delta>=0?'+':''}${f(x.delta)}</span></div>`).join('')}</div>`;
+  ctx.charts.scBar=dc(ctx.charts.scBar);
+  const barEl=gEl(ctx,'sc-bar-c');
+  if(barEl) ctx.charts.scBar=mkBar(barEl,impacts.map(x=>x.ticker),impacts.map(x=>x.delta),impacts.map(x=>x.delta>=0?'rgba(0,200,83,.7)':'rgba(244,67,54,.7)'));
 };
 
-// ── Live P&L strip ───────────────────────────────────────────────────────────
-function startLivePnL(holds) {
-  clearInterval(_liveIv);
-  if(!holds.length) return;
-  async function update() {
-    const secR = await api('/api/securities');
-    if(!secR.ok || !Array.isArray(secR.d)) return;
-    const sesEl = document.getElementById('pf-live-session');
-    if(sesEl) sesEl.textContent = new Date().toLocaleTimeString('en-GB',{hour12:false});
-    const prices = {};
-    secR.d.forEach(s => prices[s.ticker] = s.market_price);
-    _livePrices = prices;
-    let totalUnreal = 0, sessionStart = _pf ? (_pf.balance||0) : 0;
-    const el = document.getElementById('pf-live-holds');
-    if(!el) return;
-    el.innerHTML = holds.map(h => {
-      const liveP = prices[h.ticker];
-      if(liveP == null) return '';
-      const liveVal = liveP * h.quantity;
-      const pnl = liveVal - (h.cost_basis||0);
-      const pnlPct = h.cost_basis ? pnl/h.cost_basis*100 : 0;
-      totalUnreal += pnl;
-      return `<div style="padding:0 10px;border-right:1px solid var(--bdr);font-size:9px;white-space:nowrap;display:flex;gap:5px;align-items:center">
-        <span style="color:var(--org);font-weight:700">${h.ticker}</span>
-        <span style="color:${gcI(pnlPct)};font-weight:${gcIW(pnlPct)}">${pnl>=0?'+':''}${f(pnl,0)}</span>
-        <span style="color:${gcI(pnlPct)};font-size:8px">${fp(pnlPct)}</span>
-      </div>`;
-    }).join('');
-    const unEl = document.getElementById('pf-live-unreal');
-    if(unEl) {
-      const pct = _pf?.total_equity ? totalUnreal/_pf.total_equity*100 : 0;
-      const newVal = (totalUnreal>=0?'+':'')+f(totalUnreal,0);
-      if(unEl.textContent && unEl.textContent !== newVal) {
-        // Value changed — pulse the strip
-        const strip = document.getElementById('pf-live-strip');
-        if(strip) { strip.classList.remove('pnl-updated'); void strip.offsetWidth; strip.classList.add('pnl-updated'); }
-      }
-      unEl.textContent = newVal;
-      unEl.style.color = gcI(pct);
-    }
-    // Pulse the strip on each update
-    const strip = document.getElementById('pf-live-strip');
-    if(strip){ strip.classList.remove('pf-live-pulse'); void strip.offsetWidth; strip.classList.add('pf-live-pulse'); }
-  }
-  update();
-  _liveIv = setInterval(update, 60000);
-}
+// ── ATTRIBUTION tab ───────────────────────────────────────────────────────────
+function renderAttribution(ctx){
+  const {holds,totalEq,histories,pfx}=ctx;
+  const listEl=gEl(ctx,'pf-attr-list');
+  if(!holds.length){if(listEl)listEl.innerHTML='<div class="loading">NO HOLDINGS</div>';return;}
 
-// ── Attribution rendering ─────────────────────────────────────────────────────
-function renderAttribution() {
-  if(!_pf) return;
-  const holds = _pf.holdings || [];
-  if(!holds.length) { document.getElementById('pf-attr-list').innerHTML='<div class="loading">NO HOLDINGS</div>'; return; }
+  const totalPnl=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+  const items=holds.map(h=>{
+    const pnl=(h.market_value||0)-(h.cost_basis||0);
+    const pnlPct=h.cost_basis?pnl/h.cost_basis*100:0;
+    const weight=(h.market_value||0)/totalEq*100;
+    const contrib=totalPnl?pnl/totalPnl*100:0;
+    const contribPts=totalEq?pnl/totalEq*100:0;
+    return{ticker:h.ticker,pnl,pnlPct,weight,contrib,contribPts,mv:h.market_value||0,cost:h.cost_basis||0};
+  }).sort((a,b)=>Math.abs(b.pnl)-Math.abs(a.pnl));
 
-  // Build attribution data: unrealized P&L, weight, contribution to total
-  const totalEq = _pf.total_equity || 1;
-  const totalPnl = holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0), 0);
-  const items = holds.map(h => {
-    const pnl = (h.market_value||0) - (h.cost_basis||0);
-    const pnlPct = h.cost_basis ? pnl/h.cost_basis*100 : 0;
-    const weight = (h.market_value||0)/totalEq*100;
-    const contrib = totalPnl ? pnl/totalPnl*100 : 0;  // % of total P&L
-    const contribPts = totalEq ? pnl/totalEq*100 : 0; // percentage points of equity
-    return { ticker:h.ticker, pnl, pnlPct, weight, contrib, contribPts, mv:h.market_value||0, cost:h.cost_basis||0 };
-  }).sort((a,b) => Math.abs(b.pnl)-Math.abs(a.pnl));
-
-  // Render list with sparklines
-  document.getElementById('pf-attr-list').innerHTML = items.map((it,idx) => {
-    const barW = Math.min(Math.abs(it.contribPts)/Math.max(...items.map(x=>Math.abs(x.contribPts)),0.01)*100, 100);
-    return `<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5);cursor:pointer"
-                 onclick="pfGoTicker('${it.ticker}')">
+  if(listEl) listEl.innerHTML=items.map((it,idx)=>{
+    const barW=Math.min(Math.abs(it.contribPts)/Math.max(...items.map(x=>Math.abs(x.contribPts)),0.01)*100,100);
+    return`<div style="padding:6px 8px;border-bottom:1px solid rgba(46,46,46,.5);cursor:pointer" onclick="pfGoTicker('${it.ticker}')">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-        <span style="font-size:13px;font-weight:700;color:var(--wht);width:44px">${it.ticker}</span>
-        <canvas id="pf-attr-spark-${idx}" width="80" height="22" style="flex-shrink:0"></canvas>
+        <span style="font-size:13px;font-weight:700;color:${tkCol(it.ticker)};width:64px;overflow:hidden;text-overflow:ellipsis">${it.ticker}</span>
+        <canvas id="${pfx}pf-attr-spark-${idx}" width="80" height="22" style="flex-shrink:0"></canvas>
         <div style="flex:1">
           <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:1px">
             <span style="color:var(--txt3)">W:${f(it.weight,1)}%</span>
             <span style="color:${gcI(it.pnlPct)};font-weight:700">${fp(it.pnlPct)}</span>
             <span style="font-weight:700;color:${gcI(it.pnl)}">${it.pnl>=0?'+':''}${f(it.pnl,2)}</span>
           </div>
-          <div style="height:3px;background:var(--bdr);border-radius:1px">
-            <div style="height:100%;width:${barW.toFixed(0)}%;background:${gcI(it.pnl)};border-radius:1px;transition:width .3s"></div>
-          </div>
-          <div style="font-size:8px;color:var(--txt3);margin-top:2px">
-            Contrib: <span style="color:${gcI(it.contribPts)};font-weight:700">${it.contribPts>=0?'+':''}${it.contribPts.toFixed(2)} pp</span>
-            &nbsp;|&nbsp; ${(it.mv||0)>0?'MV $'+f(it.mv,0):''}
-          </div>
+          <div style="height:3px;background:var(--bdr);border-radius:1px"><div style="height:100%;width:${barW.toFixed(0)}%;background:${gcI(it.pnl)};border-radius:1px;transition:width .3s"></div></div>
+          <div style="font-size:8px;color:var(--txt3);margin-top:2px">Contrib: <span style="color:${gcI(it.contribPts)};font-weight:700">${it.contribPts>=0?'+':''}${it.contribPts.toFixed(2)} pp</span>&nbsp;|&nbsp;${(it.mv||0)>0?'MV $'+f(it.mv,0):''}</div>
         </div>
       </div>
     </div>`;
   }).join('');
 
-  // Draw sparklines async
-  setTimeout(async () => {
-    for(let idx=0; idx<items.length; idx++) {
-      const it = items[idx];
-      const canvas = document.getElementById('pf-attr-spark-'+idx);
+  // Sparklines (Atlas price history)
+  setTimeout(async()=>{
+    for(let idx=0;idx<items.length;idx++){
+      const it=items[idx];
+      const canvas=document.getElementById(pfx+'pf-attr-spark-'+idx);
       if(!canvas) continue;
-      // Use cached history or fetch
-      if(!_histories[it.ticker]) {
-        const r = await api(`/api/analytics/price_history/${it.ticker}?days=30`);
-        if(r.ok && Array.isArray(r.d)) _histories[it.ticker] = r.d;
+      if(!histories[it.ticker]){
+        const r=await api(`/api/analytics/price_history/${it.ticker}?days=30`);
+        if(r.ok&&Array.isArray(r.d)) histories[it.ticker]=r.d;
       }
-      const hist = _histories[it.ticker];
-      if(!hist || hist.length < 2) continue;
-      const pts = hist.map(p=>p.price);
-      const ctx = canvas.getContext('2d');
-      const W=canvas.width, H=canvas.height;
-      ctx.clearRect(0,0,W,H);
-      const mn=Math.min(...pts), mx=Math.max(...pts), rng=mx-mn||1;
+      const hist=histories[it.ticker];
+      if(!hist||hist.length<2) continue;
+      const pts=hist.map(p=>p.price);
+      const ctx2=canvas.getContext('2d');
+      const W=canvas.width,H=canvas.height;
+      ctx2.clearRect(0,0,W,H);
+      const mn=Math.min(...pts),mx=Math.max(...pts),rng=mx-mn||1;
       const x=i=>(i/(pts.length-1))*(W-2)+1;
       const y=v=>H-2-((v-mn)/rng)*(H-4);
-      const up = pts[pts.length-1]>=pts[0];
-      ctx.strokeStyle = up?'rgba(0,200,83,.85)':'rgba(244,67,54,.85)';
-      ctx.lineWidth=1.2;
-      ctx.beginPath();
-      pts.forEach((p,i)=>i?ctx.lineTo(x(i),y(p)):ctx.moveTo(x(i),y(p)));
-      ctx.stroke();
-      ctx.fillStyle=up?'rgba(0,200,83,.1)':'rgba(244,67,54,.1)';
-      ctx.lineTo(x(pts.length-1),H);ctx.lineTo(1,H);ctx.closePath();ctx.fill();
+      const up=pts[pts.length-1]>=pts[0];
+      ctx2.strokeStyle=up?'rgba(0,200,83,.85)':'rgba(244,67,54,.85)';
+      ctx2.lineWidth=1.2;ctx2.beginPath();
+      pts.forEach((p,i)=>i?ctx2.lineTo(x(i),y(p)):ctx2.moveTo(x(i),y(p)));
+      ctx2.stroke();
+      ctx2.fillStyle=up?'rgba(0,200,83,.1)':'rgba(244,67,54,.1)';
+      ctx2.lineTo(x(pts.length-1),H);ctx2.lineTo(1,H);ctx2.closePath();ctx2.fill();
     }
-  }, 0);
+  },0);
 
-  // Waterfall chart — floating bars [base, top] so each bar starts where the last ended
-  _attrC = dc(_attrC);
-  const wfLabels = [...items.map(it=>it.ticker), 'TOTAL'];
-  const wfPnls   = items.map(it=>it.pnl);
-
-  // Build floating [from, to] pairs for each segment
-  const wfData = [];
-  let running = 0;
-  for (let i = 0; i < wfPnls.length; i++) {
-    const v = wfPnls[i];
-    wfData.push([running, running + v]);
-    running += v;
-  }
-  // TOTAL bar always starts from 0
-  wfData.push([0, totalPnl]);
-
-  const wfColors = wfData.map(([a,b], i) => {
-    if (i === wfData.length - 1) return totalPnl >= 0 ? 'rgba(255,214,0,.85)' : 'rgba(244,67,54,.85)';
-    return (b - a) >= 0 ? 'rgba(0,200,83,.75)' : 'rgba(244,67,54,.75)';
+  // Waterfall chart
+  ctx.charts.attr=dc(ctx.charts.attr);
+  const wfLabels=[...items.map(it=>it.ticker),'TOTAL'];
+  const wfPnls=items.map(it=>it.pnl);
+  const wfData=[];let running=0;
+  for(let i=0;i<wfPnls.length;i++){const v=wfPnls[i];wfData.push([running,running+v]);running+=v;}
+  wfData.push([0,totalPnl]);
+  const wfColors=wfData.map(([a,b],i)=>{
+    if(i===wfData.length-1)return totalPnl>=0?'rgba(255,214,0,.85)':'rgba(244,67,54,.85)';
+    return(b-a)>=0?'rgba(0,200,83,.75)':'rgba(244,67,54,.75)';
   });
-  const wfBorders = wfColors.map(c => c.replace(/[\d.]+\)$/, '1)'));
+  const attrEl=gEl(ctx,'pf-attr-c');
+  if(attrEl) ctx.charts.attr=new Chart(attrEl,{type:'bar',data:{labels:wfLabels,datasets:[{data:wfData,backgroundColor:wfColors,borderColor:wfColors.map(c=>c.replace(/[\d.]+\)$/,'1)')),borderWidth:1,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const[a,b]=c.raw;const v=b-a;return` ${v>=0?'+':''}${v.toFixed(2)}`;}},backgroundColor:'#1a1a1a',borderColor:'#333',borderWidth:1,titleColor:'#fff',bodyColor:'#ccc',titleFont:{family:'inherit',size:10},bodyFont:{family:'inherit',size:10}}},
+    scales:{x:{grid:{color:'rgba(255,255,255,.04)'},ticks:{color:'#737373',font:{family:'inherit',size:9}}},y:{grid:{color:'rgba(255,255,255,.06)'},ticks:{color:'#737373',font:{family:'inherit',size:9},callback:v=>(v>=0?'+':'')+v.toFixed(0)}}}}});
 
-  _attrC = new Chart(document.getElementById('pf-attr-c'), {
-    type: 'bar',
-    data: {
-      labels: wfLabels,
-      datasets: [{
-        data: wfData,
-        backgroundColor: wfColors,
-        borderColor: wfBorders,
-        borderWidth: 1,
-        borderSkipped: false,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const [a, b] = ctx.raw;
-              const v = b - a;
-              return ` ${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
-            }
-          },
-          backgroundColor: '#1a1a1a',
-          borderColor: '#333',
-          borderWidth: 1,
-          titleColor: '#fff',
-          bodyColor: '#ccc',
-          titleFont: { family: 'inherit', size: 10 },
-          bodyFont:  { family: 'inherit', size: 10 },
-        }
-      },
-      scales: {
-        x: {
-          grid: { color: 'rgba(255,255,255,.04)' },
-          ticks: { color: '#737373', font: { family: 'inherit', size: 9 } },
-        },
-        y: {
-          grid: { color: 'rgba(255,255,255,.06)' },
-          ticks: {
-            color: '#737373',
-            font: { family: 'inherit', size: 9 },
-            callback: v => (v >= 0 ? '+' : '') + v.toFixed(0),
-          }
-        }
-      }
-    }
-  });
-
-  // Summary
-  const winners = items.filter(it=>it.pnl>0), losers = items.filter(it=>it.pnl<0);
-  const bigWin = winners.reduce((a,b)=>b.pnl>a.pnl?b:a, {pnl:-Infinity,ticker:'—'});
-  const bigLos = losers.reduce((a,b)=>b.pnl<a.pnl?b:a, {pnl:Infinity,ticker:'—'});
-  document.getElementById('pf-attr-sum').innerHTML = `
+  const winners=items.filter(it=>it.pnl>0),losers=items.filter(it=>it.pnl<0);
+  const bigWin=winners.reduce((a,b)=>b.pnl>a.pnl?b:a,{pnl:-Infinity,ticker:'—'});
+  const bigLos=losers.reduce((a,b)=>b.pnl<a.pnl?b:a,{pnl:Infinity,ticker:'—'});
+  const sumEl=gEl(ctx,'pf-attr-sum');
+  if(sumEl) sumEl.innerHTML=`
     <div class="rm"><span class="k">TOTAL P&amp;L</span><span class="v" style="color:${gcI(totalPnl/totalEq*100)}">${totalPnl>=0?'+':''}${f(totalPnl,2)}</span></div>
     <div class="rm"><span class="k">WINNERS</span><span class="v up">${winners.length}</span></div>
     <div class="rm"><span class="k">LOSERS</span><span class="v dn">${losers.length}</span></div>
@@ -854,54 +1144,78 @@ function renderAttribution() {
     <div class="rm"><span class="k">TOP GAINER</span><span class="v up">${bigWin.ticker!=='—'?bigWin.ticker:'—'}</span></div>
     <div class="rm"><span class="k">TOP LOSER</span><span class="v dn">${bigLos.ticker!=='—'?bigLos.ticker:'—'}</span></div>
     <div class="rm" style="margin-top:6px"><span class="k">TOTAL EQUITY</span><span class="v wht">${f(totalEq)}</span></div>
-    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">
-      "pp" = percentage points of equity. A +2pp contribution means that holding added 2% to your total portfolio value.
-    </div>`;
+    <div style="margin-top:8px;font-size:9px;color:var(--txt3);line-height:1.6">"pp" = percentage points of equity. A +2pp contribution means that holding added 2% to your total portfolio value.</div>`;
 }
 
-window.pfQuickOrder = function(ticker, side) {
-  sw('ord');
-  setTimeout(()=>{
-    const tkSel=document.getElementById('op-tk');
-    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
-    if(window.opSide) opSide(side);
-  }, 300);
-};
+// ── NER Live P&L strip (NER-only, uses Atlas /api/securities for live prices) ─
+function startLivePnL(holds){
+  clearInterval(_liveIv);
+  if(!holds.length) return;
+  async function update(){
+    const secR=await api('/api/securities');
+    if(!secR.ok||!Array.isArray(secR.d)) return;
+    const sesEl=document.getElementById('pf-live-session');
+    if(sesEl) sesEl.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false});
+    const prices={};
+    secR.d.forEach(s=>prices[s.ticker]=s.market_price);
+    _livePrices=prices;
+    let totalUnreal=0;
+    const el=document.getElementById('pf-live-holds');
+    if(!el) return;
+    el.innerHTML=holds.map(h=>{
+      const liveP=prices[h.ticker];
+      if(liveP==null) return '';
+      const liveVal=liveP*h.quantity;
+      const pnl=liveVal-(h.cost_basis||0);
+      const pnlPct=h.cost_basis?pnl/h.cost_basis*100:0;
+      totalUnreal+=pnl;
+      return`<div style="padding:0 10px;border-right:1px solid var(--bdr);font-size:9px;white-space:nowrap;display:flex;gap:5px;align-items:center">
+        <span style="color:var(--org);font-weight:700">${h.ticker}</span>
+        <span style="color:${gcI(pnlPct)};font-weight:${gcIW(pnlPct)}">${pnl>=0?'+':''}${f(pnl,0)}</span>
+        <span style="color:${gcI(pnlPct)};font-size:8px">${fp(pnlPct)}</span>
+      </div>`;
+    }).join('');
+    const unEl=document.getElementById('pf-live-unreal');
+    if(unEl){
+      const pct=_pf?.total_equity?totalUnreal/_pf.total_equity*100:0;
+      const newVal=(totalUnreal>=0?'+':'')+f(totalUnreal,0);
+      if(unEl.textContent&&unEl.textContent!==newVal){
+        const strip=document.getElementById('pf-live-strip');
+        if(strip){strip.classList.remove('pnl-updated');void strip.offsetWidth;strip.classList.add('pnl-updated');}
+      }
+      unEl.textContent=newVal;
+      unEl.style.color=gcI(pct);
+    }
+    const strip=document.getElementById('pf-live-strip');
+    if(strip){strip.classList.remove('pf-live-pulse');void strip.offsetWidth;strip.classList.add('pf-live-pulse');}
+  }
+  update();
+  _liveIv=setInterval(update,60000);
+}
 
-// ── OVERVIEW sub-page ─────────────────────────────────────────
+// ── OVERVIEW sub-page ─────────────────────────────────────────────────────────
 async function loadOverview(){
-  const [nerR, tseR] = await Promise.all([
-    api('/api/portfolio'),
-    api('/api/tse/account/portfolio')
-  ]);
+  const[nerR,tseR]=await Promise.all([api('/api/portfolio'),api('/api/tse/account/portfolio')]);
   const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
 
-  // NER KPIs
   let nerCash=0,nerEq=0,nerPnl=0,nerHolds=[];
   if(nerR.ok){
-    const pf=nerR.d;
-    nerCash=pf.balance||0; nerEq=pf.total_equity||0;
-    nerHolds=pf.holdings||[];
-    nerPnl=nerHolds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+    const pf=nerR.d;nerCash=pf.balance||0;nerEq=pf.total_equity||0;
+    nerHolds=pf.holdings||[];nerPnl=nerHolds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
   }
   S('ov-ner-cash',nerR.ok?f(nerCash):'ERR','');
   S('ov-ner-eq',nerR.ok?f(nerEq):'ERR','');
   S('ov-pnl',nerR.ok?(nerPnl>=0?'+':'')+f(nerPnl):' ERR',nerR.ok?gc(nerPnl):'var(--dn)');
 
-  // TSE KPIs
   let tseCash=0,tseStocks=0;
   if(tseR.ok){
-    const pf=tseR.d;
-    tseCash=pf.cash_balance||0; tseStocks=pf.stocks_value||0;
-    S('ov-tse-cash',f(tseCash),'var(--cyn)');
-    S('ov-tse-eq',f(tseStocks),'var(--cyn)');
+    const pf=tseR.d;tseCash=pf.cash_balance||0;tseStocks=pf.stocks_value||0;
+    S('ov-tse-cash',f(tseCash),'var(--cyn)');S('ov-tse-eq',f(tseStocks),'var(--cyn)');
   } else {
-    S('ov-tse-cash','—','');
-    S('ov-tse-eq',tseR.s===0?'NO KEY':'ERR','var(--txt3)');
+    S('ov-tse-cash','—','');S('ov-tse-eq',tseR.s===0?'NO KEY':'ERR','var(--txt3)');
   }
   S('ov-total',f(nerEq+tseStocks+tseCash),'var(--up)');
 
-  // NER holdings list
   const nhEl=document.getElementById('ov-ner-holds');
   if(nhEl) nhEl.innerHTML=nerHolds.length?nerHolds.map(h=>{
     const pnl=(h.market_value||0)-(h.cost_basis||0),pp=h.cost_basis?pnl/h.cost_basis*100:0;
@@ -917,7 +1231,6 @@ async function loadOverview(){
     </div>`;
   }).join(''):'<div class="loading">No NER holdings</div>';
 
-  // TSE holdings list
   const thEl=document.getElementById('ov-tse-holds');
   if(thEl){
     if(!tseR.ok){
@@ -943,75 +1256,22 @@ async function loadOverview(){
   }
 }
 
-// ── TSE PORTFOLIO sub-page ─────────────────────────────────────
-async function loadTSEPortfolio(){
-  const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
-  const holdsEl=document.getElementById('tse-holds');
-  const txnsEl=document.getElementById('tse-txns');
-  if(holdsEl) holdsEl.innerHTML='<div class="loading">Loading…</div>';
-  if(txnsEl) txnsEl.innerHTML='<tr><td colspan="7" class="loading">Loading…</td></tr>';
-
-  const r=await api('/api/tse/account/portfolio');
-  if(!r.ok){
-    const noKey=r.s===0||r.s===401;
-    const msg=noKey?'▸ No TSE key set — <button onclick="showTseAuth()" style="font-size:8px;color:var(--cyn);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);padding:1px 7px;cursor:pointer;font-family:var(--font)">SET KEY →</button>':'TSE error: '+(r.d?.detail||r.s);
-    if(holdsEl) holdsEl.innerHTML=`<div style="padding:10px;font-size:9px;color:var(--cyn)">${msg}</div>`;
-    if(txnsEl) txnsEl.innerHTML=`<tr><td colspan="7" style="padding:8px;color:var(--txt3)">—</td></tr>`;
-    return;
-  }
-  const pf=r.d;
-  const dayChg=pf.day_change||0,dayChgPct=pf.day_change_percent||0;
-  S('tse-cash',f(pf.cash_balance||0),'');
-  S('tse-avail',f(pf.available_balance||0),'var(--up)');
-  S('tse-stocks-val',f(pf.stocks_value||0),'');
-  S('tse-total-val',f(pf.total_value||0),'');
-  S('tse-day-chg',(dayChg>=0?'+':'')+f(dayChg)+' ('+dayChgPct.toFixed(2)+'%)',gc(dayChg));
-  const holds=pf.stock_holdings||[];
-  S('tse-pos-ct',holds.length,'var(--cyn)');
-
-  if(holdsEl) holdsEl.innerHTML=holds.length?holds.map(h=>{
-    const val=(h.quantity||0)*(h.current_price||h.avg_price||0);
-    const cost=(h.quantity||0)*(h.avg_price||0);
-    const pnl=val-cost,pp=cost?pnl/cost*100:0;
-    return`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:12px;font-weight:700;color:var(--cyn)">TSE:${h.symbol||h.ticker}</span>
-        <span style="font-weight:700;color:${gc(pnl)}">${f(val)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:2px">
-        <span>${(h.quantity||0).toLocaleString()} sh @ ${f(h.avg_price||0,4)}</span>
-        <span style="color:${gcI(pp)}">${pp>=0?'+':''}${pp.toFixed(2)}% (${pnl>=0?'+':''}${f(pnl)})</span>
-      </div>
-    </div>`;
-  }).join(''):'<div class="loading">No TSE holdings</div>';
-
-  const txns=pf.transactions||[];
-  if(txnsEl) txnsEl.innerHTML=txns.length?txns.slice(0,50).map(t=>{
-    const side=(t.side||t.type||'').toLowerCase();
-    const sideCol=side.includes('buy')?'var(--up)':side.includes('sell')?'var(--dn)':'var(--txt3)';
-    const ts=t.timestamp||t.created_at||t.updated_at||'';
-    const tStr=ts?new Date(ts).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short',hour12:false}):'—';
-    const qty=t.quantity||t.qty||0;
-    const px=+(t.price||t.avg_price||0);
-    const val=qty&&px?qty*px:null;
-    return`<tr>
-      <td class="dim" style="font-size:9px">${tStr}</td>
-      <td class="wht" style="font-weight:700">TSE:${t.symbol||t.ticker||'—'}</td>
-      <td style="color:${sideCol};font-weight:700">${side.toUpperCase()||'—'}</td>
-      <td class="r">${qty?qty.toLocaleString():'—'}</td>
-      <td class="r yel">${px?'$'+f(px,4):'—'}</td>
-      <td class="r wht">${val!=null?'$'+f(val,2):'—'}</td>
-      <td class="dim" style="font-size:9px">${t.status||'—'}</td>
-    </tr>`;
-  }).join(''):'<tr><td colspan="7" class="loading">No transactions</td></tr>';
-}
+// ── shared utils ──────────────────────────────────────────────────────────────
+window.pfQuickOrder=function(ticker,side){
+  sw('ord');
+  setTimeout(()=>{
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+    if(window.opSide) opSide(side);
+  },300);
+};
 
 function calcHealth(holds,cash,totalEq){
-  if(!holds.length) return 50; let s=100;
+  if(!holds.length) return 50;let s=100;
   const w=holds.map(h=>((h.market_value||0)/(totalEq||1))*100),mW=Math.max(...w,0);
-  if(mW>70) s-=30; else if(mW>50) s-=15; else if(mW>30) s-=5;
-  const cr=cash/(totalEq||1)*100; if(cr<5) s-=10; else if(cr>80) s-=10;
-  if(holds.length<2) s-=15; else if(holds.length>=5) s+=5;
+  if(mW>70) s-=30;else if(mW>50) s-=15;else if(mW>30) s-=5;
+  const cr=cash/(totalEq||1)*100;if(cr<5) s-=10;else if(cr>80) s-=10;
+  if(holds.length<2) s-=15;else if(holds.length>=5) s+=5;
   if(holds.reduce((t,h)=>t+(h.market_value||0)-(h.cost_basis||0),0)<0) s-=10;
   return Math.max(0,Math.min(100,s));
 }
