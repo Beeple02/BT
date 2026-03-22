@@ -267,8 +267,23 @@ async function loadMktChart(ticker) {
 }
 
 async function loadMktOB(ticker) {
-  const r=await api(`/api/orderbook?ticker=${ticker}`);
-  if(r.ok) renderOB('mkt-ob-inner',r.d);
+  if(ticker.startsWith('TSE:')){
+    // Use per-ticker endpoint — already routed to TSE API in app.py
+    const r=await api(`/api/orderbook/${encodeURIComponent(ticker)}`);
+    if(!r.ok) return;
+    const d=r.d;
+    // Normalize TSE orderbook ({bids:[{price,size}], asks:[{price,size}], spread, mid_price})
+    // to renderOB format ({bids:[{price,quantity}], asks:[{price,quantity}], best_bid, best_ask, mid})
+    const bids=(d.bids||[]).map(b=>({price:b.price??b[0], quantity:b.size??b.quantity??b[1]??0}));
+    const asks=(d.asks||[]).map(a=>({price:a.price??a[0], quantity:a.size??a.quantity??a[1]??0}));
+    const best_bid=bids.length?Math.max(...bids.map(b=>b.price)):null;
+    const best_ask=asks.length?Math.min(...asks.map(a=>a.price)):null;
+    const mid=d.mid_price??(best_bid&&best_ask?(best_bid+best_ask)/2:null);
+    renderOB('mkt-ob-inner',{bids,asks,best_bid,best_ask,mid});
+  } else {
+    const r=await api(`/api/orderbook?ticker=${ticker}`);
+    if(r.ok) renderOB('mkt-ob-inner',r.d);
+  }
 }
 
 window.mktSetChart = function(mode) {
