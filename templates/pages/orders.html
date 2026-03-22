@@ -596,9 +596,14 @@ const midOf=q=>q&&q.best_bid&&q.best_ask?(q.best_bid+q.best_ask)/2:null;
 const px4=n=>+((+n).toFixed(4));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 // Uncached fetch for live order/account state — avoids stale 404 cache
-const apiLive=async path=>{
-  try{const r=await fetch(path);return{ok:r.ok,s:r.status,d:await r.json()};}
+const apiLive=async(path,opts={})=>{
+  try{const r=await fetch(path,opts);return{ok:r.ok,s:r.status,d:await r.json()};}
   catch(e){return{ok:false,s:0,d:{detail:e.message}};}
+};
+// Build fetch opts with TSE user key header if available
+const tseH=()=>{
+  const h=window.getTseAuthHeaders?window.getTseAuthHeaders():{};
+  return Object.keys(h).length?{headers:h}:{};
 };
 
 // ── side ───────────────────────────────────────────────────────
@@ -915,8 +920,9 @@ window.opExec=async function(){
 
   const _exch = g('op-exch')?.value || 'NER';
   const _isTSE = _exch === 'TSE';
-  const _base = _isTSE ? '/api/tse/orders' : '/api/orders';
-  const _tsePayload = _isTSE ? {symbol:tk} : {ticker:tk};
+  const _base = '/api/orders';
+  // TSE: send ticker as 'TSE:SYMBOL' so _route_order detects it server-side
+  const _tsePayload = _isTSE ? {ticker:'TSE:'+tk} : {ticker:tk};
 
   if(t==='limit'){
     lg(`[${_exch}] Placing ${_side.toUpperCase()} LMT ${qty}×${tk} @ $${f(lp,4)}…`,'info',{tk,side:_side,qty,px:lp,exch:_exch,event:'PLACING'});
@@ -1354,7 +1360,7 @@ async function loadOpenOrders(){
   // Load NER + TSE open orders in parallel
   const [nerR, tseR] = await Promise.all([
     apiLive('/api/orders_open'),
-    apiLive('/api/tse/orders')
+    apiLive('/api/tse/orders', tseH())
   ]);
   const nerOrders = nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
   const tseRaw    = tseR.ok ? (tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])) : [];
@@ -1388,18 +1394,20 @@ async function loadOpenOrders(){
 }
 window.opCx=async function(id, exch='NER'){
   const url = exch==='TSE' ? `/api/tse/orders/${id}` : `/api/orders_open/${id}`;
-  const r=await fetch(url,{method:'DELETE'}),d=await r.json().catch(()=>({}));
+  const opts = exch==='TSE' ? {method:'DELETE',...tseH()} : {method:'DELETE'};
+  const r=await fetch(url,opts),d=await r.json().catch(()=>({}));
   r.ok?lg(`[${exch}] Order ${id.toString().slice(0,10)}… cancelled`,'warn',{oid:id,exch,event:'CANCELLED'}):lg(`Cancel failed: ${d.detail||d.error||r.status}`,'err',{oid:id,exch,event:'CANCEL_FAIL'});
   setTimeout(loadOpenOrders,700);
 };
 window.opCancelAll=async function(){
-  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open'),apiLive('/api/tse/orders')]);
+  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open'),apiLive('/api/tse/orders',tseH())]);
   const nerOrders=nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
   const tseOrders=tseR.ok?(tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])):[];
+  const th=tseH();
   let count=0;
   await Promise.all([
     ...nerOrders.map(o=>{count++;return fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'});}),
-    ...tseOrders.map(o=>{count++;return fetch(`/api/tse/orders/${o.order_id||o.id}`,{method:'DELETE'});})
+    ...tseOrders.map(o=>{count++;return fetch(`/api/tse/orders/${o.order_id||o.id}`,{method:'DELETE',...th});})
   ]);
   lg(`Cancelled ${count} order(s) across NER+TSE.`,'warn');setTimeout(loadOpenOrders,700);
 };
@@ -1414,7 +1422,7 @@ async function loadFills(){
   // TSE: /api/tse/orders/history — authenticated user's orders from TSE
   const [pfR, tseR] = await Promise.all([
     apiLive('/api/portfolio'),
-    apiLive('/api/tse/orders/history')
+    apiLive('/api/tse/orders/history', tseH())
   ]);
 
   const rows=[];
@@ -1507,7 +1515,7 @@ async function loadExecQuality(){
 
   const [pfR, tseR, openR] = await Promise.all([
     apiLive('/api/portfolio'),
-    apiLive('/api/tse/orders/history'),
+    apiLive('/api/tse/orders/history', tseH()),
     apiLive('/api/orders_open')
   ]);
 
