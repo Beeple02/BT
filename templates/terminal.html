@@ -44,6 +44,19 @@
 .cmd-p{padding:0 8px;font-size:10px;color:var(--org);border-right:1px solid var(--bdr);height:100%;display:flex;align-items:center;white-space:nowrap}
 #cmd-in{flex:1;background:transparent;border:none;outline:none;color:var(--wht);font-family:var(--font);font-size:11px;padding:0 8px;caret-color:var(--wht)}
 #cmd-st{padding:0 10px;font-size:10px;color:var(--txt3);border-left:1px solid var(--bdr);white-space:nowrap;min-width:200px;text-align:right}
+/* ── NER login modal ── */
+#ner-login-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:none;align-items:center;justify-content:center}
+#ner-login-overlay.open{display:flex}
+#ner-login-box{background:var(--bg2);border:1px solid var(--org);width:340px;font-family:var(--font)}
+.nl-hdr{background:var(--org);color:#000;padding:6px 12px;font-size:11px;font-weight:700;letter-spacing:2px;display:flex;justify-content:space-between;align-items:center}
+.nl-body{padding:16px}
+.nl-label{font-size:8px;color:var(--txt3);letter-spacing:1.5px;display:block;margin-bottom:4px}
+.nl-input{width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none;margin-bottom:10px}
+.nl-input:focus{border-color:var(--org)}
+.nl-btn{flex:1;background:var(--org);color:#000;border:none;padding:7px;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:1.5px;cursor:pointer}
+.nl-btn-sec{background:var(--bg3);color:var(--dn);border:1px solid rgba(244,67,54,.3);padding:7px 12px;font-family:var(--font);font-size:10px;cursor:pointer;letter-spacing:1px}
+#tb-account-btn{cursor:pointer;display:none}
+#tb-pnl-login-lnk{color:var(--org);font-size:9px;font-weight:700;letter-spacing:1px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -57,7 +70,11 @@
   <div class="tb-seg"><span class="l">TIER</span><span class="v" id="tb-tier">TRADING</span></div>
   <div class="tb-seg"><span class="l">SECS</span><span class="v" id="tb-nsec">—</span></div>
   <div class="tb-seg" id="tb-session" style="gap:12px">
-    <span><span class="l">P&amp;L </span><span class="v" id="tb-pnl" style="color:var(--txt2)">—</span></span>
+    <span onclick="showNerLogin()" style="cursor:pointer" title="Click to login / view NER account">
+      <span class="l">P&amp;L </span>
+      <span class="v" id="tb-pnl" style="color:var(--txt2)">—</span>
+      <span id="tb-pnl-login-lnk">LOGIN</span>
+    </span>
     <span><span class="l">TRADES </span><span class="v" id="tb-trades">—</span></span>
     <span><span class="l">VOL </span><span class="v" id="tb-vol">—</span></span>
     <span><span class="l">WIN </span><span class="v" id="tb-wr" style="color:var(--txt2)">—</span></span>
@@ -65,6 +82,10 @@
   </div>
   <div class="tb-seg" id="tb-alerts" style="cursor:pointer;display:none" onclick="sw('al')">
     <span style="color:var(--dn);font-weight:700" id="tb-alert-ct">0</span><span class="l" style="margin-left:4px">ALERTS</span>
+  </div>
+  <div class="tb-seg" id="tb-account-btn" onclick="showNerLogin()" title="NER account — click to manage">
+    <span style="color:var(--cyn);font-size:11px">◇</span>
+    <span class="v" id="tb-account-lbl" style="font-size:10px;letter-spacing:.5px;color:var(--cyn)">ACCOUNT</span>
   </div>
   <div class="tb-seg tb-right" style="cursor:pointer;user-select:none" title="Click to toggle UTC / local time" onclick="BB._utcMode=!BB._utcMode;tick()">
     <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
@@ -120,6 +141,29 @@
   <input id="cmd-in" placeholder="F1–F14 · B=BUY · S=SELL · ESC=CLOSE · &lt;TICKER&gt; · HELP" autocomplete="off">
   <div id="cmd-st">READY</div>
 </div>
+</div>
+
+<!-- ── NER Account Login Modal ───────────────────────────────────────────── -->
+<div id="ner-login-overlay" onclick="if(event.target===this)hideNerLogin()">
+  <div id="ner-login-box">
+    <div class="nl-hdr">
+      <span>◇ NER ACCOUNT</span>
+      <span style="cursor:pointer;font-size:15px;line-height:1" onclick="hideNerLogin()">✕</span>
+    </div>
+    <div class="nl-body">
+      <div id="nl-status" style="font-size:10px;color:var(--txt3);margin-bottom:12px;min-height:14px"></div>
+      <label class="nl-label">DISCORD USER ID</label>
+      <input id="nl-uid" class="nl-input" type="text" placeholder="e.g. 123456789012345678" autocomplete="off">
+      <label class="nl-label">PASSCODE</label>
+      <input id="nl-pass" class="nl-input" type="password" placeholder="••••••••" autocomplete="off"
+        onkeydown="if(event.key==='Enter')nerLoginSubmit()">
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="nl-btn" onclick="nerLoginSubmit()">LOGIN</button>
+        <button id="nl-logout-btn" class="nl-btn-sec" onclick="nerLogout()" style="display:none">LOGOUT</button>
+      </div>
+      <div id="nl-result" style="margin-top:10px;font-size:10px;min-height:16px;color:var(--txt3)"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -670,9 +714,11 @@ async function init(){
 window._sessionEquity = [];
 
 async function updateSessionStats(){
-  const [txR, pfR] = await Promise.all([
-    api('/api/transactions?type=Trade&limit=200'),
-    api('/api/portfolio')
+  const qs=nerQs();
+  const [txR, pfR, tsePfR] = await Promise.all([
+    api('/api/transactions?type=Trade&limit=200'+qs.replace('?','&')),
+    api('/api/portfolio'+qs),
+    api('/api/tse/portfolio')
   ]);
 
   // ── Trades / volume ──────────────────────────────────────────
@@ -710,14 +756,30 @@ async function updateSessionStats(){
     if((wins+losses)>0) wrEl.style.color=wins>=losses?'var(--up)':'var(--dn)';
   }
 
-  // ── P&L + session equity spark ───────────────────────────────
-  if(pfR.ok) {
+  // ── P&L + session equity spark (NER + TSE combined) ─────────
+  let nerPnl=0, nerEq=0, tsePnl=0, tseEq=0;
+  if(pfR.ok){
     const holds=pfR.d.holdings||[];
-    const pnl=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
-    const totalEq = pfR.d.total_equity||1;
-    const pnlEl=document.getElementById('tb-pnl');
-    if(pnlEl){pnlEl.textContent=(pnl>=0?'+':'')+f(pnl,0);pnlEl.style.color=gcI(pnl/Math.abs(totalEq)*100);}
-    // Track equity over session
+    nerPnl=holds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+    nerEq=pfR.d.total_equity||0;
+  }
+  if(tsePfR.ok&&tsePfR.d){
+    tseEq=tsePfR.d.total_value||tsePfR.d.total_equity||0;
+    // TSE P&L = total_value - cash_balance (approx unrealized)
+    const tseHoldings=tsePfR.d.stock_holdings||[];
+    tsePnl=tseHoldings.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+  }
+  const totalPnl = nerPnl + tsePnl;
+  const totalEq  = (nerEq||0) + (tseEq||0) || 1;
+  const pnlEl=document.getElementById('tb-pnl');
+  if(pnlEl&&(pfR.ok||tsePfR.ok)){
+    pnlEl.textContent=(totalPnl>=0?'+':'')+f(totalPnl,0);
+    pnlEl.style.color=gcI(totalPnl/Math.abs(totalEq)*100);
+    // Hide LOGIN link when NER is connected
+    const loginLnk=document.getElementById('tb-pnl-login-lnk');
+    if(pfR.ok&&loginLnk) loginLnk.style.display='none';
+  }
+  if(pfR.ok||tseEq>0){
     window._sessionEquity.push(totalEq);
     if(window._sessionEquity.length>120) window._sessionEquity.shift();
     drawSessionSpark(window._sessionEquity);
@@ -784,6 +846,86 @@ async function updateTradeFeed() {
   }).join('');
 }
 
+// ── NER Account helpers (shared across all pages via localStorage) ───────────
+function getNerCreds(){
+  try{return JSON.parse(localStorage.getItem('ner_creds')||'null');}catch(e){return null;}
+}
+function nerQs(){
+  const c=getNerCreds();
+  if(!c||!c.user_id||!c.passcode) return '';
+  return '?ner_user_id='+encodeURIComponent(c.user_id)+'&ner_passcode='+encodeURIComponent(c.passcode);
+}
+function updateNerAccountUI(){
+  const c=getNerCreds();
+  const loginLnk=document.getElementById('tb-pnl-login-lnk');
+  const accountBtn=document.getElementById('tb-account-btn');
+  const accountLbl=document.getElementById('tb-account-lbl');
+  if(c&&c.user_id){
+    if(loginLnk) loginLnk.style.display='none';
+    if(accountBtn) accountBtn.style.display='flex';
+    if(accountLbl) accountLbl.textContent='ID: '+String(c.user_id).slice(0,10)+(String(c.user_id).length>10?'…':'');
+  } else {
+    if(loginLnk) loginLnk.style.display='inline';
+    if(accountBtn) accountBtn.style.display='none';
+  }
+}
+window.showNerLogin=function(){
+  const c=getNerCreds();
+  const ov=document.getElementById('ner-login-overlay');
+  if(!ov) return;
+  ov.classList.add('open');
+  const uid=document.getElementById('nl-uid');
+  const pass=document.getElementById('nl-pass');
+  const status=document.getElementById('nl-status');
+  const logoutBtn=document.getElementById('nl-logout-btn');
+  document.getElementById('nl-result').textContent='';
+  if(c&&c.user_id){
+    if(uid) uid.value=c.user_id;
+    if(pass) pass.value='';
+    if(status){status.textContent='✓ Logged in as ID: '+c.user_id;status.style.color='var(--up)';}
+    if(logoutBtn) logoutBtn.style.display='inline-block';
+    setTimeout(()=>{if(pass) pass.focus();},80);
+  } else {
+    if(uid) uid.value='';
+    if(pass) pass.value='';
+    if(status){status.textContent='Enter your Discord User ID and NER passcode.';status.style.color='var(--txt3)';}
+    if(logoutBtn) logoutBtn.style.display='none';
+    setTimeout(()=>{if(uid) uid.focus();},80);
+  }
+};
+window.hideNerLogin=function(){
+  const ov=document.getElementById('ner-login-overlay');
+  if(ov) ov.classList.remove('open');
+};
+window.nerLoginSubmit=async function(){
+  const uid=(document.getElementById('nl-uid').value||'').trim();
+  const pass=(document.getElementById('nl-pass').value||'').trim();
+  const res=document.getElementById('nl-result');
+  if(!uid||!pass){res.textContent='Please enter both fields.';res.style.color='var(--dn)';return;}
+  res.textContent='Validating…';res.style.color='var(--txt3)';
+  const r=await api('/api/ner_auth/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid,passcode:pass})});
+  if(r.ok){
+    localStorage.setItem('ner_creds',JSON.stringify({user_id:uid,passcode:pass}));
+    res.textContent='✓ Login successful!';res.style.color='var(--up)';
+    updateNerAccountUI();
+    setTimeout(()=>{hideNerLogin();updateSessionStats();},800);
+  } else {
+    res.textContent='✗ '+(r.d?.detail||'Invalid credentials — check your ID and passcode.');
+    res.style.color='var(--dn)';
+  }
+};
+window.nerLogout=function(){
+  localStorage.removeItem('ner_creds');
+  updateNerAccountUI();
+  hideNerLogin();
+  // Reset topbar P&L
+  const pnlEl=document.getElementById('tb-pnl');
+  if(pnlEl){pnlEl.textContent='—';pnlEl.style.color='var(--txt2)';}
+  document.getElementById('tb-trades').textContent='—';
+  document.getElementById('tb-vol').textContent='—';
+  document.getElementById('tb-wr').textContent='—';
+};
+
 setInterval(async()=>{
   const r=await api('/api/securities');
   if(r.ok){BB.secs=r.d;buildTape(BB.secs);document.getElementById('tb-nsec').textContent=BB.secs.length;}
@@ -801,6 +943,7 @@ setInterval(updateSessionStats, 120000);
 setInterval(updateTradeFeed, 30000);
 
 init();
+updateNerAccountUI();
 // Clear any old resize localStorage keys
 try { Object.keys(localStorage).filter(k=>k.startsWith('bb_')).forEach(k=>localStorage.removeItem(k)); } catch(e) {}
 
