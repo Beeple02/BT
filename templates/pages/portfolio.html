@@ -1,6 +1,38 @@
 <!-- F3: PORTFOLIO — Institutional analytics lab -->
 <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
 
+<!-- Sub-page nav -->
+<div style="display:flex;background:var(--bg3);border-bottom:2px solid var(--bdr2);flex-shrink:0">
+  <span class="pf-sp act" data-sp="overview" onclick="pfSubpage(this)">OVERVIEW</span>
+  <span class="pf-sp"     data-sp="ner"      onclick="pfSubpage(this)">NER PORTFOLIO</span>
+  <span class="pf-sp"     data-sp="tse"      onclick="pfSubpage(this)">TSE PORTFOLIO</span>
+</div>
+
+<!-- ══ OVERVIEW sub-page ══ -->
+<div id="psp-overview" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+  <div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr)">
+    <div class="sc"><div class="sc-l">NER CASH</div><div class="sc-v wht" id="ov-ner-cash">—</div></div>
+    <div class="sc"><div class="sc-l">TSE CASH</div><div class="sc-v cyn" id="ov-tse-cash">—</div></div>
+    <div class="sc"><div class="sc-l">NER EQUITY</div><div class="sc-v wht" id="ov-ner-eq">—</div></div>
+    <div class="sc"><div class="sc-l">TSE STOCKS</div><div class="sc-v cyn" id="ov-tse-eq">—</div></div>
+    <div class="sc"><div class="sc-l">COMBINED</div><div class="sc-v up" id="ov-total">—</div></div>
+    <div class="sc"><div class="sc-l">NER P&L</div><div class="sc-v" id="ov-pnl">—</div></div>
+  </div>
+  <div class="wrow" style="flex:1;overflow:hidden">
+    <div class="win" style="width:320px;border-right:0;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">NER HOLDINGS</span></div><div class="wbar-r"><button class="btn btn-xs" onclick="loadOverview()">REFRESH</button></div></div>
+      <div class="scroll" id="ov-ner-holds"><div class="loading">—</div></div>
+    </div>
+    <div class="win" style="flex:1;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">TSE HOLDINGS</span></div></div>
+      <div class="scroll" id="ov-tse-holds"><div class="loading">—</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ NER PORTFOLIO sub-page ══ -->
+<div id="psp-ner" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+
 <!-- KPI strip -->
 <div class="scards" style="grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--bdr)">
   <div class="sc"><div class="sc-l">CASH</div><div class="sc-v wht" id="pf-cash">—</div></div>
@@ -164,7 +196,37 @@
     </div>
   </div>
 </div>
-</div>
+</div><!-- /psp-ner -->
+
+<!-- ══ TSE PORTFOLIO sub-page ══ -->
+<div id="psp-tse" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+  <div class="scards" style="grid-template-columns:repeat(6,1fr);border-bottom:1px solid var(--bdr)">
+    <div class="sc"><div class="sc-l">CASH</div><div class="sc-v wht" id="tse-cash">—</div></div>
+    <div class="sc"><div class="sc-l">AVAILABLE</div><div class="sc-v up" id="tse-avail">—</div></div>
+    <div class="sc"><div class="sc-l">STOCKS VALUE</div><div class="sc-v wht" id="tse-stocks-val">—</div></div>
+    <div class="sc"><div class="sc-l">TOTAL VALUE</div><div class="sc-v wht" id="tse-total-val">—</div></div>
+    <div class="sc"><div class="sc-l">DAY CHANGE</div><div class="sc-v" id="tse-day-chg">—</div></div>
+    <div class="sc"><div class="sc-l">POSITIONS</div><div class="sc-v cyn" id="tse-pos-ct">—</div></div>
+  </div>
+  <div class="wrow" style="flex:1;overflow:hidden">
+    <div class="win" style="width:340px;border-right:0;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">1</span><span class="wtitle">HOLDINGS</span></div><div class="wbar-r"><button class="btn btn-xs" onclick="loadTSEPortfolio()">REFRESH</button></div></div>
+      <div class="scroll" id="tse-holds"><div class="loading">—</div></div>
+    </div>
+    <div class="win" style="flex:1;display:flex;flex-direction:column">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">2</span><span class="wtitle">RECENT TRANSACTIONS</span></div></div>
+      <div class="scroll">
+        <table class="dt"><thead><tr>
+          <th>TIME</th><th>TICKER</th><th>SIDE</th>
+          <th class="r">QTY</th><th class="r">AVG PRICE</th><th class="r">VALUE</th><th>STATUS</th>
+        </tr></thead>
+        <tbody id="tse-txns"><tr><td colspan="7" class="loading">—</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+</div><!-- /psp-tse -->
+
+</div><!-- /root -->
 
 <style>
 @keyframes pf-pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
@@ -172,6 +234,9 @@
 .pf-tab{padding:4px 14px;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:2px solid transparent}
 .pf-tab:hover{color:var(--txt);background:var(--bg4)}
 .pf-tab.active{color:var(--wht);border-bottom-color:var(--org);background:var(--bg4)}
+.pf-sp{padding:5px 16px;font-size:10px;font-weight:900;letter-spacing:2px;cursor:pointer;color:var(--txt3);border-right:1px solid var(--bdr);border-bottom:3px solid transparent}
+.pf-sp:hover{color:var(--txt);background:var(--bg4)}
+.pf-sp.act{color:var(--wht);border-bottom-color:var(--cyn);background:var(--bg4)}
 .rm{display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5)}
 .rm .k{color:var(--txt3);font-size:9px}.rm .v{font-weight:600;font-variant-numeric:tabular-nums}
 </style>
@@ -181,7 +246,34 @@
 let _pf=null,_histories={},_pie=null,_pnlC=null,_eqC=null,_ddC=null,_scBarC=null,_attrC=null,_livePrices={},_liveIv=null;
 const COLS=['#00e5ff','#ffd600','#00c853','#f44336','#e040fb','#ff8c00','#29b6f6','#ff6d00','#00bfa5','#8d6e63'];
 
-window.PAGE_pf_onShow=function(){ loadPF(); };
+window.PAGE_pf_onShow=function(){
+  window._activePfSp=window._activePfSp||'overview';
+  // Restore active sub-page tab highlight without switching
+  document.querySelectorAll('.pf-sp').forEach(t=>{
+    t.classList.toggle('act',t.dataset.sp===window._activePfSp);
+  });
+  loadActivePfSubpage();
+};
+
+window.pfSubpage=function(el){
+  document.querySelectorAll('.pf-sp').forEach(t=>t.classList.remove('act'));
+  el.classList.add('act');
+  window._activePfSp=el.dataset.sp;
+  ['psp-overview','psp-ner','psp-tse'].forEach(id=>{
+    const d=document.getElementById(id);
+    if(d){d.style.display='none';}
+  });
+  const active=document.getElementById('psp-'+el.dataset.sp);
+  if(active){active.style.display='flex';}
+  loadActivePfSubpage();
+};
+
+window.loadActivePfSubpage=function(){
+  const sp=window._activePfSp||'overview';
+  if(sp==='overview') loadOverview();
+  else if(sp==='ner') loadPF();
+  else if(sp==='tse') loadTSEPortfolio();
+};
 const round4=v=>Math.round(v*10000)/10000;
 
 window.pfTab=function(el){
@@ -775,6 +867,144 @@ window.pfQuickOrder = function(ticker, side) {
     if(window.opSide) opSide(side);
   }, 300);
 };
+
+// ── OVERVIEW sub-page ─────────────────────────────────────────
+async function loadOverview(){
+  const [nerR, tseR] = await Promise.all([
+    api('/api/portfolio'),
+    api('/api/tse/account/portfolio')
+  ]);
+  const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+
+  // NER KPIs
+  let nerCash=0,nerEq=0,nerPnl=0,nerHolds=[];
+  if(nerR.ok){
+    const pf=nerR.d;
+    nerCash=pf.balance||0; nerEq=pf.total_equity||0;
+    nerHolds=pf.holdings||[];
+    nerPnl=nerHolds.reduce((s,h)=>s+(h.market_value||0)-(h.cost_basis||0),0);
+  }
+  S('ov-ner-cash',nerR.ok?f(nerCash):'ERR','');
+  S('ov-ner-eq',nerR.ok?f(nerEq):'ERR','');
+  S('ov-pnl',nerR.ok?(nerPnl>=0?'+':'')+f(nerPnl):' ERR',nerR.ok?gc(nerPnl):'var(--dn)');
+
+  // TSE KPIs
+  let tseCash=0,tseStocks=0;
+  if(tseR.ok){
+    const pf=tseR.d;
+    tseCash=pf.cash_balance||0; tseStocks=pf.stocks_value||0;
+    S('ov-tse-cash',f(tseCash),'var(--cyn)');
+    S('ov-tse-eq',f(tseStocks),'var(--cyn)');
+  } else {
+    S('ov-tse-cash','—','');
+    S('ov-tse-eq',tseR.s===0?'NO KEY':'ERR','var(--txt3)');
+  }
+  S('ov-total',f(nerEq+tseStocks+tseCash),'var(--up)');
+
+  // NER holdings list
+  const nhEl=document.getElementById('ov-ner-holds');
+  if(nhEl) nhEl.innerHTML=nerHolds.length?nerHolds.map(h=>{
+    const pnl=(h.market_value||0)-(h.cost_basis||0),pp=h.cost_basis?pnl/h.cost_basis*100:0;
+    return`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:700;color:var(--wht)">${h.ticker}</span>
+        <span style="font-weight:700;color:${gc(pnl)}">${f(h.market_value)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:2px">
+        <span>${h.quantity.toLocaleString()} sh</span>
+        <span style="color:${gcI(pp)}">${pp>=0?'+':''}${pp.toFixed(2)}% (${pnl>=0?'+':''}${f(pnl)})</span>
+      </div>
+    </div>`;
+  }).join(''):'<div class="loading">No NER holdings</div>';
+
+  // TSE holdings list
+  const thEl=document.getElementById('ov-tse-holds');
+  if(thEl){
+    if(!tseR.ok){
+      thEl.innerHTML=tseR.s===0?'<div style="padding:10px;font-size:9px;color:var(--cyn)">▸ Set TSE key to view holdings. <button onclick="showTseAuth()" style="font-size:8px;color:var(--cyn);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);padding:1px 7px;cursor:pointer;font-family:var(--font)">SET KEY →</button></div>':'<div class="alert err">TSE error</div>';
+    } else {
+      const holds=tseR.d.stock_holdings||[];
+      thEl.innerHTML=holds.length?holds.map(h=>{
+        const val=(h.quantity||0)*(h.current_price||h.avg_price||0);
+        const cost=(h.quantity||0)*(h.avg_price||0);
+        const pnl=val-cost;
+        return`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:12px;font-weight:700;color:var(--cyn)">TSE:${h.symbol||h.ticker}</span>
+            <span style="font-weight:700;color:${gc(pnl)}">${f(val)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:2px">
+            <span>${(h.quantity||0).toLocaleString()} sh @ ${f(h.avg_price||0,4)}</span>
+            <span style="color:${gc(pnl)}">${pnl>=0?'+':''}${f(pnl)}</span>
+          </div>
+        </div>`;
+      }).join(''):'<div class="loading">No TSE holdings</div>';
+    }
+  }
+}
+
+// ── TSE PORTFOLIO sub-page ─────────────────────────────────────
+async function loadTSEPortfolio(){
+  const S=(id,v,c)=>{const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;};
+  const holdsEl=document.getElementById('tse-holds');
+  const txnsEl=document.getElementById('tse-txns');
+  if(holdsEl) holdsEl.innerHTML='<div class="loading">Loading…</div>';
+  if(txnsEl) txnsEl.innerHTML='<tr><td colspan="7" class="loading">Loading…</td></tr>';
+
+  const r=await api('/api/tse/account/portfolio');
+  if(!r.ok){
+    const noKey=r.s===0||r.s===401;
+    const msg=noKey?'▸ No TSE key set — <button onclick="showTseAuth()" style="font-size:8px;color:var(--cyn);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);padding:1px 7px;cursor:pointer;font-family:var(--font)">SET KEY →</button>':'TSE error: '+(r.d?.detail||r.s);
+    if(holdsEl) holdsEl.innerHTML=`<div style="padding:10px;font-size:9px;color:var(--cyn)">${msg}</div>`;
+    if(txnsEl) txnsEl.innerHTML=`<tr><td colspan="7" style="padding:8px;color:var(--txt3)">—</td></tr>`;
+    return;
+  }
+  const pf=r.d;
+  const dayChg=pf.day_change||0,dayChgPct=pf.day_change_percent||0;
+  S('tse-cash',f(pf.cash_balance||0),'');
+  S('tse-avail',f(pf.available_balance||0),'var(--up)');
+  S('tse-stocks-val',f(pf.stocks_value||0),'');
+  S('tse-total-val',f(pf.total_value||0),'');
+  S('tse-day-chg',(dayChg>=0?'+':'')+f(dayChg)+' ('+dayChgPct.toFixed(2)+'%)',gc(dayChg));
+  const holds=pf.stock_holdings||[];
+  S('tse-pos-ct',holds.length,'var(--cyn)');
+
+  if(holdsEl) holdsEl.innerHTML=holds.length?holds.map(h=>{
+    const val=(h.quantity||0)*(h.current_price||h.avg_price||0);
+    const cost=(h.quantity||0)*(h.avg_price||0);
+    const pnl=val-cost,pp=cost?pnl/cost*100:0;
+    return`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:700;color:var(--cyn)">TSE:${h.symbol||h.ticker}</span>
+        <span style="font-weight:700;color:${gc(pnl)}">${f(val)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt2);margin-top:2px">
+        <span>${(h.quantity||0).toLocaleString()} sh @ ${f(h.avg_price||0,4)}</span>
+        <span style="color:${gcI(pp)}">${pp>=0?'+':''}${pp.toFixed(2)}% (${pnl>=0?'+':''}${f(pnl)})</span>
+      </div>
+    </div>`;
+  }).join(''):'<div class="loading">No TSE holdings</div>';
+
+  const txns=pf.transactions||[];
+  if(txnsEl) txnsEl.innerHTML=txns.length?txns.slice(0,50).map(t=>{
+    const side=(t.side||t.type||'').toLowerCase();
+    const sideCol=side.includes('buy')?'var(--up)':side.includes('sell')?'var(--dn)':'var(--txt3)';
+    const ts=t.timestamp||t.created_at||t.updated_at||'';
+    const tStr=ts?new Date(ts).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short',hour12:false}):'—';
+    const qty=t.quantity||t.qty||0;
+    const px=+(t.price||t.avg_price||0);
+    const val=qty&&px?qty*px:null;
+    return`<tr>
+      <td class="dim" style="font-size:9px">${tStr}</td>
+      <td class="wht" style="font-weight:700">TSE:${t.symbol||t.ticker||'—'}</td>
+      <td style="color:${sideCol};font-weight:700">${side.toUpperCase()||'—'}</td>
+      <td class="r">${qty?qty.toLocaleString():'—'}</td>
+      <td class="r yel">${px?'$'+f(px,4):'—'}</td>
+      <td class="r wht">${val!=null?'$'+f(val,2):'—'}</td>
+      <td class="dim" style="font-size:9px">${t.status||'—'}</td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="7" class="loading">No transactions</td></tr>';
+}
 
 function calcHealth(holds,cash,totalEq){
   if(!holds.length) return 50; let s=100;
