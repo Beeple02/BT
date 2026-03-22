@@ -74,9 +74,18 @@ window.wlRefresh=async function(){
 
   // Fetch current prices + RSI from ticker stats
   await Promise.all(BB.watchlist.map(async w=>{
+    const isTse=w.ticker.startsWith('TSE:');
     const sec=BB.secs.find(s=>s.ticker===w.ticker);
     w.prev=w.price;
-    w.price=sec?.market_price??w.price;
+    // Feature 10: TSE tickers pull live price from market_price endpoint
+    // (BB.secs may not carry TSE prices if exchange feed is NER-only)
+    if(isTse){
+      const pr=await api(`/api/market_price/${w.ticker}`);
+      if(pr.ok&&pr.d.market_price!=null) w.price=pr.d.market_price;
+      else w.price=sec?.market_price??w.price;
+    } else {
+      w.price=sec?.market_price??w.price;
+    }
     // Fetch RSI + period chg% from 30D stats (cached)
     if(!_rsiCache[w.ticker]||Date.now()-_rsiCache[w.ticker].ts>60000){
       const r=await api(`/api/ticker_stats/${w.ticker}?days=30`);
