@@ -281,9 +281,16 @@
         <div class="op-qc"><div class="op-qc-l">EST. IMPACT</div><div class="op-qc-v" id="opq-slip">—</div></div>
       </div>
       <div class="op-acct">
-        <div class="op-ac"><div class="op-ac-l">AVAILABLE</div><div class="op-ac-v up"  id="opa-av">—</div></div>
-        <div class="op-ac"><div class="op-ac-l">POSITION</div><div class="op-ac-v"      id="opa-pos">0</div></div>
-        <div class="op-ac"><div class="op-ac-l">P&L</div><div class="op-ac-v dim"        id="opa-pnl">—</div></div>
+        <div class="op-ac" style="border-right:2px solid rgba(255,140,0,.3)">
+          <div class="op-ac-l" style="color:var(--org)">NER AVAIL</div>
+          <div class="op-ac-v up" id="opa-av">—</div>
+        </div>
+        <div class="op-ac">
+          <div class="op-ac-l" style="color:var(--cyn)">TSE AVAIL</div>
+          <div class="op-ac-v" id="opa-tse-av" style="color:var(--cyn)">—</div>
+        </div>
+        <div class="op-ac"><div class="op-ac-l">POSITION</div><div class="op-ac-v" id="opa-pos">0</div></div>
+        <div class="op-ac"><div class="op-ac-l">P&L</div><div class="op-ac-v dim" id="opa-pnl">—</div></div>
       </div>
     </div><!-- /op-market -->
 
@@ -354,7 +361,25 @@
     <div class="scroll" id="op-jobs"><div class="loading" style="padding:14px">No active algos or watchers.</div></div>
   </div>
 
-  <div class="op-view" id="bv-fills"><div class="scroll">
+  <div class="op-view" id="bv-fills">
+  <!-- Fills filter bar -->
+  <div style="display:flex;align-items:center;gap:6px;padding:3px 8px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+    <span style="font-size:8px;color:var(--txt3);letter-spacing:1px">FILTER</span>
+    <input id="fills-q-tk" type="text" placeholder="TICKER" oninput="applyFillsFilter()"
+      style="width:70px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 5px;outline:none">
+    <select id="fills-q-side" onchange="applyFillsFilter()"
+      style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 4px;outline:none">
+      <option value="">ALL SIDES</option><option value="buy">BUY</option><option value="sell">SELL</option>
+    </select>
+    <select id="fills-q-exch" onchange="applyFillsFilter()"
+      style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 4px;outline:none">
+      <option value="">ALL EXCH</option><option value="NER">NER</option><option value="TSE">TSE</option>
+    </select>
+    <button onclick="document.getElementById('fills-q-tk').value='';document.getElementById('fills-q-side').value='';document.getElementById('fills-q-exch').value='';applyFillsFilter();"
+      style="font-size:8px;padding:2px 6px;background:var(--bg2);border:1px solid var(--bdr2);color:var(--txt3);cursor:pointer;font-family:var(--font)">RESET</button>
+    <span id="fills-count" style="font-size:9px;color:var(--txt3);margin-left:auto"></span>
+  </div>
+  <div class="scroll">
     <table class="dt"><thead><tr>
       <th>TIME</th><th>EXCH</th><th>TICKER</th><th>SIDE</th>
       <th class="r">QTY</th><th class="r">PRICE</th><th class="r">VALUE</th><th class="r">COMM</th>
@@ -608,6 +633,9 @@ window.PAGE_ord_onShow=function(){
   _jT=setInterval(tickJobs,5000);
   _oT=setInterval(loadOpenOrders,20000);
   _syncT=setInterval(syncSession,30000);
+  // Feature 4: Poll TSE order status every 8s to detect fills
+  clearInterval(window._tsePollT);
+  window._tsePollT=setInterval(pollTseOrderStatus,8000);
   // Restore algos from last session (only on first load)
   if(!window._sessionRestored){
     window._sessionRestored=true;
@@ -756,8 +784,46 @@ async function refreshPos(tk){
 }
 
 async function loadFunds(){
-  const r=await apiLive('/api/funds'+nerQs());if(!r.ok)return;
-  _funds=r.d;g('opa-av').textContent='$'+fk(r.d.available||0);
+  // Load NER funds + TSE account in parallel
+  const [r, tseR] = await Promise.all([
+    apiLive('/api/funds'+nerQs()),
+    apiLive('/api/tse/account')
+  ]);
+  if(r.ok){
+    _funds=r.d;
+    g('opa-av').textContent='$'+fk(r.d.available||0);
+  } else if(r.s===401){
+    const c=getNerCreds();
+    g('opa-av').textContent=c?'EXPIRED':'—';
+    g('opa-av').style.color='var(--dn)';
+  }
+  if(tseR.ok&&tseR.d){
+    const av=tseR.d.available_balance||tseR.d.cash_balance||0;
+    const el=g('opa-tse-av');
+    if(el){el.textContent='$'+fk(av);el.style.color='var(--cyn)';}
+  }
+}
+// TSE open-order status poll — detects fills in background (Feature 4)
+let _tseLastStatuses={};
+async function pollTseOrderStatus(){
+  const r=await apiLive('/api/tse/orders');
+  if(!r.ok) return;
+  const orders=(r.d?.orders||(Array.isArray(r.d)?r.d:[]));
+  orders.forEach(o=>{
+    const id=o.order_id||o.id;
+    const prev=_tseLastStatuses[id];
+    const cur=(o.status||'').toLowerCase();
+    if(prev&&prev!==cur){
+      if(cur==='filled'||cur==='partially_filled'){
+        lg(`[TSE] Order ${String(id).slice(0,10)}… → ${cur.toUpperCase()} (${o.filled_qty||'?'} shares @ ${o.limit_price||'MKT'})`, 'ok', {oid:id,exch:'TSE',event:'FILL'});
+        loadOpenOrders(); loadFills();
+      } else if(cur==='cancelled'){
+        lg(`[TSE] Order ${String(id).slice(0,10)}… cancelled.`, 'warn', {oid:id,exch:'TSE',event:'CANCELLED'});
+        loadOpenOrders();
+      }
+    }
+    _tseLastStatuses[id]=cur;
+  });
 }
 
 // ── type ───────────────────────────────────────────────────────
@@ -1411,7 +1477,15 @@ async function loadOpenOrders(){
     apiLive('/api/orders_open'+nerQs()),
     apiLive('/api/tse/orders')
   ]);
-  const nerOrders = nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
+  // Feature 3 & 8: surface 401 as a clear prompt, not a blank table
+  let nerOrders=[];
+  if(nerR.ok&&Array.isArray(nerR.d)){
+    nerOrders=nerR.d;
+  } else if(nerR.s===401){
+    const c=getNerCreds();
+    const hint=c?'Passcode may have expired — re-enter your credentials in the NER ID bar above.':'Set your NER ID and passcode in the bar above to see NER orders.';
+    tb.innerHTML=`<tr><td colspan="10" style="padding:10px 12px;color:var(--yel);font-size:10px">⚠ ${hint}</td></tr>`;
+  }
   const tseRaw    = tseR.ok ? (tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])) : [];
   // Normalize TSE orders to NER format
   const tseOrders = tseRaw.map(o=>({
@@ -1472,6 +1546,13 @@ async function loadFills(){
   ]);
 
   const rows=[];
+  let _nerHint=null;
+
+  // Feature 8: 401 = expired or missing credentials
+  if(nerTxR.s===401){
+    const c=getNerCreds();
+    _nerHint=c?'NER passcode may have expired — re-enter credentials in the auth bar above.':'Set NER credentials in the auth bar above to see NER fills.';
+  }
 
   // NER fills — user-specific transaction history
   if(nerTxR.ok && Array.isArray(nerTxR.d)){
@@ -1512,10 +1593,25 @@ async function loadFills(){
   });
 
   rows.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
-  g('op-fills-body').closest('.op-view')._fillsData=rows;
+  // Store on the view element for filtering
+  const viewEl=g('op-fills-body').closest('.op-view');
+  viewEl._fillsData=rows;
+  viewEl._nerHint=_nerHint;
 
-  if(!rows.length){tb.innerHTML='<tr><td colspan="8" class="loading">No recent fills</td></tr>';return;}
-  tb.innerHTML=rows.slice(0,100).map(r=>{
+  if(!rows.length){
+    const hintHtml=_nerHint?`<tr><td colspan="8" style="padding:6px 12px;color:var(--yel);font-size:10px">⚠ ${_nerHint}</td></tr>`:'';
+    tb.innerHTML=hintHtml+'<tr><td colspan="8" class="loading">No recent fills</td></tr>';
+    return;
+  }
+  _renderFillsRows(rows, _nerHint);
+}
+
+function _renderFillsRows(rows, hint){
+  const tb=g('op-fills-body');if(!tb)return;
+  const hintHtml=hint?`<tr><td colspan="8" style="padding:4px 12px;color:var(--yel);font-size:9px">⚠ ${hint}</td></tr>`:'';
+  const ct=g('fills-count');if(ct)ct.textContent=rows.length+' fill'+(rows.length!==1?'s':'');
+  if(!rows.length){tb.innerHTML=hintHtml+'<tr><td colspan="8" class="loading">No fills match filter</td></tr>';return;}
+  tb.innerHTML=hintHtml+rows.slice(0,100).map(r=>{
     const sideCol=r.side==='buy'?'var(--up)':r.side==='sell'?'var(--dn)':'var(--txt3)';
     const exchCol=r.exch==='TSE'?'var(--cyn)':'var(--org)';
     const tStr=r.ts?(r.ts.includes('T')?new Date(r.ts).toLocaleTimeString('en-GB',{hour12:false}):r.ts.slice(0,8)):'—';
@@ -1530,6 +1626,22 @@ async function loadFills(){
       <td class="r dn">${r.comm!=null?'$'+f2(r.comm,2):'—'}</td>
     </tr>`;
   }).join('');
+}
+
+// Feature 6: fills filter
+function applyFillsFilter(){
+  const viewEl=g('op-fills-body')?.closest('.op-view');
+  if(!viewEl||!viewEl._fillsData) return;
+  const tkF=(g('fills-q-tk').value||'').toUpperCase();
+  const sideF=(g('fills-q-side').value||'').toLowerCase();
+  const exchF=(g('fills-q-exch').value||'').toUpperCase();
+  const filtered=viewEl._fillsData.filter(r=>{
+    if(tkF&&!(r.tk||'').toUpperCase().includes(tkF)) return false;
+    if(sideF&&(r.side||'').toLowerCase()!==sideF) return false;
+    if(exchF&&(r.exch||'').toUpperCase()!==exchF) return false;
+    return true;
+  });
+  _renderFillsRows(filtered, viewEl._nerHint);
 }
 
 // ── log ────────────────────────────────────────────────────────
