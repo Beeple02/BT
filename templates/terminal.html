@@ -1087,6 +1087,50 @@ window.getTseAuthHeaders = function(){
   return {'X-TSE-User-Key': key};
 };
 
+// ── NER lockout detection + countdown ────────────────────────────────────────
+function _nerLockoutRemaining(){
+  var until=parseInt(sessionStorage.getItem('ner_lockout_until')||'0');
+  return Math.max(0,Math.ceil((until-Date.now())/1000));
+}
+window.nerSetLockout=function(secs){
+  var dur=secs||300;
+  sessionStorage.setItem('ner_lockout_until',String(Date.now()+dur*1000));
+  _nerLockoutTick();
+};
+function _nerLockoutTick(){
+  var rem=_nerLockoutRemaining();
+  var el=document.getElementById('tb-ner-auth');
+  if(!el) return;
+  if(rem>0){
+    var mm=Math.floor(rem/60),ss=String(rem%60).padStart(2,'0');
+    el.textContent='🔒 '+(mm>0?mm+'m':'')+ss+'s';
+    el.style.color='var(--dn)';
+    el.title='NER account locked — '+mm+'m'+ss+'s remaining';
+  } else {
+    var creds=_loadNerCreds();
+    _updateNerAuthIndicator(!!creds,creds&&creds.user_id);
+  }
+}
+setInterval(_nerLockoutTick,1000);
+// Patch fetch globally to detect NER 401 lockout responses
+(function(){
+  var _origFetch=window.fetch;
+  var NER_PATHS=['/api/portfolio','/api/orders','/api/funds'];
+  window.fetch=async function(url,opts){
+    var res=await _origFetch.apply(this,arguments);
+    if(res.status===401&&typeof url==='string'&&NER_PATHS.some(function(p){return url.includes(p);})){
+      res.clone().json().then(function(body){
+        var msg=((body&&(body.detail||body.message||body.error))||'').toLowerCase();
+        if(msg.includes('lock')){
+          var m=msg.match(/(\d+)\s*s/);
+          window.nerSetLockout(m?parseInt(m[1]):300);
+        }
+      }).catch(function(){});
+    }
+    return res;
+  };
+})();
+
 // Patch api() to auto-inject NER + TSE auth headers for trading/account routes
 (function(){
   var _origApi = window.api;
