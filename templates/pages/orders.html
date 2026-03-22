@@ -605,6 +605,10 @@ const tseH=()=>{
   const h=window.getTseAuthHeaders?window.getTseAuthHeaders():{};
   return Object.keys(h).length?{headers:h}:{};
 };
+const nerH=()=>{
+  const h=window.getNerAuthHeaders?window.getNerAuthHeaders():{};
+  return Object.keys(h).length?{headers:h}:{};
+};
 
 // ── side ───────────────────────────────────────────────────────
 window.opSide=function(s){
@@ -706,7 +710,7 @@ async function refreshPos(tk){
 }
 
 async function loadFunds(){
-  const r=await apiLive('/api/funds');if(!r.ok)return;
+  const r=await apiLive('/api/funds',nerH());if(!r.ok)return;
   _funds=r.d;g('opa-av').textContent='$'+fk(r.d.available||0);
 }
 
@@ -946,7 +950,7 @@ window.opExec=async function(){
     lg(`FOK placed · checking fill in 1s…`,'info');
     await sleep(1000);
     // Use apiLive — never cached, always fresh
-    const chk=await apiLive('/api/orders_open');
+    const chk=await apiLive('/api/orders_open',nerH());
     const orders=Array.isArray(chk.d)?chk.d:[];
     const still=orders.find(o=>o.order_id===oid);
     if(still){
@@ -965,7 +969,7 @@ window.opExec=async function(){
     const oid=r.d.order_id;
     lg(`IOC placed · waiting ${wait}s…`,'info');
     await sleep(wait*1000);
-    const chk=await apiLive('/api/orders_open');
+    const chk=await apiLive('/api/orders_open',nerH());
     const orders=Array.isArray(chk.d)?chk.d:[];
     const still=orders.find(o=>o.order_id===oid);
     if(still){
@@ -1035,7 +1039,7 @@ window.opExec=async function(){
 
 // ── order helpers ──────────────────────────────────────────────
 async function cxOid(id){
-  try{await fetch(`/api/orders_open/${id}`,{method:'DELETE'});}catch(e){}
+  try{await fetch(`/api/orders_open/${id}`,{method:'DELETE',...nerH()});}catch(e){}
 }
 async function fireLmt(side,tk,qty,px,exph){
   const expHrs=Math.max(1,Math.round(exph||24));
@@ -1050,7 +1054,7 @@ async function fireMkt(side,tk,qty){
 }
 // Always-fresh open orders check
 async function getOpenOrders(){
-  const r=await apiLive('/api/orders_open');
+  const r=await apiLive('/api/orders_open',nerH());
   if(!r.ok)return[];
   return Array.isArray(r.d)?r.d:[];
 }
@@ -1359,7 +1363,7 @@ async function loadOpenOrders(){
   const tb=g('op-open-body');
   // Load NER + TSE open orders in parallel
   const [nerR, tseR] = await Promise.all([
-    apiLive('/api/orders_open'),
+    apiLive('/api/orders_open',nerH()),
     apiLive('/api/tse/orders', tseH())
   ]);
   const nerOrders = nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
@@ -1377,7 +1381,9 @@ async function loadOpenOrders(){
     _exch:     'TSE'
   }));
   const all = [...nerOrders.map(o=>({...o,_exch:'NER'})), ...tseOrders];
-  if(!all.length){tb.innerHTML='<tr><td colspan="10" class="loading">No open orders</td></tr>';g('ct-open').textContent='';return;}
+  const _noTseKey=!localStorage.getItem('tse_api_key');
+  const _tseHint=_noTseKey?`<tr><td colspan="10" style="padding:5px 10px;background:rgba(0,229,255,.04);border-top:1px solid rgba(0,229,255,.12)"><span style="font-size:9px;color:var(--cyn);letter-spacing:.5px">▸ No TSE key set — TSE orders not shown.</span> <button onclick="showTseAuth()" style="font-size:8px;color:var(--cyn);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);padding:1px 7px;cursor:pointer;font-family:var(--font);letter-spacing:1px">SET KEY →</button></td></tr>`:'';
+  if(!all.length){tb.innerHTML='<tr><td colspan="10" class="loading">No open orders</td></tr>'+_tseHint;g('ct-open').textContent='';return;}
   g('ct-open').textContent='('+all.length+')';
   tb.innerHTML=all.map(o=>`<tr>
     <td><span class="badge" style="font-size:8px;padding:1px 4px;background:${o._exch==='TSE'?'rgba(0,229,255,.15)':'rgba(255,140,0,.15)'};color:${o._exch==='TSE'?'var(--cyn)':'var(--org)'}">${o._exch}</span></td>
@@ -1390,23 +1396,23 @@ async function loadOpenOrders(){
     <td class="dim" style="font-size:9px">${o.expiry?new Date(o.expiry).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'}):'—'}</td>
     <td class="dim" style="font-size:9px">${o.status||'—'}</td>
     <td><button class="cx-btn" onclick="opCx('${o.order_id}','${o._exch}')">✕</button></td>
-  </tr>`).join('');
+  </tr>`).join('')+_tseHint;
 }
 window.opCx=async function(id, exch='NER'){
   const url = exch==='TSE' ? `/api/tse/orders/${id}` : `/api/orders_open/${id}`;
-  const opts = exch==='TSE' ? {method:'DELETE',...tseH()} : {method:'DELETE'};
+  const opts = exch==='TSE' ? {method:'DELETE',...tseH()} : {method:'DELETE',...nerH()};
   const r=await fetch(url,opts),d=await r.json().catch(()=>({}));
   r.ok?lg(`[${exch}] Order ${id.toString().slice(0,10)}… cancelled`,'warn',{oid:id,exch,event:'CANCELLED'}):lg(`Cancel failed: ${d.detail||d.error||r.status}`,'err',{oid:id,exch,event:'CANCEL_FAIL'});
   setTimeout(loadOpenOrders,700);
 };
 window.opCancelAll=async function(){
-  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open'),apiLive('/api/tse/orders',tseH())]);
+  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open',nerH()),apiLive('/api/tse/orders',tseH())]);
   const nerOrders=nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
   const tseOrders=tseR.ok?(tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])):[];
   const th=tseH();
   let count=0;
   await Promise.all([
-    ...nerOrders.map(o=>{count++;return fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'});}),
+    ...nerOrders.map(o=>{count++;return fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE',...nerH()});}),
     ...tseOrders.map(o=>{count++;return fetch(`/api/tse/orders/${o.order_id||o.id}`,{method:'DELETE',...th});})
   ]);
   lg(`Cancelled ${count} order(s) across NER+TSE.`,'warn');setTimeout(loadOpenOrders,700);
@@ -1421,7 +1427,7 @@ async function loadFills(){
   // /api/transactions hits Atlas public tape and returns all users' trades
   // TSE: /api/tse/orders/history — authenticated user's orders from TSE
   const [pfR, tseR] = await Promise.all([
-    apiLive('/api/portfolio'),
+    apiLive('/api/portfolio',nerH()),
     apiLive('/api/tse/orders/history', tseH())
   ]);
 
@@ -1468,7 +1474,9 @@ async function loadFills(){
   rows.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
   g('op-fills-body').closest('.op-view')._fillsData=rows;
 
-  if(!rows.length){tb.innerHTML='<tr><td colspan="8" class="loading">No recent fills</td></tr>';return;}
+  const _noTseKeyF=!localStorage.getItem('tse_api_key');
+  const _tseHintF=_noTseKeyF?`<tr><td colspan="8" style="padding:5px 10px;background:rgba(0,229,255,.04);border-top:1px solid rgba(0,229,255,.12)"><span style="font-size:9px;color:var(--cyn);letter-spacing:.5px">▸ No TSE key set — TSE fills not shown.</span> <button onclick="showTseAuth()" style="font-size:8px;color:var(--cyn);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3);padding:1px 7px;cursor:pointer;font-family:var(--font);letter-spacing:1px">SET KEY →</button></td></tr>`:'';
+  if(!rows.length){tb.innerHTML='<tr><td colspan="8" class="loading">No recent fills</td></tr>'+_tseHintF;return;}
   tb.innerHTML=rows.slice(0,100).map(r=>{
     const sideCol=r.side==='buy'?'var(--up)':r.side==='sell'?'var(--dn)':'var(--txt3)';
     const exchCol=r.exch==='TSE'?'var(--cyn)':'var(--org)';
@@ -1483,7 +1491,7 @@ async function loadFills(){
       <td class="r wht">${r.value!=null?'$'+f2(r.value,2):'—'}</td>
       <td class="r dn">${r.comm!=null?'$'+f2(r.comm,2):'—'}</td>
     </tr>`;
-  }).join('');
+  }).join('')+_tseHintF;
 }
 
 // ── log ────────────────────────────────────────────────────────
@@ -1514,9 +1522,9 @@ async function loadExecQuality(){
   el.innerHTML='<div class="loading" style="padding:14px">Computing…</div>';
 
   const [pfR, tseR, openR] = await Promise.all([
-    apiLive('/api/portfolio'),
+    apiLive('/api/portfolio',nerH()),
     apiLive('/api/tse/orders/history', tseH()),
-    apiLive('/api/orders_open')
+    apiLive('/api/orders_open',nerH())
   ]);
 
   const fills=[];
@@ -1629,9 +1637,9 @@ async function loadAuditTrail(){
 
   // Fetch NER filled trades (via portfolio — user-specific), NER open orders, TSE history
   const [pfR, nerOpenR, tseFillsR] = await Promise.all([
-    apiLive('/api/portfolio'),
-    apiLive('/api/orders_open'),
-    apiLive('/api/tse/orders/history')
+    apiLive('/api/portfolio',nerH()),
+    apiLive('/api/orders_open',nerH()),
+    apiLive('/api/tse/orders/history', tseH())
   ]);
 
   const rows=[];
