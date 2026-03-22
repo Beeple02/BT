@@ -69,6 +69,9 @@
   <div class="tb-seg" style="cursor:pointer;padding:0 10px;border-right:1px solid var(--bdr)" onclick="showNerAuth()" title="NER account credentials">
     <span id="tb-ner-auth" style="font-size:9px;letter-spacing:1.5px;color:var(--txt3);font-family:var(--font)">○ ACCOUNT</span>
   </div>
+  <div class="tb-seg" style="cursor:pointer;padding:0 10px;border-right:1px solid var(--bdr)" onclick="showTseAuth()" title="TSE account API key">
+    <span id="tb-tse-auth" style="font-size:9px;letter-spacing:1.5px;color:var(--txt3);font-family:var(--font)">○ TSE</span>
+  </div>
   <div class="tb-seg tb-right" style="cursor:pointer;user-select:none" title="Click to toggle UTC / local time" onclick="BB._utcMode=!BB._utcMode;tick()">
     <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
     &nbsp;<span id="tb-tz" style="color:var(--txt3);font-size:9px;letter-spacing:.5px">LCL</span>
@@ -960,10 +963,38 @@ window.drawSessionSpark = function(pts){
   </div>
 </div>
 
+<div id="tse-auth-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--bg2);border:1px solid var(--cyn);width:420px;font-size:11px">
+    <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:10px;font-weight:700;letter-spacing:2px;color:var(--cyn)">TSE ACCOUNT</span>
+      <span style="cursor:pointer;color:var(--txt2);font-size:14px" onclick="hideTseAuth()">&#x2715;</span>
+    </div>
+    <div style="padding:16px">
+      <div style="font-size:10px;color:var(--txt2);margin-bottom:14px;line-height:1.7">
+        Enter your TSE personal API key to view your orders and place trades.<br>
+        Generate one in the TSE platform under account settings.
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;display:block;margin-bottom:4px">TSE API KEY</label>
+        <input id="tse-api-key" type="password" placeholder="your TSE API key" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:11px;padding:6px 8px;outline:none">
+      </div>
+      <div id="tse-auth-status" style="font-size:10px;min-height:16px;margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="flex:1" onclick="hideTseAuth()">CANCEL</button>
+        <button class="btn on" style="flex:2" style="border-color:var(--cyn);color:var(--cyn)" onclick="saveTseAuth()">SAVE &#x2192;</button>
+        <button class="btn" style="color:var(--dn);border-color:var(--dn)" onclick="clearTseAuth()">CLEAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   var saved = _loadNerCreds();
   if(saved) _updateNerAuthIndicator(true, saved.user_id);
+  // Restore TSE auth indicator
+  var tseKey = localStorage.getItem('tse_api_key');
+  if(tseKey) _updateTseAuthIndicator(true);
 })();
 
 function _loadNerCreds(){
@@ -1017,18 +1048,59 @@ window.getNerAuthHeaders = function(){
   if(!c) return {};
   return {'X-NER-User-Id': c.user_id, 'X-NER-Passcode': c.passcode};
 };
-// Patch api() to auto-inject NER auth headers for trading/account routes
+
+// ── TSE auth ─────────────────────────────────────────────────────────────────
+function _updateTseAuthIndicator(active){
+  var el = document.getElementById('tb-tse-auth');
+  if(!el) return;
+  el.style.color = active ? 'var(--cyn)' : 'var(--txt3)';
+  el.textContent = active ? '● TSE' : '○ TSE';
+}
+window.showTseAuth = function(){
+  var key = localStorage.getItem('tse_api_key') || '';
+  document.getElementById('tse-api-key').value = key;
+  document.getElementById('tse-auth-status').textContent = '';
+  document.getElementById('tse-auth-modal').style.display = 'flex';
+  document.getElementById('tse-api-key').focus();
+};
+window.hideTseAuth = function(){
+  document.getElementById('tse-auth-modal').style.display = 'none';
+};
+window.clearTseAuth = function(){
+  localStorage.removeItem('tse_api_key');
+  _updateTseAuthIndicator(false);
+  var st = document.getElementById('tse-auth-status');
+  if(st){ st.style.color='var(--txt2)'; st.textContent='TSE key cleared.'; }
+};
+window.saveTseAuth = function(){
+  var key = document.getElementById('tse-api-key').value.trim();
+  var st  = document.getElementById('tse-auth-status');
+  if(!key){ st.style.color='var(--dn)'; st.textContent='API key required.'; return; }
+  localStorage.setItem('tse_api_key', key);
+  _updateTseAuthIndicator(true);
+  st.style.color='var(--up)'; st.textContent='TSE key saved.';
+  setTimeout(hideTseAuth, 1000);
+};
+window.getTseAuthHeaders = function(){
+  var key = localStorage.getItem('tse_api_key') || '';
+  if(!key) return {};
+  return {'X-TSE-User-Key': key};
+};
+
+// Patch api() to auto-inject NER + TSE auth headers for trading/account routes
 (function(){
   var _origApi = window.api;
-  var AUTH_ROUTES = ['/api/portfolio','/api/funds','/api/orders'];
+  var AUTH_ROUTES = ['/api/portfolio','/api/funds','/api/orders','/api/tse/orders'];
   window.api = async function(path, opts){
     opts = opts||{};
     var needsAuth = AUTH_ROUTES.some(function(r){ return path.startsWith(r); });
     if(needsAuth){
-      var extra = window.getNerAuthHeaders();
-      if(extra['X-NER-User-Id']){
-        opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers||{}, extra)});
-      }
+      var headers = Object.assign({}, opts.headers||{});
+      var nerExtra = window.getNerAuthHeaders();
+      if(nerExtra['X-NER-User-Id']) Object.assign(headers, nerExtra);
+      var tseExtra = window.getTseAuthHeaders ? window.getTseAuthHeaders() : {};
+      if(tseExtra['X-TSE-User-Key']) Object.assign(headers, tseExtra);
+      if(Object.keys(headers).length) opts = Object.assign({}, opts, {headers: headers});
     }
     return _origApi(path, opts);
   };
