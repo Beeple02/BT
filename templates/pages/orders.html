@@ -317,6 +317,21 @@
 
 </div><!-- /ticket -->
 
+<!-- ══════════ NER AUTH BAR ══════════ -->
+<div id="ner-auth-bar" style="display:flex;align-items:center;gap:6px;padding:3px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0">
+  <span style="font-size:8px;color:var(--txt3);letter-spacing:1.5px">NER ID</span>
+  <input id="ner-uid" type="text" placeholder="Discord User ID" autocomplete="off"
+    style="width:110px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 5px;outline:none">
+  <span style="font-size:8px;color:var(--txt3);letter-spacing:1.5px">PASSCODE</span>
+  <input id="ner-pass" type="password" placeholder="••••••••" autocomplete="off"
+    style="width:80px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:2px 5px;outline:none">
+  <button onclick="nerSetCreds()"
+    style="font-size:8px;padding:2px 8px;background:var(--bg2);border:1px solid var(--bdr2);color:var(--org);cursor:pointer;font-family:var(--font);letter-spacing:1px">SET</button>
+  <button onclick="nerClearCreds()"
+    style="font-size:8px;padding:2px 6px;background:var(--bg2);border:1px solid var(--bdr2);color:var(--txt3);cursor:pointer;font-family:var(--font)">✕</button>
+  <span id="ner-auth-status" style="font-size:9px;color:var(--txt3);letter-spacing:.5px">Not set</span>
+</div>
+
 <!-- ══════════ BLOTTER ══════════ -->
 <div class="op-blot">
   <div class="op-tabs">
@@ -575,6 +590,18 @@ function populateSel(selId) {
 
 window.PAGE_ord_onShow=function(){
   populateSel('op-tk');
+  // Restore saved NER credentials into auth bar
+  (function(){
+    const c=getNerCreds();
+    const s=_nerAuthStatusEl();
+    if(c&&c.user_id){
+      const uid=document.getElementById('ner-uid');
+      if(uid) uid.value=c.user_id;
+      const pass=document.getElementById('ner-pass');
+      if(pass) pass.value='••••••••';
+      if(s){s.textContent='ID: '+String(c.user_id).slice(0,10)+(String(c.user_id).length>10?'…':'');s.style.color='var(--up)';}
+    }
+  })();
   loadFunds();loadOpenOrders();loadFills();opTypeChg();
   clearInterval(_qT);clearInterval(_jT);clearInterval(_oT);clearInterval(_syncT);
   _qT=setInterval(()=>{if(g('op-tk').value)refreshQ();},10000);
@@ -599,6 +626,34 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const apiLive=async path=>{
   try{const r=await fetch(path);return{ok:r.ok,s:r.status,d:await r.json()};}
   catch(e){return{ok:false,s:0,d:{detail:e.message}};}
+};
+
+// ── NER credentials (Discord ID + passcode stored in localStorage) ──────────
+function getNerCreds(){
+  try{return JSON.parse(localStorage.getItem('ner_creds')||'null');}catch(e){return null;}
+}
+// Returns query string "?ner_user_id=X&ner_passcode=Y" (or "" if not set)
+function nerQs(){
+  const c=getNerCreds();
+  if(!c||!c.user_id||!c.passcode) return '';
+  return '?ner_user_id='+encodeURIComponent(c.user_id)+'&ner_passcode='+encodeURIComponent(c.passcode);
+}
+function _nerAuthStatusEl(){return document.getElementById('ner-auth-status');}
+window.nerSetCreds=function(){
+  const uid=(document.getElementById('ner-uid').value||'').trim();
+  const pass=(document.getElementById('ner-pass').value||'').trim();
+  if(!uid||!pass){const s=_nerAuthStatusEl();if(s){s.textContent='Enter ID and passcode';s.style.color='var(--dn)';}return;}
+  localStorage.setItem('ner_creds',JSON.stringify({user_id:uid,passcode:pass}));
+  const s=_nerAuthStatusEl();
+  if(s){s.textContent='Saved ✓  ID: '+uid.slice(0,10)+(uid.length>10?'…':'');s.style.color='var(--up)';}
+  loadFunds();loadOpenOrders();loadFills();
+};
+window.nerClearCreds=function(){
+  localStorage.removeItem('ner_creds');
+  document.getElementById('ner-uid').value='';
+  document.getElementById('ner-pass').value='';
+  const s=_nerAuthStatusEl();if(s){s.textContent='Cleared';s.style.color='var(--txt3)';}
+  loadOpenOrders();loadFills();
 };
 
 // ── side ───────────────────────────────────────────────────────
@@ -701,7 +756,7 @@ async function refreshPos(tk){
 }
 
 async function loadFunds(){
-  const r=await apiLive('/api/funds');if(!r.ok)return;
+  const r=await apiLive('/api/funds'+nerQs());if(!r.ok)return;
   _funds=r.d;g('opa-av').textContent='$'+fk(r.d.available||0);
 }
 
@@ -1353,7 +1408,7 @@ async function loadOpenOrders(){
   const tb=g('op-open-body');
   // Load NER + TSE open orders in parallel
   const [nerR, tseR] = await Promise.all([
-    apiLive('/api/orders_open'),
+    apiLive('/api/orders_open'+nerQs()),
     apiLive('/api/tse/orders')
   ]);
   const nerOrders = nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
@@ -1387,18 +1442,18 @@ async function loadOpenOrders(){
   </tr>`).join('');
 }
 window.opCx=async function(id, exch='NER'){
-  const url = exch==='TSE' ? `/api/tse/orders/${id}` : `/api/orders_open/${id}`;
+  const url = exch==='TSE' ? `/api/tse/orders/${id}` : `/api/orders_open/${id}${nerQs()}`;
   const r=await fetch(url,{method:'DELETE'}),d=await r.json().catch(()=>({}));
   r.ok?lg(`[${exch}] Order ${id.toString().slice(0,10)}… cancelled`,'warn',{oid:id,exch,event:'CANCELLED'}):lg(`Cancel failed: ${d.detail||d.error||r.status}`,'err',{oid:id,exch,event:'CANCEL_FAIL'});
   setTimeout(loadOpenOrders,700);
 };
 window.opCancelAll=async function(){
-  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open'),apiLive('/api/tse/orders')]);
+  const [nerR,tseR]=await Promise.all([apiLive('/api/orders_open'+nerQs()),apiLive('/api/tse/orders')]);
   const nerOrders=nerR.ok&&Array.isArray(nerR.d)?nerR.d:[];
   const tseOrders=tseR.ok?(tseR.d?.orders||tseR.d?.open_orders||(Array.isArray(tseR.d)?tseR.d:[])):[];
   let count=0;
   await Promise.all([
-    ...nerOrders.map(o=>{count++;return fetch(`/api/orders_open/${o.order_id}`,{method:'DELETE'});}),
+    ...nerOrders.map(o=>{count++;return fetch(`/api/orders_open/${o.order_id}${nerQs()}`,{method:'DELETE'});}),
     ...tseOrders.map(o=>{count++;return fetch(`/api/tse/orders/${o.order_id||o.id}`,{method:'DELETE'});})
   ]);
   lg(`Cancelled ${count} order(s) across NER+TSE.`,'warn');setTimeout(loadOpenOrders,700);
@@ -1409,19 +1464,18 @@ async function loadFills(){
   const tb=g('op-fills-body');
   tb.innerHTML='<tr><td colspan="8" class="loading">Loading…</td></tr>';
 
-  // NER: use /api/portfolio.transactions — authenticated user's own trades only
-  // /api/transactions hits Atlas public tape and returns all users' trades
+  // NER: /api/ner/transactions — user-specific fills (passcode auth)
   // TSE: /api/tse/orders/history — authenticated user's orders from TSE
-  const [pfR, tseR] = await Promise.all([
-    apiLive('/api/portfolio'),
+  const [nerTxR, tseR] = await Promise.all([
+    apiLive('/api/ner/transactions'+nerQs()),
     apiLive('/api/tse/orders/history')
   ]);
 
   const rows=[];
 
-  // NER fills — portfolio.transactions only contains the auth user's trades
-  if(pfR.ok && pfR.d?.transactions){
-    pfR.d.transactions.forEach(tx=>{
+  // NER fills — user-specific transaction history
+  if(nerTxR.ok && Array.isArray(nerTxR.d)){
+    nerTxR.d.forEach(tx=>{
       const tk=tx.ticker||tx.symbol||tx.asset||'—';
       if(tk.startsWith('TSE:')) return; // should not happen but guard anyway
       const isTrade=!tx.type||tx.type==='Trade'||tx.type==='trade';
@@ -1505,17 +1559,17 @@ async function loadExecQuality(){
   const el=g('op-execq-body');
   el.innerHTML='<div class="loading" style="padding:14px">Computing…</div>';
 
-  const [pfR, tseR, openR] = await Promise.all([
-    apiLive('/api/portfolio'),
+  const [nerTxR, tseR, openR] = await Promise.all([
+    apiLive('/api/ner/transactions'),
     apiLive('/api/tse/orders/history'),
     apiLive('/api/orders_open')
   ]);
 
   const fills=[];
 
-  // NER — user's own trades from portfolio (NOT /api/transactions which is public tape)
-  if(pfR.ok && pfR.d?.transactions){
-    pfR.d.transactions.forEach(tx=>{
+  // NER — user-specific transaction history
+  if(nerTxR.ok && Array.isArray(nerTxR.d)){
+    nerTxR.d.forEach(tx=>{
       const tk=tx.ticker||tx.symbol||tx.asset||'?';
       if(tk.startsWith('TSE:')) return;
       const isTrade=!tx.type||tx.type==='Trade'||tx.type==='trade';
@@ -1619,18 +1673,18 @@ async function loadAuditTrail(){
   const tb=g('op-audit-body');
   tb.innerHTML='<tr><td colspan="9" class="loading">Loading…</td></tr>';
 
-  // Fetch NER filled trades (via portfolio — user-specific), NER open orders, TSE history
-  const [pfR, nerOpenR, tseFillsR] = await Promise.all([
-    apiLive('/api/portfolio'),
+  // Fetch NER transaction history (user-specific), NER open orders, TSE history
+  const [nerTxR, nerOpenR, tseFillsR] = await Promise.all([
+    apiLive('/api/ner/transactions'),
     apiLive('/api/orders_open'),
     apiLive('/api/tse/orders/history')
   ]);
 
   const rows=[];
 
-  // NER fills — from portfolio.transactions (user-specific, not public tape)
-  if(pfR.ok && pfR.d?.transactions){
-    pfR.d.transactions.forEach(tx=>{
+  // NER fills — user-specific transaction history
+  if(nerTxR.ok && Array.isArray(nerTxR.d)){
+    nerTxR.d.forEach(tx=>{
       const tk=tx.ticker||tx.symbol||tx.asset||'—';
       if(tk.startsWith('TSE:')) return;
       const isTrade=!tx.type||tx.type==='Trade'||tx.type==='trade';
