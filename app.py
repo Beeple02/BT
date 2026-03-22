@@ -1571,13 +1571,11 @@ def index(): return render_template("terminal.html")
 
 @app.route("/enterprise")
 def enterprise():
-    return render_template("enterprise/shell.html")
+    return "Enterprise edition not available in this build.", 404
 
 @app.route("/enterprise/page/<pg>")
 def enterprise_page(pg):
-    allowed = ["portfolio", "dashboard", "clients", "firm"]
-    if pg not in allowed: return "Not found", 404
-    return render_template(f"enterprise/{pg}.html")
+    return "Enterprise edition not available in this build.", 404
 
 @app.route("/page/<n>")
 def page(n):
