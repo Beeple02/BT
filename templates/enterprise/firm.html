@@ -36,6 +36,8 @@
     <div class="firm-tab" onclick="FIRM_tab('model')">MODEL PORTFOLIO</div>
     <div class="firm-tab" onclick="FIRM_tab('compliance')">COMPLIANCE</div>
     <div class="firm-tab" onclick="FIRM_tab('revenue')">REVENUE</div>
+    <div class="firm-tab" onclick="FIRM_tab('blotter')">TRADE BLOTTER</div>
+    <div class="firm-tab" onclick="FIRM_tab('billing')">BILLING</div>
     <div class="firm-tab" onclick="FIRM_tab('settings')">⚙ SETTINGS</div>
   </div>
 
@@ -159,6 +161,43 @@
     <div class="win" style="flex-shrink:0">
       <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">REVENUE BREAKDOWN BY PORTFOLIO</span></div></div>
       <div id="firm-rev-table" style="padding:10px"></div>
+    </div>
+  </div>
+
+  <!-- TRADE BLOTTER -->
+  <div class="firm-panel scroll" id="firm-blotter" style="padding:12px;gap:10px">
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">CONSOLIDATED TRADE BLOTTER — ALL PORTFOLIOS</span></div>
+        <div class="wbar-r" style="display:flex;gap:6px;align-items:center">
+          <input id="blotter-ticker" placeholder="TICKER" style="width:72px;background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 6px;outline:none">
+          <select id="blotter-type" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 4px"><option value="">ALL TYPES</option><option value="TRADE">TRADE</option><option value="DIVIDEND">DIVIDEND</option></select>
+          <select id="blotter-pf" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 4px;max-width:120px"><option value="">ALL PORTFOLIOS</option></select>
+          <button class="wbtn" onclick="FIRM_applyBlotter()">FILTER</button>
+          <button class="wbtn" onclick="FIRM_exportBlotter()">⬇ CSV</button>
+        </div>
+      </div>
+      <div id="firm-blotter-body" style="overflow-x:auto"><div style="padding:20px;color:var(--txt3);font-size:10px">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- BILLING -->
+  <div class="firm-panel scroll" id="firm-billing" style="padding:12px;gap:10px">
+    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;margin-bottom:4px">
+      <span style="font-size:9px;color:var(--txt3);letter-spacing:1.5px">BILLING PERIOD</span>
+      <select id="billing-period" onchange="FIRM_renderBilling()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--wht);font-family:var(--font);font-size:9px;padding:2px 6px">
+        <option value="monthly">Monthly</option>
+        <option value="quarterly" selected>Quarterly</option>
+        <option value="annual">Annual</option>
+      </select>
+    </div>
+    <div class="scards" style="grid-template-columns:repeat(3,1fr);border:1px solid var(--bdr);flex-shrink:0" id="firm-billing-kpis"></div>
+    <div class="win" style="flex-shrink:0">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">$</span><span class="wtitle">FEE BREAKDOWN BY PORTFOLIO</span></div>
+        <div class="wbar-r"><button class="wbtn" onclick="FIRM_exportBilling()">⬇ CSV</button></div>
+      </div>
+      <div id="firm-billing-body" style="overflow-x:auto"><div style="padding:20px;color:var(--txt3);font-size:10px">Loading…</div></div>
     </div>
   </div>
 
