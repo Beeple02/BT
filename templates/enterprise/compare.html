@@ -1,0 +1,175 @@
+<!-- MULTI-PORTFOLIO COMPARISON SPACE -->
+<style>
+.cmp-layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
+.cmp-selector{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--bdr);flex-shrink:0;flex-wrap:wrap}
+.cmp-selector-title{font-size:9px;font-weight:700;letter-spacing:2px;color:var(--txt3);flex-shrink:0}
+.cmp-pf-check{display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer}
+.cmp-pf-check input{accent-color:var(--org);cursor:pointer}
+.cmp-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.cmp-metric-label{font-size:8px;font-weight:700;letter-spacing:1.5px;color:var(--txt3);padding:6px 10px;border-right:1px solid var(--bdr);min-width:160px;display:flex;align-items:center}
+.cmp-cell{padding:6px 10px;border-right:1px solid var(--bdr);min-width:150px;font-size:11px;font-variant-numeric:tabular-nums}
+.cmp-row{display:flex;border-bottom:1px solid rgba(46,46,46,.3)}
+.cmp-row:hover{background:rgba(255,255,255,.02)}
+.cmp-bar-wrap{height:4px;background:var(--bdr);flex:1;margin-top:4px}
+.cmp-bar{height:100%;background:var(--org)}
+</style>
+
+<div class="cmp-layout" id="cmp-inner">
+  <!-- Portfolio selector -->
+  <div class="cmp-selector">
+    <span class="cmp-selector-title">SELECT PORTFOLIOS</span>
+    <div id="cmp-pf-checks" style="display:flex;gap:12px;flex-wrap:wrap;flex:1"></div>
+    <button class="btn on btn-xs" onclick="CMP_run()">COMPARE →</button>
+    <button class="btn btn-xs" onclick="CMP_selectAll()">ALL</button>
+    <button class="btn btn-xs" onclick="CMP_clearAll()">NONE</button>
+  </div>
+
+  <!-- Results -->
+  <div class="cmp-body" id="cmp-body">
+    <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--txt3);font-size:11px">
+      Select portfolios above and click COMPARE →
+    </div>
+  </div>
+</div>
+
+<script>
+var _cmpPortfolios = [];
+
+window.CMP_init = async function(portfolios){
+  _cmpPortfolios = portfolios || [];
+  var el = document.getElementById('cmp-pf-checks');
+  if(!el) return;
+  el.innerHTML = _cmpPortfolios.map(function(pf, i){
+    var colors = ['var(--org)','var(--cyn)','var(--up)','var(--mag)'];
+    var col = colors[i % colors.length];
+    return '<label class="cmp-pf-check">'
+      +'<input type="checkbox" value="'+pf.id+'" data-name="'+pf.name+'" data-col="'+col+'" '+(i<4?'checked':'')+'>'
+      +'<span style="color:'+col+';font-weight:700">'+pf.name+'</span>'
+      +(pf.client?'<span style="color:var(--txt3);font-size:9px">·'+pf.client+'</span>':'')
+      +'</label>';
+  }).join('');
+};
+
+window.CMP_selectAll = function(){
+  document.querySelectorAll('#cmp-pf-checks input').forEach(function(cb){cb.checked=true;});
+};
+window.CMP_clearAll = function(){
+  document.querySelectorAll('#cmp-pf-checks input').forEach(function(cb){cb.checked=false;});
+};
+
+window.CMP_run = async function(){
+  var selected = [];
+  document.querySelectorAll('#cmp-pf-checks input:checked').forEach(function(cb){
+    selected.push({id:cb.value, name:cb.dataset.name, col:cb.dataset.col});
+  });
+  if(!selected.length){
+    document.getElementById('cmp-body').innerHTML='<div style="color:var(--yel);padding:20px;font-size:10px">Select at least one portfolio.</div>';
+    return;
+  }
+  var body = document.getElementById('cmp-body');
+  body.innerHTML='<div class="loading">LOADING PORTFOLIO DATA…</div>';
+
+  // Fetch all selected portfolios in parallel
+  var results = await Promise.all(selected.map(function(s){
+    return api('/api/enterprise/portfolios/'+s.id).then(function(r){ return {meta:s, d:r.ok?r.d:null}; });
+  }));
+  results = results.filter(function(r){return r.d;});
+  if(!results.length){ body.innerHTML='<div style="color:var(--dn);padding:20px;font-size:10px">Failed to load portfolio data.</div>'; return; }
+
+  _renderComparison(results, body);
+};
+
+function _renderComparison(results, body){
+  var html = '';
+
+  // Header row
+  html += '<div class="win" style="flex-shrink:0;overflow-x:auto"><div class="wbar"><div class="wbar-l"><span class="wnum">⊞</span><span class="wtitle">PORTFOLIO COMPARISON — '+results.length+' PORTFOLIOS</span></div></div>';
+  html += '<div style="overflow-x:auto"><div style="min-width:'+(160+results.length*150)+'px">';
+
+  // Column headers
+  html += '<div class="cmp-row" style="background:var(--bg3)">';
+  html += '<div class="cmp-metric-label" style="color:var(--txt3)">METRIC</div>';
+  results.forEach(function(r){
+    html += '<div class="cmp-cell" style="color:'+r.meta.col+';font-weight:700;font-size:10px">'
+      +'<div>'+r.meta.name+'</div>'
+      +(r.d.client?'<div style="color:var(--txt3);font-size:9px">'+r.d.client+'</div>':'')
+      +'</div>';
+  });
+  html += '</div>';
+
+  // Metric rows
+  var metrics = [
+    {label:'STRATEGY',     fn:function(d){return d.notes||d.strategy||'—'}, fmt:function(v){return '<span style="color:var(--txt2);font-size:9px">'+v+'</span>';}},
+    {label:'TOTAL VALUE',  fn:function(d){return d.value||0},               fmt:function(v){return '$'+fk(v);}},
+    {label:'CASH',         fn:function(d){return d.cash||0},                fmt:function(v){return '<span style="color:var(--cyn)">$'+fk(v)+'</span>';}},
+    {label:'COST BASIS',   fn:function(d){return d.cost||0},                fmt:function(v){return '$'+fk(v);}},
+    {label:'UNREALIZED P&L', fn:function(d){return d.pnl||0},             fmt:function(v){return '<span style="color:'+(v>=0?'var(--up)':'var(--dn)')+';">'+(v>=0?'+':'')+'$'+fk(Math.abs(v))+'</span>';}},
+    {label:'RETURN %',     fn:function(d){return d.pnl_pct||0},            fmt:function(v){return '<span style="color:'+(v>=0?'var(--up)':'var(--dn)')+';">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';}},
+    {label:'POSITIONS',    fn:function(d){return Array.isArray(d.positions)?d.positions.length:(d.positions||0)}, fmt:function(v){return v;}},
+    {label:'TOP HOLDING',  fn:function(d){
+        var pos = Array.isArray(d.positions)?d.positions:[];
+        if(!pos.length) return {ticker:'—',pct:0};
+        var top = pos.reduce(function(a,b){return (a.value||0)>(b.value||0)?a:b;});
+        var total = d.value||1;
+        return {ticker:top.ticker||'—', pct:((top.value||0)/total*100).toFixed(1)};
+      }, fmt:function(v){return '<span style="color:var(--cyn)">'+v.ticker+'</span> <span style="color:var(--txt3);font-size:9px">'+v.pct+'%</span>';}},
+    {label:'HHI',          fn:function(d){
+        var pos = Array.isArray(d.positions)?d.positions:[];
+        var total=d.value||1;
+        var hhi=pos.reduce(function(s,p){var w=(p.value||0)/total*100;return s+w*w;},0);
+        return hhi.toFixed(0);
+      }, fmt:function(v){return '<span style="color:'+(v>4000?'var(--dn)':v>2500?'var(--yel)':'var(--up)')+'">'+v+'</span>';}},
+  ];
+
+  metrics.forEach(function(m){
+    var vals = results.map(function(r){return m.fn(r.d);});
+    html += '<div class="cmp-row">';
+    html += '<div class="cmp-metric-label">'+m.label+'</div>';
+    results.forEach(function(r,i){
+      html += '<div class="cmp-cell">'+m.fmt(vals[i])+'</div>';
+    });
+    html += '</div>';
+  });
+
+  // Bar chart: returns
+  var rets = results.map(function(r){return r.d.pnl_pct||0;});
+  var maxAbs = Math.max.apply(null, rets.map(Math.abs)) || 1;
+  html += '<div class="cmp-row" style="background:var(--bg3);align-items:center;padding:8px 0">';
+  html += '<div class="cmp-metric-label" style="flex-direction:column;align-items:flex-start">RETURN CHART</div>';
+  results.forEach(function(r,i){
+    var pct = r.d.pnl_pct||0;
+    var barW = Math.abs(pct)/maxAbs*100;
+    var barCol = pct>=0?'var(--up)':'var(--dn)';
+    html += '<div class="cmp-cell" style="display:flex;flex-direction:column;gap:2px">'
+      +'<div style="font-size:9px;color:'+r.meta.col+'">'+(pct>=0?'+':'')+pct.toFixed(2)+'%</div>'
+      +'<div class="cmp-bar-wrap"><div class="cmp-bar" style="width:'+barW+'%;background:'+barCol+'"></div></div>'
+      +'</div>';
+  });
+  html += '</div>';
+
+  // Holdings overlap — shared tickers
+  var allTickers = {};
+  results.forEach(function(r){
+    (Array.isArray(r.d.positions)?r.d.positions:[]).forEach(function(p){
+      if(!allTickers[p.ticker]) allTickers[p.ticker] = [];
+      allTickers[p.ticker].push(r.meta.name);
+    });
+  });
+  var shared = Object.keys(allTickers).filter(function(t){return allTickers[t].length>1;});
+  if(shared.length){
+    html += '<div class="cmp-row" style="flex-direction:column;padding:8px 0">';
+    html += '<div style="display:flex">';
+    html += '<div class="cmp-metric-label">SHARED TICKERS</div>';
+    html += '<div class="cmp-cell" style="flex:1;flex-wrap:wrap;display:flex;gap:6px">';
+    shared.forEach(function(t){
+      html += '<span style="background:rgba(255,255,255,.06);padding:2px 8px;font-size:9px;color:var(--cyn)">'
+        +t+' <span style="color:var(--txt3)">('+allTickers[t].length+')</span></span>';
+    });
+    html += '</div></div></div>';
+  }
+
+  html += '</div></div></div>';
+
+  body.innerHTML = html;
+}
+</script>
