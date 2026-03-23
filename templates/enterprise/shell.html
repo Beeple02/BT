@@ -70,6 +70,7 @@
 #space-portfolio{display:flex;flex-direction:column;flex:1;overflow:hidden}
 #space-clients{display:none;flex:1;overflow:hidden;flex-direction:column}
 #space-firm{display:none;flex:1;overflow:hidden;flex-direction:column}
+#space-compare{display:none;flex:1;overflow:hidden;flex-direction:column}
 </style>
 </head>
 <body>
@@ -97,6 +98,7 @@
   <span class="space-btn active" id="space-btn-portfolio" onclick="switchSpace('portfolio')">◼ PORTFOLIO</span>
   <span class="space-btn" id="space-btn-clients" onclick="switchSpace('clients')">◼ CLIENTS</span>
   <span class="space-btn" id="space-btn-firm" onclick="switchSpace('firm')">◼ FIRM DASHBOARD</span>
+  <span class="space-btn" id="space-btn-compare" onclick="switchSpace('compare')">⊞ COMPARE</span>
 </div>
 <div id="space-portfolio">
 <div id="pfbar">
@@ -118,6 +120,10 @@
 
 <div id="space-firm">
   <div id="firm-root" style="flex:1;overflow:hidden"></div>
+</div>
+
+<div id="space-compare">
+  <div id="compare-root" style="flex:1;overflow:hidden"></div>
 </div>
 
 <div id="cmdbar">
@@ -469,16 +475,17 @@ async function init(){
   }, 90000);
 }
 // ── Space switcher ────────────────────────────────────────────────────────────
-var _spaceLoaded = {portfolio: false, clients: false, firm: false};
+var _spaceLoaded = {portfolio: false, clients: false, firm: false, compare: false};
 
 function switchSpace(space){
-  ['portfolio','clients','firm'].forEach(function(s){
-    document.getElementById('space-'+s).style.display = s===space ? (s==='portfolio'?'flex':'flex') : 'none';
+  ['portfolio','clients','firm','compare'].forEach(function(s){
+    document.getElementById('space-'+s).style.display = s===space ? 'flex' : 'none';
     var btn = document.getElementById('space-btn-'+s);
     if(btn) btn.classList.toggle('active', s===space);
   });
   if(space==='clients' && !_spaceLoaded.clients){ loadCMS(); _spaceLoaded.clients=true; }
   if(space==='firm'    && !_spaceLoaded.firm)   { loadFirm(); _spaceLoaded.firm=true; }
+  if(space==='compare' && !_spaceLoaded.compare){ loadCompare(); _spaceLoaded.compare=true; }
 }
 
 // ── CMS ───────────────────────────────────────────────────────────────────────
@@ -538,6 +545,26 @@ async function loadFirm(){
 }
 
 window.loadFirm = loadFirm;
+
+// ── COMPARE ───────────────────────────────────────────────────────────────────
+async function loadCompare(){
+  const root = document.getElementById('compare-root');
+  if(!root) return;
+  root.innerHTML = '<div class="loading">LOADING COMPARE…</div>';
+  if(!root.dataset.loaded){
+    const r = await fetch('/enterprise/page/compare');
+    if(!r.ok){ root.innerHTML='<div class="err-banner">Failed to load Compare page</div>'; return; }
+    const html = await r.text();
+    const doc  = new DOMParser().parseFromString(html,'text/html');
+    const styles = [...doc.querySelectorAll('style')];
+    styles.forEach(s=>{ s.remove(); const ns=document.createElement('style'); ns.textContent=s.textContent; document.head.appendChild(ns); });
+    root.innerHTML = doc.body.innerHTML;
+    root.dataset.loaded = '1';
+  }
+  if(typeof window.CMP_init === 'function') await CMP_init(ENT.portfolios);
+}
+
+window.loadCompare = loadCompare;
 
 init();
 </script>
