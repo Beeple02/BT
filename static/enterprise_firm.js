@@ -8,7 +8,9 @@ var _realizedData = null;
 var _attrData = null;
 var _briefData = null;
 
-var FIRM_TABS = ['brief','overview','exposure','rebalance','reviews','realized','attribution','model','compliance','revenue','settings'];
+var FIRM_TABS = ['brief','overview','exposure','rebalance','reviews','realized','attribution','model','compliance','revenue','blotter','billing','settings'];
+var _blotterData = null;
+var _blotterFiltered = null;
 
 // Currency symbol helper — 10 R$ = 1 A£
 function _ccy(){ return _firmSettings.currency==='AP' ? 'A£' : 'R$'; }
@@ -38,6 +40,8 @@ window.FIRM_tab = function(tab){
   if(tab==='settings')  FIRM_loadSettings();
   if(tab==='reviews')   FIRM_renderReviews();
   if(tab==='rebalance') FIRM_renderRebalance();
+  if(tab==='blotter'  && !_blotterData) FIRM_loadBlotter();
+  if(tab==='billing') FIRM_renderBilling();
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -494,5 +498,148 @@ function FIRM_renderRevenue(){
       return '<tr><td style="color:var(--wht);font-weight:600">'+p.name+'</td><td style="color:var(--org)">'+p.client+'</td><td class="r">'+_fmtAum(p.aum)+'</td><td class="r" style="color:var(--up)">'+_fmtAum(mrr)+'</td><td class="r" style="color:var(--up)">'+_fmtAum(arr)+'</td></tr>';
     }).join('')+'</tbody></table>';
 }
+
+
+// ── Trade Blotter ─────────────────────────────────────────────────────────────
+window.FIRM_loadBlotter = async function(){
+  var el = document.getElementById('firm-blotter-body');
+  if(el) el.innerHTML='<div style="padding:20px;color:var(--txt3);font-size:10px">Loading…</div>';
+  var r = await api('/api/enterprise/firm_realized');
+  if(!r.ok){ if(el) el.innerHTML='<div style="padding:10px;color:var(--dn);font-size:10px">Failed to load blotter data.</div>'; return; }
+  _blotterData = r.d;
+  // Populate portfolio filter
+  var pfSel = document.getElementById('blotter-pf');
+  if(pfSel && _firmData){
+    var existing = Array.from(pfSel.options).map(function(o){return o.value;});
+    _firmData.portfolios.forEach(function(p){
+      if(existing.indexOf(p.id)===-1){
+        var opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = p.name;
+        pfSel.appendChild(opt);
+      }
+    });
+  }
+  _blotterFiltered = _blotterData.slice();
+  FIRM_renderBlotter(_blotterFiltered);
+};
+
+window.FIRM_applyBlotter = function(){
+  if(!_blotterData) return;
+  var ticker = (document.getElementById('blotter-ticker')||{}).value||'';
+  var type   = (document.getElementById('blotter-type')||{}).value||'';
+  var pf     = (document.getElementById('blotter-pf')||{}).value||'';
+  _blotterFiltered = _blotterData.filter(function(row){
+    if(ticker && row.ticker && row.ticker.toUpperCase().indexOf(ticker.toUpperCase())===-1) return false;
+    if(type   && row.type   && row.type.toUpperCase()!==type.toUpperCase()) return false;
+    if(pf     && row.pf_id  && row.pf_id!==pf) return false;
+    return true;
+  });
+  FIRM_renderBlotter(_blotterFiltered);
+};
+
+function FIRM_renderBlotter(rows){
+  var el = document.getElementById('firm-blotter-body');
+  if(!el) return;
+  if(!rows||!rows.length){ el.innerHTML='<div style="padding:14px;color:var(--txt3);font-size:10px">No trades match the filter.</div>'; return; }
+  el.innerHTML='<table class="dt" style="width:100%">'
+    +'<thead><tr><th>DATE</th><th>PORTFOLIO</th><th>CLIENT</th><th>TICKER</th><th>TYPE</th><th class="r">QTY</th><th class="r">PRICE</th><th class="r">TOTAL</th><th class="r">P&L</th></tr></thead>'
+    +'<tbody>'+rows.map(function(row){
+      var pnlC = (row.pnl||0)>=0?'var(--up)':'var(--dn)';
+      var pnlStr = row.pnl!=null ? ((row.pnl>=0?'+':'')+f(row.pnl,2)) : '—';
+      var typeC = row.type==='DIVIDEND'?'var(--cyn)':'var(--txt)';
+      return '<tr>'
+        +'<td style="color:var(--txt2)">'+((row.close_date||row.date||'—').slice(0,10))+'</td>'
+        +'<td style="color:var(--wht);font-weight:600">'+(row.pf_name||'—')+'</td>'
+        +'<td style="color:var(--org)">'+(row.client||'—')+'</td>'
+        +'<td style="color:var(--cyn);font-weight:700">'+(row.ticker||'—')+'</td>'
+        +'<td style="color:'+typeC+'">'+(row.type||'TRADE')+'</td>'
+        +'<td class="r">'+(row.qty!=null?row.qty:'—')+'</td>'
+        +'<td class="r">$'+(row.close_price!=null?f(row.close_price,4):f(row.entry_price||0,4))+'</td>'
+        +'<td class="r">$'+f((row.qty||0)*(row.close_price||row.entry_price||0),2)+'</td>'
+        +'<td class="r" style="color:'+pnlC+'">'+pnlStr+'</td>'
+        +'</tr>';
+    }).join('')+'</tbody></table>';
+}
+
+window.FIRM_exportBlotter = function(){
+  var rows = _blotterFiltered||_blotterData||[];
+  var csv = 'Date,Portfolio,Client,Ticker,Type,Qty,Price,Total,P&L\n'
+    +rows.map(function(r){
+      var price = r.close_price||r.entry_price||0;
+      return [(r.close_date||r.date||'').slice(0,10),r.pf_name||'',r.client||'',r.ticker||'',r.type||'TRADE',r.qty||0,price.toFixed(4),((r.qty||0)*price).toFixed(2),(r.pnl||0).toFixed(2)].join(',');
+    }).join('\n');
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='blotter_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+};
+
+// ── Billing Calculator ────────────────────────────────────────────────────────
+window.FIRM_renderBilling = function(){
+  if(!_firmData) return;
+  var period   = (document.getElementById('billing-period')||{}).value||'quarterly';
+  var fee      = parseFloat(_firmSettings.mgmt_fee)||1;   // %/month
+  var perfFee  = parseFloat(_firmSettings.perf_fee)||20;  // % of profit
+  var hurdle   = parseFloat(_firmSettings.hurdle_rate)||5; // % threshold
+  var mult     = period==='monthly'?1:period==='quarterly'?3:12;
+  var sym      = _ccy();
+  var portfolios = _firmData.portfolios||[];
+  var totalAum=0, totalMgmt=0, totalPerf=0;
+  var rows = portfolios.map(function(p){
+    var aum  = p.aum||0;
+    var pnl  = p.pnl||0;
+    var mgmt = aum * fee/100 * mult;
+    // Performance fee: only on profit above hurdle
+    var hurdleAmt = aum * hurdle/100 * mult/12;
+    var perfBase  = Math.max(0, pnl - hurdleAmt);
+    var perf      = perfBase * perfFee/100;
+    var total     = mgmt + perf;
+    totalAum+=aum; totalMgmt+=mgmt; totalPerf+=perf;
+    return {name:p.name, client:p.client, aum:aum, pnl:pnl, mgmt:mgmt, perfBase:perfBase, perf:perf, total:total};
+  });
+  var kpis = document.getElementById('firm-billing-kpis');
+  if(kpis) kpis.innerHTML=[
+    {l:'TOTAL AUM',v:_fmtAum(totalAum),c:'var(--wht)'},
+    {l:'EST. MGMT FEES ('+period+')',v:_fmtAum(totalMgmt),c:'var(--up)'},
+    {l:'EST. PERF FEES',v:_fmtAum(totalPerf),c:'var(--cyn)'},
+  ].map(function(k){return '<div class="sc"><div class="sc-l">'+k.l+'</div><div class="sc-v" style="color:'+k.c+'">'+k.v+'</div></div>';}).join('');
+  var body = document.getElementById('firm-billing-body');
+  if(!body) return;
+  if(!rows.length){ body.innerHTML='<div style="padding:14px;color:var(--txt3);font-size:10px">No portfolios.</div>'; return; }
+  body.innerHTML='<table class="dt" style="width:100%">'
+    +'<thead><tr><th>PORTFOLIO</th><th>CLIENT</th><th class="r">AUM</th><th class="r">MGMT FEE ('+fee+'%×'+mult+'mo)</th><th class="r">PERF BASE</th><th class="r">PERF FEE ('+perfFee+'%)</th><th class="r">TOTAL</th></tr></thead>'
+    +'<tbody>'+rows.map(function(r){
+      return '<tr>'
+        +'<td style="color:var(--wht);font-weight:600">'+r.name+'</td>'
+        +'<td style="color:var(--org)">'+r.client+'</td>'
+        +'<td class="r">'+_fmtAum(r.aum)+'</td>'
+        +'<td class="r" style="color:var(--up)">'+_fmtAum(r.mgmt)+'</td>'
+        +'<td class="r" style="color:var(--txt2)">'+_fmtAum(r.perfBase)+'</td>'
+        +'<td class="r" style="color:var(--cyn)">'+_fmtAum(r.perf)+'</td>'
+        +'<td class="r" style="color:var(--wht);font-weight:700">'+_fmtAum(r.total)+'</td>'
+        +'</tr>';
+    }).join('')+'</tbody></table>';
+};
+
+window.FIRM_exportBilling = function(){
+  var period = (document.getElementById('billing-period')||{}).value||'quarterly';
+  var fee    = parseFloat(_firmSettings.mgmt_fee)||1;
+  var mult   = period==='monthly'?1:period==='quarterly'?3:12;
+  var perfFee= parseFloat(_firmSettings.perf_fee)||20;
+  var hurdle = parseFloat(_firmSettings.hurdle_rate)||5;
+  var portfolios = (_firmData&&_firmData.portfolios)||[];
+  var csv = 'Portfolio,Client,AUM,Mgmt Fee,Perf Base,Perf Fee,Total\n'
+    +portfolios.map(function(p){
+      var aum=p.aum||0; var pnl=p.pnl||0;
+      var mgmt=aum*fee/100*mult;
+      var perfBase=Math.max(0,pnl-(aum*hurdle/100*mult/12));
+      var perf=perfBase*perfFee/100;
+      return [p.name,p.client,aum.toFixed(2),mgmt.toFixed(2),perfBase.toFixed(2),perf.toFixed(2),(mgmt+perf).toFixed(2)].join(',');
+    }).join('\n');
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='billing_'+period+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+};
 
 })();
