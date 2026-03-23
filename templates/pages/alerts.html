@@ -221,7 +221,10 @@ window.acAdd=function(){
 window.PAGE_al_onShow = function(){
   populateSel('al-tk', true);
   populateSel('ac-tk');
-
+  // Request browser notification permission once
+  if(typeof Notification!=='undefined'&&Notification.permission==='default'){
+    Notification.requestPermission();
+  }
   renderRules();
   renderLog();
   renderSummary();
@@ -491,6 +494,17 @@ function pingAudio(pri='medium'){
 }
 
 function showToast(ticker, cond, val, pri){
+  // Browser notification (if permitted)
+  if(typeof Notification!=='undefined'&&Notification.permission==='granted'){
+    try{
+      new Notification('⚡ ALERT: '+ticker,{
+        body:cond+(val!=null?' → '+val:''),
+        icon:'/static/icon.png',
+        tag:'bb-alert-'+ticker,
+        silent:false
+      });
+    }catch(e){}
+  }
   // Create or reuse toast container
   let tray = document.getElementById('al-toast-tray');
   if(!tray){
