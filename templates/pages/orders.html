@@ -310,6 +310,10 @@
     <div class="op-bv"><span class="op-bv-l">COMM</span><span class="op-bv-v yel" id="opb-com">—</span></div>
     <div class="op-bv"><span class="op-bv-l">TOTAL</span><span class="op-bv-v wht" id="opb-tot">—</span></div>
     <div class="op-bv" id="opb-slice-wrap" style="display:none"><span class="op-bv-l">SLICE</span><span class="op-bv-v org" id="opb-slice">—</span></div>
+    <div style="width:1px;background:var(--bdr);align-self:stretch;margin:0 2px"></div>
+    <div class="op-bv" id="opb-wi-pos-wrap" style="display:none" title="Position after this order"><span class="op-bv-l">POST POS</span><span class="op-bv-v" id="opb-wi-pos">—</span></div>
+    <div class="op-bv" id="opb-wi-wt-wrap" style="display:none" title="Portfolio weight after order"><span class="op-bv-l">WEIGHT</span><span class="op-bv-v" id="opb-wi-wt">—</span></div>
+    <div class="op-bv" id="opb-wi-cash-wrap" style="display:none" title="Cash remaining after order"><span class="op-bv-l">CASH AFTER</span><span class="op-bv-v" id="opb-wi-cash">—</span></div>
     <span class="op-warn" id="op-warn"></span>
 
     <button class="op-sub buy" id="op-sub" onclick="opModal()" disabled>▲ TRANSMIT BUY LMT</button>
@@ -380,7 +384,7 @@
 (function(){
 'use strict';
 const CR=0.005;
-let _side='buy',_quote=null,_lastPx=null,_funds=null,_ohlcv=null,_jobs=[],_tool=null;
+let _side='buy',_quote=null,_lastPx=null,_funds=null,_ohlcv=null,_jobs=[],_tool=null,_pf_cache=null;
 let _qT,_jT,_oT,_syncT;
 
 // ── Session persistence ────────────────────────────────────────
@@ -703,10 +707,12 @@ async function refreshQ(){
 
 async function refreshPos(tk){
   const r=await api('/api/portfolio');if(!r.ok)return;
+  _pf_cache=r.d;
   const h=(r.d.holdings||[]).find(h=>h.ticker===tk);
   g('opa-pos').textContent=h?h.quantity.toLocaleString():'0';
   if(h){const p=h.unrealized_pnl||0;g('opa-pnl').textContent='$'+f(p,0);g('opa-pnl').style.color=p>=0?'var(--up)':'var(--dn)';}
   else{g('opa-pnl').textContent='—';g('opa-pnl').style.color='var(--txt3)';}
+  opPrev(); // refresh what-if panel now that we have portfolio data
 }
 
 async function loadFunds(){
@@ -869,14 +875,44 @@ window.opPrev=function(){
   const w=g('op-warn');w.textContent='';
   if(_funds&&_side==='buy'&&tot>0&&tot>(_funds.available||0))w.textContent='⚠ INSUFFICIENT FUNDS';
   const slEl=g('op-twap-sl')||g('op-vwap-sl');
-  const sw=g('opb-slice-wrap');
-  if(slEl){sw.style.display='flex';g('opb-slice').textContent=Math.ceil(qty/(+slEl.value||1))+' sh/sl';}
-  else sw.style.display='none';
+  const sw2=g('opb-slice-wrap');
+  if(slEl){sw2.style.display='flex';g('opb-slice').textContent=Math.ceil(qty/(+slEl.value||1))+' sh/sl';}
+  else sw2.style.display='none';
   calcTrail();
   const ih=g('p-ice-hidden');if(ih)ih.textContent=Math.max(0,qty-(nv('op-ice-show')||1))+' sh';
   const st=g('p-scale-tot');if(st){let t2=0;const lv=nv('op-scale-lvl')||5,mu=nv('op-scale-mult')||1;for(let i=0;i<lv;i++)t2+=Math.round(qty*Math.pow(mu,i));st.textContent=t2.toLocaleString();}
   const ss=g('p-slice-sz');if(ss)ss.textContent=Math.ceil(qty/(nv('op-twap-sl')||6))+' sh';
   const hq=g('p-hedge-qty');if(hq)hq.textContent=Math.round(qty*(nv('op-beta')||1)/(nv('op-hbeta')||1)).toLocaleString()+' sh';
+  // ── What-if portfolio impact ──────────────────────────────────────
+  const wiPosWrap=g('opb-wi-pos-wrap'),wiWtWrap=g('opb-wi-wt-wrap'),wiCashWrap=g('opb-wi-cash-wrap');
+  if(wiPosWrap&&qty&&lp&&_pf_cache){
+    const tk=g('op-tk')?.value;
+    const curHolding=(_pf_cache.holdings||[]).find(h=>h.ticker===tk);
+    const curQty=curHolding?.quantity||0;
+    const postQty=_side==='buy'?curQty+qty:curQty-qty;
+    const curCash=_pf_cache.cash_balance||0;
+    const postCash=_side==='buy'?curCash-tot:curCash+tot;
+    const curTotal=_pf_cache.total_value||(_pf_cache.cash_balance||0)+(_pf_cache.stocks_value||0);
+    const postTotal=curTotal+(_side==='buy'?-comm:0); // approximate: total barely changes by commission
+    const postMV=postQty*lp;
+    const weight=postTotal>0?postMV/postTotal*100:0;
+    const poEl=g('opb-wi-pos'),wtEl=g('opb-wi-wt'),caEl=g('opb-wi-cash');
+    if(poEl){
+      poEl.textContent=postQty.toLocaleString()+' sh';
+      poEl.style.color=postQty>curQty?'var(--up)':postQty<curQty?'var(--dn)':'var(--txt)';
+    }
+    if(wtEl){
+      wtEl.textContent=weight.toFixed(1)+'%';
+      wtEl.style.color=weight>15?'var(--dn)':weight>8?'var(--yel)':'var(--txt)';
+    }
+    if(caEl){
+      caEl.textContent='$'+fk(postCash);
+      caEl.style.color=postCash<0?'var(--dn)':postCash<1000?'var(--yel)':'var(--txt2)';
+    }
+    wiPosWrap.style.display='flex';wiWtWrap.style.display='flex';wiCashWrap.style.display='flex';
+  } else if(wiPosWrap){
+    wiPosWrap.style.display='none';wiWtWrap.style.display='none';wiCashWrap.style.display='none';
+  }
 };
 
 function getLp(t){const ae=g('op-lp-a');if(ae)return+ae.value||0;if(t==='market')return midOf(_quote)||0;return nv('op-lp');}
