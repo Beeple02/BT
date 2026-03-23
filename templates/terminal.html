@@ -72,6 +72,9 @@
   <div class="tb-seg" style="cursor:pointer;padding:0 10px;border-right:1px solid var(--bdr)" onclick="showTseAuth()" title="TSE account API key">
     <span id="tb-tse-auth" style="font-size:9px;letter-spacing:1.5px;color:var(--txt3);font-family:var(--font)">○ TSE</span>
   </div>
+  <div class="tb-seg" style="cursor:pointer;padding:0 10px;border-right:1px solid var(--bdr)" onclick="takeSnapshot()" title="Export terminal snapshot as PNG">
+    <span id="tb-snap" style="font-size:11px;letter-spacing:.5px;color:var(--txt2)">📸 SNAP</span>
+  </div>
   <div class="tb-seg tb-right" style="cursor:pointer;user-select:none" title="Click to toggle UTC / local time" onclick="BB._utcMode=!BB._utcMode;tick()">
     <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
     &nbsp;<span id="tb-tz" style="color:var(--txt3);font-size:9px;letter-spacing:.5px">LCL</span>
@@ -133,6 +136,38 @@
 window.BB = {
   secs: [], watchlist: [], cmpTickers: [],
   activePanel: 'mkt',
+};
+
+// ── Snapshot export ───────────────────────────────────────────────────────────
+window.takeSnapshot = function(){
+  const btn=document.getElementById('tb-snap');
+  if(btn){btn.textContent='⏳ …';btn.style.color='var(--yel)';}
+  function doSnap(h2c){
+    h2c(document.getElementById('app'),{
+      backgroundColor:'#000',
+      scale:1,
+      useCORS:true,
+      allowTaint:false,
+      logging:false
+    }).then(canvas=>{
+      const ts=new Date().toISOString().slice(0,19).replace(/[T:]/g,'-');
+      const a=document.createElement('a');
+      a.href=canvas.toDataURL('image/png');
+      a.download='terminal-'+ts+'.png';
+      a.click();
+      if(btn){btn.textContent='✓ SAVED';btn.style.color='var(--up)';setTimeout(()=>{btn.textContent='📸 SNAP';btn.style.color='var(--txt2)';},2000);}
+    }).catch(()=>{
+      if(btn){btn.textContent='✗ ERR';btn.style.color='var(--dn)';setTimeout(()=>{btn.textContent='📸 SNAP';btn.style.color='var(--txt2)';},2000);}
+    });
+  }
+  if(window.html2canvas){ doSnap(window.html2canvas); }
+  else {
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload=()=>doSnap(window.html2canvas);
+    s.onerror=()=>{if(btn){btn.textContent='✗ LOAD ERR';btn.style.color='var(--dn)';setTimeout(()=>{btn.textContent='📸 SNAP';btn.style.color='var(--txt2)';},2000);}};
+    document.head.appendChild(s);
+  }
 };
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
