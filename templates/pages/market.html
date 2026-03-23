@@ -53,12 +53,14 @@
         <div class="wbar-l"><span class="wnum">2</span><span class="wtitle" id="mkt-ct">SELECT SECURITY</span><span class="wsub" id="mkt-cpx"></span></div>
         <div class="wbar-r" id="mkt-cmeta">
           <span class="wbtn on" id="mkt-line-btn" onclick="mktSetChart('line')">LINE</span>
-          <span class="wbtn" id="mkt-ob-btn" onclick="mktSetChart('ob')">OB</span>
+          <span class="wbtn" id="mkt-ob-btn" onclick="mktSetChart('ob')">DEPTH</span>
+          <span class="wbtn" id="mkt-corr-btn" onclick="mktSetChart('corr')">CORR</span>
         </div>
       </div>
       <div id="mkt-chart-area" style="flex:1;min-height:0;display:flex;flex-direction:column">
         <div class="chart-wrap" id="mkt-chart-wrap"><canvas id="mkt-c"></canvas></div>
-        <div id="mkt-ob-wrap" style="display:none;flex:1;overflow-y:auto" id="mkt-ob"></div>
+        <div id="mkt-ob-wrap" style="display:none;flex:1;min-height:0;padding:6px"><canvas id="mkt-ob-c"></canvas></div>
+        <div id="mkt-corr-wrap" style="display:none;flex:1;overflow-y:auto;padding:8px"></div>
       </div>
     </div>
 
@@ -94,7 +96,7 @@
 
 <script>
 (function(){
-let _secs=[], _breadth=null, _ob_global=null, _chart=null, _chartMode='line', _selTicker=null;
+let _secs=[], _breadth=null, _ob_global=null, _chart=null, _obChart=null, _chartMode='line', _selTicker=null, _obIv=null;
 
 window.PAGE_mkt_onShow = function() {
   _secs = BB.secs;
@@ -247,7 +249,8 @@ async function selectMktTicker(ticker, row) {
   const sec=BB.secs.find(s=>s.ticker===ticker);
   if(sec) document.getElementById('mkt-cpx').textContent=' '+f(sec.market_price);
   if(_chartMode==='line') await loadMktChart(ticker);
-  else await loadMktOB(ticker);
+  else if(_chartMode==='ob') await loadMktOB(ticker);
+  // corr mode ignores ticker selection — it's market-wide
 }
 
 async function loadMktChart(ticker) {
@@ -259,7 +262,8 @@ async function loadMktChart(ticker) {
     document.getElementById('mkt-cmeta').innerHTML=`
       <span style="color:${gcI(chg)};font-weight:${gcIW(chg)}">${fp(chg)} 30D</span>
       <span class="wbtn on" id="mkt-line-btn" onclick="mktSetChart('line')">LINE</span>
-      <span class="wbtn" id="mkt-ob-btn" onclick="mktSetChart('ob')">OB</span>`;
+      <span class="wbtn" id="mkt-ob-btn" onclick="mktSetChart('ob')">DEPTH</span>
+      <span class="wbtn" id="mkt-corr-btn" onclick="mktSetChart('corr')">CORR</span>`;
     _chart=mkLine(document.getElementById('mkt-c'),
       pts.map(p=>p.timestamp.slice(5,10)),
       [{data:pts.map(p=>p.price),borderColor:'#aa7700',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(170,119,0,.06)',tension:.2}]);
@@ -268,27 +272,164 @@ async function loadMktChart(ticker) {
 
 async function loadMktOB(ticker) {
   const r=await api(`/api/orderbook?ticker=${ticker}`);
-  if(r.ok) renderOB('mkt-ob-inner',r.d);
+  if(!r.ok) return;
+  _obChart=dc(_obChart);
+  const ob=r.d;
+  // Build cumulative depth arrays
+  const bids=[...(ob.bids||[])].sort((a,b)=>b.price-a.price);
+  const asks=[...(ob.asks||[])].sort((a,b)=>a.price-b.price);
+  let bidCum=0, askCum=0;
+  const bidPts=bids.map(l=>{bidCum+=l.quantity;return{x:l.price,y:bidCum};});
+  const askPts=asks.map(l=>{askCum+=l.quantity;return{x:l.price,y:askCum};});
+  const spread=asks[0]&&bids[0]?asks[0].price-bids[0].price:0;
+  const midPx=asks[0]&&bids[0]?(asks[0].price+bids[0].price)/2:0;
+  // Update meta row
+  const metaEl=document.getElementById('mkt-cmeta');
+  if(metaEl){
+    metaEl.innerHTML=`
+      <span class="up" style="font-size:9px">BID ${f(bids[0]?.price,4)}</span>
+      <span class="dim" style="font-size:9px">SPR ${f(spread,4)}</span>
+      <span class="dn" style="font-size:9px">ASK ${f(asks[0]?.price,4)}</span>
+      <span class="wbtn on" id="mkt-line-btn" onclick="mktSetChart('line')">LINE</span>
+      <span class="wbtn on" id="mkt-ob-btn" onclick="mktSetChart('ob')">DEPTH</span>
+      <span class="wbtn" id="mkt-corr-btn" onclick="mktSetChart('corr')">CORR</span>`;
+  }
+  const canvas=document.getElementById('mkt-ob-c');
+  if(!canvas) return;
+  _obChart=new Chart(canvas,{
+    type:'line',
+    data:{
+      datasets:[
+        {label:'BID DEPTH',data:bidPts,borderColor:'rgba(0,200,83,.8)',backgroundColor:'rgba(0,200,83,.12)',
+         fill:true,stepped:true,pointRadius:0,borderWidth:1.5,tension:0},
+        {label:'ASK DEPTH',data:askPts,borderColor:'rgba(244,67,54,.8)',backgroundColor:'rgba(244,67,54,.12)',
+         fill:true,stepped:true,pointRadius:0,borderWidth:1.5,tension:0}
+      ]
+    },
+    options:{
+      animation:{duration:300},
+      responsive:true,maintainAspectRatio:false,
+      parsing:false,
+      scales:{
+        x:{type:'linear',ticks:{color:'#666',font:{size:9},maxTicksLimit:8},
+           grid:{color:'rgba(60,60,60,.4)'},title:{display:true,text:'PRICE',color:'#555',font:{size:9}}},
+        y:{ticks:{color:'#666',font:{size:9}},grid:{color:'rgba(60,60,60,.4)'},
+           title:{display:true,text:'CUMULATIVE QTY',color:'#555',font:{size:9}}}
+      },
+      plugins:{
+        legend:{display:true,position:'top',labels:{color:'#888',font:{size:9},boxWidth:10,padding:8}},
+        tooltip:{
+          callbacks:{
+            label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} @ $${f(ctx.parsed.x,4)}`
+          }
+        },
+        annotation:{
+          annotations:midPx?{mid:{type:'line',xMin:midPx,xMax:midPx,borderColor:'rgba(255,140,0,.5)',borderWidth:1,borderDash:[3,3]}}:{}
+        }
+      }
+    }
+  });
 }
 
 window.mktSetChart = function(mode) {
   _chartMode=mode;
+  // Clear any running OB auto-refresh
+  if(_obIv){ clearInterval(_obIv); _obIv=null; }
   const cw=document.getElementById('mkt-chart-wrap');
   const ow=document.getElementById('mkt-ob-wrap');
-  if(mode==='line'){ cw.style.display='flex';if(ow)ow.style.display='none'; if(_selTicker)loadMktChart(_selTicker); }
-  else { cw.style.display='none';
-    // build OB container inside wrap
-    const ow2=document.getElementById('mkt-ob-wrap')||document.createElement('div');
-    ow2.id='mkt-ob-wrap';ow2.style.cssText='flex:1;overflow-y:auto;display:flex;flex-direction:column';
-    ow2.innerHTML='<div id="mkt-ob-inner"></div>';
-    if(!document.getElementById('mkt-ob-wrap')) document.getElementById('mkt-chart-area').appendChild(ow2);
-    else { ow2.style.display='flex'; }
-    if(_selTicker) loadMktOB(_selTicker);
+  const corrw=document.getElementById('mkt-corr-wrap');
+  cw.style.display='none'; if(ow)ow.style.display='none'; if(corrw)corrw.style.display='none';
+  if(mode==='line'){
+    cw.style.display='flex';
+    if(_selTicker) loadMktChart(_selTicker);
+  } else if(mode==='ob'){
+    if(ow) ow.style.display='flex';
+    if(_selTicker){
+      loadMktOB(_selTicker);
+      // Auto-refresh depth chart every 5 seconds
+      _obIv=setInterval(()=>{ if(_selTicker&&_chartMode==='ob') loadMktOB(_selTicker); }, 5000);
+    }
+  } else if(mode==='corr'){
+    if(corrw) corrw.style.display='flex';
+    loadMktCorr();
   }
   document.querySelectorAll('#mkt-cmeta .wbtn').forEach(b=>b.classList.remove('on'));
-  const btn=document.getElementById(`mkt-${mode==='line'?'line':'ob'}-btn`);
-  if(btn) btn.classList.add('on');
+  const btnId=mode==='line'?'mkt-line-btn':mode==='ob'?'mkt-ob-btn':'mkt-corr-btn';
+  const btn=document.getElementById(btnId); if(btn) btn.classList.add('on');
+  // Re-render buttons in meta bar if they were overwritten by loadMktChart
+  const metaEl=document.getElementById('mkt-cmeta');
+  if(metaEl&&!metaEl.querySelector('#mkt-corr-btn')){
+    const frag=document.createDocumentFragment();
+    ['line','ob','corr'].forEach(m=>{
+      const s=document.createElement('span');s.className='wbtn'+(m===mode?' on':'');
+      s.id=`mkt-${m==='line'?'line':m==='ob'?'ob':'corr'}-btn`;
+      s.textContent=m==='line'?'LINE':m==='ob'?'DEPTH':'CORR';
+      s.onclick=()=>mktSetChart(m);frag.appendChild(s);
+    });
+    metaEl.appendChild(frag);
+  }
 };
+
+async function loadMktCorr(){
+  const el=document.getElementById('mkt-corr-wrap');
+  if(!el) return;
+  el.innerHTML='<div class="loading" style="padding:20px">COMPUTING CORRELATION…</div>';
+  const tickers=BB.secs.slice(0,20).map(s=>s.ticker); // cap at 20 for performance
+  const series={};
+  await Promise.all(tickers.map(async tk=>{
+    const r=await api(`/api/analytics/ohlcv/${tk}?days=30`);
+    if(r.ok&&r.d.candles?.length>5){
+      series[tk]=r.d.candles.map(c=>c.close);
+    }
+  }));
+  const valid=Object.keys(series);
+  if(valid.length<2){ el.innerHTML='<div class="loading">INSUFFICIENT DATA</div>'; return; }
+  // Pearson correlation
+  function pearson(a,b){
+    const n=Math.min(a.length,b.length);
+    const ax=a.slice(0,n),bx=b.slice(0,n);
+    const ma=ax.reduce((s,v)=>s+v,0)/n,mb=bx.reduce((s,v)=>s+v,0)/n;
+    let num=0,da=0,db=0;
+    for(let i=0;i<n;i++){const da_=ax[i]-ma,db_=bx[i]-mb;num+=da_*db_;da+=da_*da_;db+=db_*db_;}
+    return (da&&db)?num/Math.sqrt(da*db):0;
+  }
+  // Build N×N matrix HTML
+  const sz=Math.min(valid.length,16);
+  const tks=valid.slice(0,sz);
+  const matrix=tks.map(a=>tks.map(b=>pearson(series[a],series[b])));
+  // Color: -1→red, 0→dark, +1→green
+  function corrColor(v){
+    if(v>0.7) return 'rgba(0,200,83,.8)';
+    if(v>0.3) return 'rgba(0,200,83,.4)';
+    if(v>-0.3) return 'rgba(80,80,80,.5)';
+    if(v>-0.7) return 'rgba(244,67,54,.4)';
+    return 'rgba(244,67,54,.8)';
+  }
+  const cellSz=Math.max(22,Math.floor(Math.min((el.offsetWidth||400)-80,400)/sz));
+  let html=`<div style="font-size:9px;color:var(--txt3);margin-bottom:6px;letter-spacing:1px">PEARSON CORRELATION — 30D CLOSE RETURNS (${sz}×${sz})</div>`;
+  html+=`<div style="overflow:auto"><table style="border-collapse:collapse;font-family:var(--font);font-size:${cellSz<28?8:9}px">`;
+  // Header row
+  html+=`<tr><td style="width:${cellSz}px"></td>${tks.map(t=>`<th style="color:var(--txt2);font-weight:700;padding:1px 2px;text-align:center;writing-mode:vertical-rl;transform:rotate(180deg);height:${cellSz+20}px;white-space:nowrap;overflow:hidden;max-width:${cellSz}px">${t}</th>`).join('')}</tr>`;
+  tks.forEach((rowTk,i)=>{
+    html+=`<tr><th style="color:var(--txt2);font-weight:700;padding:1px 4px;text-align:right;white-space:nowrap;overflow:hidden;max-width:50px">${rowTk}</th>`;
+    tks.forEach((colTk,j)=>{
+      const v=matrix[i][j];
+      const bg=corrColor(v);
+      const txt=i===j?'—':v.toFixed(2);
+      const txtColor=Math.abs(v)>0.5?'var(--wht)':'var(--txt)';
+      html+=`<td style="background:${bg};color:${txtColor};width:${cellSz}px;height:${cellSz}px;text-align:center;font-variant-numeric:tabular-nums;cursor:default" title="${rowTk} vs ${colTk}: ${v.toFixed(3)}">${txt}</td>`;
+    });
+    html+=`</tr>`;
+  });
+  html+='</table></div>';
+  html+=`<div style="margin-top:8px;font-size:9px;color:var(--txt3);display:flex;gap:12px;align-items:center">
+    <span>LEGEND:</span>
+    <span style="color:var(--up)">■ HIGH +CORR</span>
+    <span style="color:var(--txt3)">■ NEUTRAL</span>
+    <span style="color:var(--dn)">■ HIGH −CORR</span>
+  </div>`;
+  el.innerHTML=html;
+}
 
 async function loadMomentumMatrix(){
   // Fetch short OHLCV for all tickers to compute last candle vs 5-bar avg acceleration
