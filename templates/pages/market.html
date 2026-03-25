@@ -422,3 +422,336 @@ setInterval(loadPrintFeed, 30000); // refresh prints every 8s
 
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F1 EXTENDED MODULES ROW 2 — dense market intelligence
+════════════════════════════════════════════════════════════════════════ -->
+<div class="wrow" style="flex:none;height:180px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 2: Breadth Oscillator -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">BREADTH OSCILLATOR</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">ADV/DEC ratio rolling</div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="mkt-brd-osc-c"></canvas></div>
+  </div>
+
+  <!-- Module 3: Top Movers Dual Table -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">7</span><span class="wtitle">TOP MOVERS</span></div></div>
+    <div style="display:flex;height:100%;overflow:hidden">
+      <div style="flex:1;overflow-y:auto;border-right:1px solid var(--bdr)">
+        <div style="padding:2px 6px;font-size:8px;font-weight:700;color:var(--up);letter-spacing:1.5px;background:var(--bg3);border-bottom:1px solid var(--bdr)">TOP GAINERS</div>
+        <div id="mkt-gainers"></div>
+      </div>
+      <div style="flex:1;overflow-y:auto">
+        <div style="padding:2px 6px;font-size:8px;font-weight:700;color:var(--dn);letter-spacing:1.5px;background:var(--bg3);border-bottom:1px solid var(--bdr)">TOP LOSERS</div>
+        <div id="mkt-losers"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Module 4: VIX Sparkline History -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">8</span><span class="wtitle">NER-VIX HISTORY</span></div><div class="wbar-r" id="mkt-vix-cur" style="font-size:11px;font-weight:700;color:var(--yel)">—</div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="mkt-vix-c"></canvas></div>
+  </div>
+
+  <!-- Module 5: Capital Flow Waterfall -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">9</span><span class="wtitle">CAPITAL FLOW</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">session vol × chg proxy</div></div>
+    <div class="scroll" id="mkt-flow-wfall"></div>
+  </div>
+
+  <!-- Module 10: Volume Anomaly Table -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">10</span><span class="wtitle">VOL ANOMALIES</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">≥1.5× avg</div></div>
+    <div class="scroll" id="mkt-vol-anom"></div>
+  </div>
+
+  <!-- Module 16: Exchange Turnover Rate -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">11</span><span class="wtitle">TURNOVER RATE</span></div></div>
+    <div class="scroll" id="mkt-turnover"></div>
+  </div>
+
+</div>
+
+<!-- ─── Row 3: Session Timeline + Correlation + Tick Grid ─── -->
+<div class="wrow" style="flex:none;height:160px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 12: Session Timeline -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">12</span><span class="wtitle">SESSION TIMELINE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">trades/hr UTC</div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="mkt-timeline-c"></canvas></div>
+  </div>
+
+  <!-- Module 11: Correlation Snapshot -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">13</span><span class="wtitle">CORRELATION SNAPSHOT</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">top-10 pairs</div></div>
+    <div class="scroll" id="mkt-corr-snap" style="padding:4px"></div>
+  </div>
+
+  <!-- Module 8: Price Gap Scanner -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">14</span><span class="wtitle">GAP SCANNER</span></div></div>
+    <div class="scroll" id="mkt-gaps"></div>
+  </div>
+
+  <!-- Module 9: New High / New Low -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">15</span><span class="wtitle">HIGH / LOW</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">vs 30D</div></div>
+    <div class="scroll" id="mkt-highs-lows"></div>
+  </div>
+
+  <!-- Module 14: Tick Direction Grid -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">16</span><span class="wtitle">TICK GRID</span></div><div class="wbar-r"><span class="live-dot"></span></div></div>
+    <div id="mkt-tick-grid" style="padding:4px;display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start;overflow-y:auto;height:calc(100% - 20px)"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── Extended F1 modules — appended IIFE ───────────────────────────────────────
+
+let _extData = null, _vixHistory = [], _vixChart = null, _brdChart = null, _tlChart = null;
+
+// Hook into existing loadBreadth so extended modules refresh automatically
+const _origLoadBreadth = window.loadBreadth;
+window.loadBreadth = async function() {
+  await _origLoadBreadth();
+  // Pull updated breadth data from the _breadth variable in parent IIFE
+  // We get it by re-fetching the current state
+  setTimeout(extLoadAll, 200);
+};
+
+window.PAGE_mkt_extOnShow = function() {
+  extLoadAll();
+  extLoadTimeline();
+  extLoadCorrSnap();
+};
+
+// Attach to main onShow
+const _origOnShow = window.PAGE_mkt_onShow;
+window.PAGE_mkt_onShow = function() {
+  _origOnShow();
+  setTimeout(() => { extLoadAll(); extLoadTimeline(); extLoadCorrSnap(); }, 600);
+};
+setInterval(() => { if(document.getElementById('mkt-tick-grid')) extRenderTickGrid(); }, 10000);
+
+async function extLoadAll() {
+  const days = document.getElementById('mkt-range')?.value || 7;
+  const r = await api(`/api/market_breadth?days=${days}`);
+  if(!r.ok) return;
+  _extData = r.d;
+  extRenderMovers(_extData.securities || []);
+  extRenderFlowWaterfall(_extData.securities || []);
+  extRenderVolAnomalies(_extData.securities || []);
+  extRenderTurnover(_extData.securities || []);
+  extRenderGapScanner(_extData.securities || []);
+  extRenderHighsLows(_extData.securities || []);
+  extRenderTickGrid();
+  // VIX
+  const vix = _extData.summary?.vol_dispersion ?? null;
+  if(vix != null) {
+    _vixHistory.push({ts: Date.now(), vix: parseFloat(vix)});
+    if(_vixHistory.length > 60) _vixHistory.shift();
+    // Persist to server
+    api('/api/market/vix_snapshot', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({vix: parseFloat(vix)})});
+  }
+  extRenderVixChart();
+  extRenderBreadthOsc(_extData.securities || []);
+}
+
+function extRenderMovers(secs) {
+  const sorted = [...secs].filter(s=>s.chg_pct!=null).sort((a,b)=>b.chg_pct-a.chg_pct);
+  const top5 = sorted.slice(0,5);
+  const bot5 = sorted.slice(-5).reverse();
+  const row = (s,cls) => `<div style="display:flex;justify-content:space-between;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);cursor:pointer;font-size:10px" onclick="selectMktTicker('${s.ticker}')">
+    <span class="wht" style="font-weight:700;width:42px">${s.ticker}</span>
+    <span style="color:${cls};font-weight:700">${fp(s.chg_pct)}</span>
+  </div>`;
+  document.getElementById('mkt-gainers').innerHTML = top5.map(s=>row(s,'var(--up)')).join('');
+  document.getElementById('mkt-losers').innerHTML  = bot5.map(s=>row(s,'var(--dn)')).join('');
+}
+
+function extRenderFlowWaterfall(secs) {
+  const el = document.getElementById('mkt-flow-wfall'); if(!el) return;
+  const sorted = [...secs].filter(s=>s.chg_pct!=null&&s.volume).sort((a,b)=>Math.abs(b.chg_pct*b.volume)-Math.abs(a.chg_pct*a.volume)).slice(0,8);
+  const maxFlow = Math.max(...sorted.map(s=>Math.abs(s.chg_pct*s.volume)), 1);
+  el.innerHTML = sorted.map(s=>{
+    const flow = s.chg_pct * s.volume;
+    const w = (Math.abs(flow)/maxFlow*80).toFixed(1);
+    const col = flow>0?'var(--up)':'var(--dn)';
+    return `<div style="display:flex;align-items:center;gap:4px;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <span class="wht" style="font-weight:700;width:36px">${s.ticker}</span>
+      <div style="flex:1;height:4px;background:var(--bdr)"><div style="height:100%;width:${w}%;background:${col};opacity:.8"></div></div>
+      <span style="color:${col};width:46px;text-align:right;font-size:9px">${fp(s.chg_pct)}</span>
+    </div>`;
+  }).join('');
+}
+
+function extRenderVolAnomalies(secs) {
+  const el = document.getElementById('mkt-vol-anom'); if(!el) return;
+  const anom = secs.filter(s=>(s.vol_spike||0)>=1.5).sort((a,b)=>b.vol_spike-a.vol_spike);
+  if(!anom.length){el.innerHTML='<div class="dim" style="padding:6px 8px;font-size:10px">No anomalies</div>';return;}
+  el.innerHTML = anom.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="wht" style="font-weight:700">${s.ticker}</span>
+    <span class="org" style="font-weight:700">${s.vol_spike?.toFixed(1)||'—'}×</span>
+    <span class="dim">${fk(s.volume)}</span>
+  </div>`).join('');
+}
+
+function extRenderTurnover(secs) {
+  const el = document.getElementById('mkt-turnover'); if(!el) return;
+  const valid = secs.filter(s=>s.market_cap&&s.volume).map(s=>({
+    ticker: s.ticker,
+    turnover: (s.volume * (s.last_price||1)) / s.market_cap * 100
+  })).sort((a,b)=>b.turnover-a.turnover).slice(0,8);
+  el.innerHTML = valid.map(s=>`<div style="display:flex;justify-content:space-between;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="wht" style="font-weight:700">${s.ticker}</span>
+    <span class="cyn">${s.turnover.toFixed(2)}%</span>
+  </div>`).join('') || '<div class="loading">NO DATA</div>';
+}
+
+function extRenderGapScanner(secs) {
+  const el = document.getElementById('mkt-gaps'); if(!el) return;
+  const gaps = secs.filter(s=>s.chg_pct!=null&&Math.abs(s.chg_pct)>2)
+    .sort((a,b)=>Math.abs(b.chg_pct)-Math.abs(a.chg_pct)).slice(0,8);
+  if(!gaps.length){el.innerHTML='<div class="dim" style="padding:6px 8px;font-size:10px">No significant gaps</div>';return;}
+  el.innerHTML = gaps.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="wht" style="font-weight:700">${s.ticker}</span>
+    <span style="color:${s.chg_pct>0?'var(--up)':'var(--dn)'};font-weight:700">${fp(s.chg_pct)}</span>
+    <span class="badge ${s.chg_pct>0?'b-up':'b-dn'}" style="font-size:8px">${s.chg_pct>2?'GAP↑':'GAP↓'}</span>
+  </div>`).join('');
+}
+
+function extRenderHighsLows(secs) {
+  const el = document.getElementById('mkt-highs-lows'); if(!el) return;
+  const near = secs.filter(s=>s.prd_hi_pct!=null).map(s=>({...s}));
+  const highs = near.filter(s=>s.prd_hi_pct>=-3).sort((a,b)=>b.prd_hi_pct-a.prd_hi_pct);
+  const lows  = near.filter(s=>s.prd_hi_pct<-20).sort((a,b)=>a.prd_hi_pct-b.prd_hi_pct);
+  let html = '';
+  if(highs.length) {
+    html += `<div style="padding:2px 6px;font-size:8px;font-weight:700;color:var(--up);letter-spacing:1px;background:var(--bg3)">NEAR HIGH</div>`;
+    html += highs.slice(0,4).map(s=>`<div style="display:flex;justify-content:space-between;padding:2px 6px;font-size:10px"><span class="wht" style="font-weight:700">${s.ticker}</span><span class="up">${fp(s.prd_hi_pct)}</span></div>`).join('');
+  }
+  if(lows.length) {
+    html += `<div style="padding:2px 6px;font-size:8px;font-weight:700;color:var(--dn);letter-spacing:1px;background:var(--bg3)">NEAR LOW</div>`;
+    html += lows.slice(0,4).map(s=>`<div style="display:flex;justify-content:space-between;padding:2px 6px;font-size:10px"><span class="wht" style="font-weight:700">${s.ticker}</span><span class="dn">${fp(s.prd_hi_pct)}</span></div>`).join('');
+  }
+  el.innerHTML = html || '<div class="dim" style="padding:6px 8px;font-size:10px">No data</div>';
+}
+
+function extRenderTickGrid() {
+  const el = document.getElementById('mkt-tick-grid'); if(!el) return;
+  const secs = BB.secs || [];
+  el.innerHTML = secs.map(s=>{
+    const chg = s.change_pct || s.chg_pct || 0;
+    const up = chg > 0.05;
+    const dn = chg < -0.05;
+    const col = up?'var(--up)':dn?'var(--dn)':'var(--txt3)';
+    const arrow = up?'▲':dn?'▼':'◆';
+    return `<div style="padding:2px 5px;background:${up?'rgba(0,200,83,.08)':dn?'rgba(244,67,54,.08)':'rgba(50,50,50,.3)'};border:1px solid ${up?'rgba(0,200,83,.2)':dn?'rgba(244,67,54,.2)':'var(--bdr)'};cursor:pointer;min-width:52px;text-align:center" onclick="selectMktTicker('${s.ticker}')">
+      <div style="font-size:8px;font-weight:700;color:${col}">${arrow} ${s.ticker}</div>
+    </div>`;
+  }).join('');
+}
+
+function extRenderVixChart() {
+  const ctx = document.getElementById('mkt-vix-c'); if(!ctx) return;
+  const pts = _vixHistory.slice(-40);
+  if(pts.length < 2) {
+    // Load from server if we have stored values
+    api('/api/market/vix_history').then(r=>{
+      if(r.ok && r.d.length) {
+        _vixHistory = r.d.map(p=>({ts:p.ts*1000, vix:p.vix}));
+        extRenderVixChart();
+      }
+    });
+    return;
+  }
+  const cur = pts[pts.length-1]?.vix;
+  const el = document.getElementById('mkt-vix-cur');
+  if(el && cur != null) el.textContent = f(cur,1)+'%';
+  if(_vixChart) { _vixChart.destroy(); _vixChart = null; }
+  _vixChart = mkLine(ctx,
+    pts.map((_,i)=>i===pts.length-1?'NOW':i==='0'?'START':''),
+    [{data:pts.map(p=>p.vix),borderColor:'var(--yel)',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(255,214,0,.06)',tension:.3}]
+  );
+}
+
+function extRenderBreadthOsc(secs) {
+  const ctx = document.getElementById('mkt-brd-osc-c'); if(!ctx) return;
+  if(!secs.length) return;
+  const adv = secs.filter(s=>(s.chg_pct||0)>0).length;
+  const dec = secs.filter(s=>(s.chg_pct||0)<0).length;
+  const tot = secs.length || 1;
+  const ratio = adv / tot * 100;
+  // Store session history in sessionStorage
+  let hist = [];
+  try { hist = JSON.parse(sessionStorage.getItem('_mktBrdHist')||'[]'); } catch(e){}
+  hist.push({t: Date.now(), v: ratio});
+  if(hist.length > 60) hist.shift();
+  try { sessionStorage.setItem('_mktBrdHist', JSON.stringify(hist)); } catch(e){}
+  if(_brdChart) { _brdChart.destroy(); _brdChart=null; }
+  _brdChart = mkLine(ctx,
+    hist.map((_,i)=>''),
+    [{data:hist.map(h=>h.v),borderColor:ratio>=50?'var(--up)':'var(--dn)',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:ratio>=50?'rgba(0,200,83,.06)':'rgba(244,67,54,.06)',tension:.3}],
+    {y:{min:0,max:100,ticks:{callback:v=>v+'%',color:'#444'}}}
+  );
+  // Draw 50 line
+  if(_brdChart) {
+    _brdChart.options.plugins.annotation = {annotations:{line50:{type:'line',yMin:50,yMax:50,borderColor:'rgba(255,255,255,.15)',borderWidth:1,borderDash:[4,4]}}};
+    _brdChart.update('none');
+  }
+}
+
+async function extLoadTimeline() {
+  const ctx = document.getElementById('mkt-timeline-c'); if(!ctx) return;
+  const r = await api('/api/transactions?limit=200');
+  if(!r.ok || !Array.isArray(r.d)) return;
+  // Bucket by UTC hour
+  const buckets = new Array(24).fill(0);
+  r.d.forEach(tx=>{
+    if(!tx.timestamp) return;
+    try {
+      const h = new Date(tx.timestamp).getUTCHours();
+      buckets[h]++;
+    } catch(e){}
+  });
+  const labels = buckets.map((_,i)=>i.toString().padStart(2,'0')+'h');
+  if(_tlChart) { _tlChart.destroy(); _tlChart=null; }
+  _tlChart = mkBar(ctx, labels, buckets,
+    buckets.map(v=>v>0?'rgba(0,200,83,.5)':'rgba(50,50,50,.3)'));
+}
+
+async function extLoadCorrSnap() {
+  const el = document.getElementById('mkt-corr-snap'); if(!el) return;
+  el.innerHTML = '<div class="loading">LOADING…</div>';
+  const tickers = (BB.secs||[]).slice(0,10).map(s=>s.ticker);
+  if(tickers.length < 2) return;
+  const r = await api(`/api/correlation_matrix?tickers=${tickers.join(',')}`);
+  if(!r.ok) { el.innerHTML = '<div class="dim" style="padding:6px;font-size:10px">No data</div>'; return; }
+  const matrix = r.d.matrix || {};
+  // Find top correlated pairs
+  const pairs = [];
+  const keys = Object.keys(matrix);
+  keys.forEach((t1,i)=>{
+    keys.slice(i+1).forEach(t2=>{
+      const v = matrix[t1]?.[t2];
+      if(v != null) pairs.push({t1,t2,v});
+    });
+  });
+  pairs.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v));
+  el.innerHTML = pairs.slice(0,8).map(p=>{
+    const col = p.v>0.6?'var(--up)':p.v<-0.6?'var(--dn)':'var(--txt3)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <span class="wht">${p.t1}<span class="dim"> / </span>${p.t2}</span>
+      <span style="color:${col};font-weight:700">${p.v.toFixed(2)}</span>
+    </div>`;
+  }).join('') || '<div class="dim" style="padding:6px;font-size:10px">No pairs</div>';
+}
+
+})();
+</script>

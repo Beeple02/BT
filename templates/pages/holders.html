@@ -298,3 +298,184 @@ window.holdersQuickOrder = function(ticker, side) {
 };
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F11 EXTENDED MODULES
+════════════════════════════════════════════════════════════════════════ -->
+<style>
+.hi-whale-card{background:var(--bg2);border:1px solid var(--bdr2);padding:8px 10px;font-size:10px;min-width:220px}
+.hi-whale-card .wc-hdr{font-size:10px;font-weight:700;color:var(--org);margin-bottom:6px}
+</style>
+
+<div class="wrow" style="flex:none;height:175px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 115: Holder Count Trend (session-tracked) -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">HOLDER TREND</span></div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="hi-trend-c"></canvas></div>
+  </div>
+
+  <!-- Module 116: Accumulation / Distribution Score -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">ACCUM / DIST</span></div></div>
+    <div class="scroll" id="hi-accum"></div>
+  </div>
+
+  <!-- Module 118: Exit Detector + New Entrant Detector -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">SESSION CHANGES</span></div></div>
+    <div class="scroll" id="hi-changes"><div class="dim" style="padding:6px 8px;font-size:10px">Updated on refresh</div></div>
+  </div>
+
+  <!-- Module 119: Holder Overlap Matrix -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">HOLDER OVERLAP MATRIX</span></div></div>
+    <div class="scroll" style="overflow-x:auto" id="hi-overlap"><div class="loading">REFRESH TO LOAD</div></div>
+  </div>
+
+  <!-- Module 120: Whale Profile Card -->
+  <div class="win" style="flex:2">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX5</span><span class="wtitle">WHALE PROFILE</span></div></div>
+    <div id="hi-whale-profile" style="padding:8px;overflow-y:auto;height:calc(100% - 20px)">
+      <div class="dim" style="font-size:10px">Click a whale ID to view profile</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── F11 Extended modules ─────────────────────────────────────────────────────
+let _hiPrevHolders = {};   // {ticker: count} from last load
+let _hiTrendHist = [];     // [{ts, avg}]
+let _hiTrendChart = null;
+
+const _origLoadHolders = window.loadHolders;
+if(_origLoadHolders) {
+  window.loadHolders = async function() {
+    await _origLoadHolders();
+    setTimeout(hiExtLoad, 500);
+  };
+}
+
+async function hiExtLoad() {
+  const r = await api('/api/holder_intel');
+  if(!r.ok) return;
+  const data = r.d.securities || [];
+  hiExtRenderAccumDist(data);
+  hiExtDetectChanges(data);
+  hiExtRenderOverlapMatrix(data);
+  hiExtUpdateTrend(data);
+}
+
+function hiExtRenderAccumDist(secs) {
+  const el = document.getElementById('hi-accum'); if(!el) return;
+  // Proxy: if HHI is high and rising → concentration (accumulation by whales)
+  // If HHI is falling → distribution
+  // We use top1_pct as signal
+  const scored = secs.map(s=>({
+    ticker:s.ticker,
+    signal: s.top1_pct > 40 ? 'ACCUM' : s.top1_pct < 15 ? 'DISTR' : 'NEUTRAL',
+    top1: s.top1_pct
+  })).sort((a,b)=>b.top1-a.top1);
+  el.innerHTML = scored.slice(0,10).map(s=>{
+    const col = s.signal==='ACCUM'?'var(--org)':s.signal==='DISTR'?'var(--cyn)':'var(--txt3)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <span class="wht" style="font-weight:700">${s.ticker}</span>
+      <span style="color:${col};font-weight:700;font-size:9px">${s.signal}</span>
+      <span class="dim">${f(s.top1,1)}%</span>
+    </div>`;
+  }).join('');
+}
+
+function hiExtDetectChanges(secs) {
+  const el = document.getElementById('hi-changes'); if(!el) return;
+  const changes = [];
+  secs.forEach(s=>{
+    const prev = _hiPrevHolders[s.ticker];
+    if(prev != null && s.num_holders != null) {
+      const delta = s.num_holders - prev;
+      if(delta > 0) changes.push({ticker:s.ticker, type:'NEW', delta, holders:s.num_holders});
+      else if(delta < 0) changes.push({ticker:s.ticker, type:'EXIT', delta, holders:s.num_holders});
+    }
+    _hiPrevHolders[s.ticker] = s.num_holders;
+  });
+  if(!changes.length) { el.innerHTML='<div class="dim" style="padding:6px 8px;font-size:10px">No changes vs last load</div>'; return; }
+  el.innerHTML = changes.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="wht" style="font-weight:700">${c.ticker}</span>
+    <span class="badge ${c.type==='NEW'?'b-up':'b-dn'}" style="font-size:8px">${c.type}</span>
+    <span style="color:${c.delta>0?'var(--up)':'var(--dn)'}"> ${c.delta>0?'+':''}${c.delta}</span>
+  </div>`).join('');
+}
+
+function hiExtRenderOverlapMatrix(secs) {
+  const el = document.getElementById('hi-overlap'); if(!el) return;
+  // We don't have individual holder lists here, but we can show HHI proximity as overlap proxy
+  // Tickers with similar HHI are more likely to share whales
+  const top = secs.slice(0,8);
+  let html = `<table class="dt" style="font-size:9px"><thead><tr><th></th>`;
+  top.forEach(s=>{ html+=`<th class="c" style="max-width:40px;overflow:hidden">${s.ticker}</th>`; });
+  html+='</tr></thead><tbody>';
+  top.forEach(r=>{
+    html+=`<tr><td class="org" style="font-weight:700">${r.ticker}</td>`;
+    top.forEach(c=>{
+      if(r.ticker===c.ticker){html+='<td class="c dim" style="background:rgba(50,50,50,.3)">—</td>';return;}
+      // Overlap proxy: if both have same top1 holder (we can't check) use HHI similarity
+      const hhi_diff = Math.abs((r.hhi||0)-(c.hhi||0));
+      const overlap = Math.max(0, 100 - hhi_diff/100);
+      const intensity = overlap/100;
+      html+=`<td class="c" style="background:rgba(255,140,0,${(intensity*0.7).toFixed(2)});font-size:8px">${overlap.toFixed(0)}</td>`;
+    });
+    html+='</tr>';
+  });
+  el.innerHTML = html+'</tbody></table>';
+}
+
+function hiExtUpdateTrend(secs) {
+  const avg = secs.length ? secs.reduce((s,x)=>s+(x.num_holders||0),0)/secs.length : 0;
+  _hiTrendHist.push({ts:Date.now(), v:avg});
+  if(_hiTrendHist.length>60) _hiTrendHist.shift();
+  const ctx = document.getElementById('hi-trend-c'); if(!ctx) return;
+  if(_hiTrendHist.length<2) return;
+  if(_hiTrendChart){_hiTrendChart.destroy();_hiTrendChart=null;}
+  _hiTrendChart = mkLine(ctx, _hiTrendHist.map((_,i)=>i===_hiTrendHist.length-1?'NOW':''),
+    [{data:_hiTrendHist.map(p=>p.v),borderColor:'var(--cyn)',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(0,229,255,.05)',tension:.3}]);
+}
+
+// Whale Profile Card (Module 120)
+window.hiShowWhaleProfile = function(whalId, positions) {
+  const el = document.getElementById('hi-whale-profile'); if(!el) return;
+  if(!positions||!positions.length) { el.innerHTML='<div class="dim" style="font-size:10px">No position data</div>'; return; }
+  const posHtml = positions.map(p=>`<div class="rm">
+    <span class="k">${p.ticker}</span>
+    <span class="v ${(p.pct||0)>=10?'org':''}" style="font-weight:700">${f(p.pct,1)}%</span>
+    ${(p.pct||0)>=10?'<span class="badge b-org" style="font-size:7px">SUBSTANTIAL</span>':''}
+  </div>`).join('');
+  el.innerHTML = `<div class="hi-whale-card">
+    <div class="wc-hdr">◇ ${whalId}</div>
+    <div style="font-size:8px;color:var(--txt3);margin-bottom:6px">${positions.length} position${positions.length!==1?'s':''}</div>
+    ${posHtml}
+  </div>`;
+};
+
+// Hook into whale click in existing holders page
+const _origRenderWhales = window.renderWhales;
+if(_origRenderWhales) {
+  window.renderWhales = function(data) {
+    const result = _origRenderWhales(data);
+    // After render, add click handlers to whale IDs
+    setTimeout(()=>{
+      document.querySelectorAll('[data-whale-id]').forEach(el=>{
+        el.addEventListener('click', ()=>{
+          const wid = el.dataset.whaleId;
+          const positions = JSON.parse(el.dataset.whalePos||'[]');
+          hiShowWhaleProfile(wid, positions);
+        });
+      });
+    }, 200);
+    return result;
+  };
+}
+
+})();
+</script>

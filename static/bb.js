@@ -196,3 +196,53 @@ const gcIW = n => {
 
 // ── Resize system disabled — panels use CSS flex defaults only ───────────────
 window.initResize = function() {};
+
+// ── CSV Export — global table export utility ──────────────────────────────────
+window.csvExport = function(tableEl, filename) {
+  if(typeof tableEl === 'string') tableEl = document.getElementById(tableEl);
+  if(!tableEl) return;
+  const rows = [];
+  tableEl.querySelectorAll('tr').forEach(tr => {
+    const cols = [...tr.querySelectorAll('th,td')].map(td => {
+      let txt = (td.innerText || td.textContent || '').trim().replace(/\s+/g,' ');
+      return `"${txt.replace(/"/g,'""')}"`;
+    });
+    if(cols.length) rows.push(cols.join(','));
+  });
+  const blob = new Blob([rows.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (filename || 'export') + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+// ── API Latency Tracker ───────────────────────────────────────────────────────
+window.BB_LATENCY = { samples: [], avg: null };
+const _origApi = api;
+window.api = async function(path, opts) {
+  const t0 = performance.now();
+  const result = await _origApi(path, opts);
+  const ms = Math.round(performance.now() - t0);
+  BB_LATENCY.samples.push(ms);
+  if(BB_LATENCY.samples.length > 30) BB_LATENCY.samples.shift();
+  BB_LATENCY.avg = Math.round(BB_LATENCY.samples.reduce((a,b)=>a+b,0)/BB_LATENCY.samples.length);
+  // Update topbar latency badge if present
+  const el = document.getElementById('tb-latency');
+  if(el){
+    el.textContent = BB_LATENCY.avg + 'ms';
+    el.className = BB_LATENCY.avg < 300 ? 'fast' : BB_LATENCY.avg < 800 ? '' : 'very-slow';
+  }
+  return result;
+};
+
+// ── Module Collapse — double-click .wbar to toggle ───────────────────────────
+document.addEventListener('dblclick', function(e){
+  const wbar = e.target.closest('.wbar');
+  if(!wbar) return;
+  // Don't collapse if double-clicking a button/input/select inside the wbar
+  if(e.target.closest('button,input,select,a,.wbtn')) return;
+  const win = wbar.closest('.win');
+  if(!win) return;
+  win.classList.toggle('collapsed');
+});

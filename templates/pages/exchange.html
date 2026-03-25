@@ -633,3 +633,190 @@ setInterval(()=>{ if(_activeTab==='tse'&&_tseLoaded) loadTSE(true); }, 60000);
 
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F9 EXTENDED MODULES — league table, quality, circuit breakers
+════════════════════════════════════════════════════════════════════════ -->
+<div class="wrow" style="flex:none;height:180px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 98: Market Cap League Table -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">MCAP LEAGUE TABLE</span></div>
+      <div class="wbar-r">
+        <button class="btn btn-xs on" id="ex-lt-ner" onclick="exExtTab('ner')">NER</button>
+        <button class="btn btn-xs" id="ex-lt-tse" onclick="exExtTab('tse')">TSE</button>
+        <button class="btn btn-xs" id="ex-lt-all" onclick="exExtTab('all')">ALL</button>
+      </div>
+    </div>
+    <div class="scroll" style="overflow-x:auto">
+      <table class="dt" style="min-width:440px" id="ex-lt-tbl">
+        <thead><tr><th>#</th><th>TICKER</th><th>NAME</th><th class="r">MCAP</th><th class="r">PRICE</th><th class="r">CHG%</th><th style="width:70px">SPARK</th></tr></thead>
+        <tbody id="ex-lt-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Module 99: Float-Adjusted Turnover -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">TURNOVER RANK</span></div></div>
+    <div class="scroll" id="ex-turnover-rank"></div>
+  </div>
+
+  <!-- Module 100: Exchange P&L Aggregate -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">NET FLOW</span></div></div>
+    <div id="ex-net-flow" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">—</div>
+  </div>
+
+  <!-- Module 103: Circuit Breaker Monitor -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">CIRCUIT BREAKERS</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">±10% flag</div></div>
+    <div class="scroll" id="ex-circuit"></div>
+  </div>
+
+  <!-- Module 104: Market Quality Score -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX5</span><span class="wtitle">QUALITY SCORE</span></div></div>
+    <div class="scroll" id="ex-quality"></div>
+  </div>
+
+  <!-- Module 105: Active Hours Heatmap -->
+  <div class="win" style="flex:2">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX6</span><span class="wtitle">ACTIVITY BY HOUR (UTC)</span></div></div>
+    <div id="ex-hours-hm" style="padding:4px;display:flex;gap:2px;align-items:flex-end;height:calc(100% - 20px)"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── F9 Extended modules ─────────────────────────────────────────────────────
+let _exExtTab = 'ner';
+
+const _origLoadExch = window.loadExch;
+if(_origLoadExch) {
+  window.loadExch = async function() {
+    await _origLoadExch();
+    setTimeout(exExtLoad, 400);
+  };
+}
+
+window.exExtTab = function(tab) {
+  _exExtTab = tab;
+  ['ner','tse','all'].forEach(t=>{
+    document.getElementById(`ex-lt-${t}`)?.classList.toggle('on', t===tab);
+  });
+  exExtRenderLeagueTable();
+};
+
+async function exExtLoad() {
+  const days = document.getElementById('ex-rng')?.value || 7;
+  const r = await api(`/api/market_breadth?days=${days}`);
+  if(!r.ok) return;
+  const secs = r.d.securities || [];
+  window._exExtSecs = secs;
+  exExtRenderLeagueTable();
+  exExtRenderTurnover(secs);
+  exExtRenderNetFlow(secs);
+  exExtRenderCircuitBreakers(secs);
+  exExtRenderQualityScores(secs);
+  exExtLoadHourHeatmap();
+}
+
+function exExtRenderLeagueTable() {
+  const tbody = document.getElementById('ex-lt-tbody'); if(!tbody) return;
+  const secs = window._exExtSecs || [];
+  let filtered = secs;
+  if(_exExtTab==='ner') filtered = secs.filter(s=>!s.ticker.startsWith('TSE:'));
+  else if(_exExtTab==='tse') filtered = secs.filter(s=>s.ticker.startsWith('TSE:'));
+  const sorted = [...filtered].sort((a,b)=>(b.market_cap||0)-(a.market_cap||0));
+  tbody.innerHTML = sorted.slice(0,12).map((s,i)=>`<tr>
+    <td class="dim">${i+1}</td>
+    <td class="org" style="font-weight:700">${s.ticker}</td>
+    <td class="dim" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.name||'—'}</td>
+    <td class="r wht">${fk(s.market_cap)}</td>
+    <td class="r">${f(s.last_price,4)}</td>
+    <td class="r" style="color:${gcI(s.chg_pct)};font-weight:${gcIW(s.chg_pct)}">${fp(s.chg_pct)}</td>
+    <td><span id="ex-lt-spark-${s.ticker.replace(':','-')}">…</span></td>
+  </tr>`).join('');
+  sorted.slice(0,12).forEach(s=>exExtLoadSpark(s.ticker));
+}
+
+async function exExtLoadSpark(ticker) {
+  const id = `ex-lt-spark-${ticker.replace(':','-')}`;
+  const el = document.getElementById(id); if(!el) return;
+  const r = await api(`/api/analytics/price_history/${encodeURIComponent(ticker)}?days=7`);
+  if(!r.ok||!r.d.length){el.innerHTML='—';return;}
+  const pts=r.d.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)).map(p=>p.price);
+  const col=pts[pts.length-1]>pts[0]?'var(--up)':'var(--dn)';
+  el.innerHTML='';el.appendChild(spark(pts,col,60,13));
+}
+
+function exExtRenderTurnover(secs) {
+  const el = document.getElementById('ex-turnover-rank'); if(!el) return;
+  const valid = secs.filter(s=>s.market_cap&&s.volume&&s.last_price)
+    .map(s=>({ticker:s.ticker, turnover:(s.volume*s.last_price)/s.market_cap*100}))
+    .sort((a,b)=>b.turnover-a.turnover);
+  el.innerHTML = valid.slice(0,10).map(s=>`<div style="display:flex;justify-content:space-between;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="org" style="font-weight:700">${s.ticker}</span>
+    <span class="cyn">${s.turnover.toFixed(2)}%</span>
+  </div>`).join('');
+}
+
+function exExtRenderNetFlow(secs) {
+  const el = document.getElementById('ex-net-flow'); if(!el) return;
+  const totalMcap = secs.reduce((s,x)=>s+(x.market_cap||0),0);
+  const totalVol  = secs.reduce((s,x)=>s+(x.volume||0),0);
+  const advFlow = secs.filter(s=>(s.chg_pct||0)>0).reduce((s,x)=>s+(x.volume||0)*(x.last_price||0),0);
+  const decFlow = secs.filter(s=>(s.chg_pct||0)<0).reduce((s,x)=>s+(x.volume||0)*(x.last_price||0),0);
+  const net = advFlow - decFlow;
+  el.innerHTML = `
+    <div class="rm"><span class="k">TOT MCAP</span><span class="v wht">${fk(totalMcap)}</span></div>
+    <div class="rm"><span class="k">BUY FLOW</span><span class="v up">${fk(advFlow)}</span></div>
+    <div class="rm"><span class="k">SELL FLOW</span><span class="v dn">${fk(decFlow)}</span></div>
+    <div class="rm"><span class="k">NET</span><span class="v ${net>=0?'up':'dn'}" style="font-weight:700">${net>=0?'+':''}${fk(net)}</span></div>
+  `;
+}
+
+function exExtRenderCircuitBreakers(secs) {
+  const el = document.getElementById('ex-circuit'); if(!el) return;
+  const flagged = secs.filter(s=>Math.abs(s.chg_pct||0)>=10).sort((a,b)=>Math.abs(b.chg_pct)-Math.abs(a.chg_pct));
+  if(!flagged.length) { el.innerHTML='<div style="padding:6px 8px;font-size:10px;color:var(--up)">✓ No circuit breakers triggered</div>'; return; }
+  el.innerHTML = flagged.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 8px;border-bottom:1px solid rgba(244,67,54,.2);background:rgba(244,67,54,.03);font-size:10px">
+    <span class="org" style="font-weight:700">${s.ticker}</span>
+    <span class="badge b-dn" style="font-size:8px">⚠ ${fp(s.chg_pct)}</span>
+  </div>`).join('');
+}
+
+function exExtRenderQualityScores(secs) {
+  const el = document.getElementById('ex-quality'); if(!el) return;
+  // Quality = composite: depth + (100-spread*10) + volume_score
+  const scored = secs.map(s=>{
+    const spreadScore = Math.max(0, 100 - (s.spread_pct||0)*20);
+    const volScore = s.vol_spike ? Math.min(s.vol_spike*20, 50) : 25;
+    const q = Math.round((spreadScore*0.6 + volScore*0.4));
+    return {ticker:s.ticker, q: Math.min(q,100)};
+  }).sort((a,b)=>b.q-a.q);
+  el.innerHTML = scored.slice(0,8).map(s=>`<div style="display:flex;align-items:center;gap:5px;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="org" style="font-weight:700;width:44px">${s.ticker}</span>
+    <div style="flex:1;height:4px;background:var(--bdr)"><div style="height:100%;width:${s.q}%;background:${s.q>=70?'var(--up)':s.q>=40?'var(--yel)':'var(--dn)'};opacity:.8"></div></div>
+    <span style="font-size:9px;font-weight:700;color:${s.q>=70?'var(--up)':s.q>=40?'var(--yel)':'var(--dn)'}">${s.q}</span>
+  </div>`).join('');
+}
+
+async function exExtLoadHourHeatmap() {
+  const el = document.getElementById('ex-hours-hm'); if(!el) return;
+  const r = await api('/api/transactions?limit=500');
+  if(!r.ok||!Array.isArray(r.d)) return;
+  const buckets = new Array(24).fill(0);
+  r.d.forEach(tx=>{ try{ buckets[new Date(tx.timestamp).getUTCHours()]++; }catch(e){} });
+  const max = Math.max(...buckets, 1);
+  el.innerHTML = buckets.map((v,h)=>`<div title="${h}:00 UTC — ${v} trades" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">
+    <div style="width:100%;background:${v>0?`rgba(255,140,0,${0.1+v/max*0.85})`:'rgba(30,30,30,.5)'};height:${Math.max(4,v/max*80)}px;transition:height .3s"></div>
+    <div style="font-size:8px;color:var(--txt3);writing-mode:vertical-rl;transform:rotate(180deg)">${h.toString().padStart(2,'0')}</div>
+  </div>`).join('');
+}
+
+})();
+</script>

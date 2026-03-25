@@ -365,3 +365,323 @@ window.scrQuickOrder = function(ticker, side) {
 };
 })();
 </script>
+
+<!-- F12 EXTENDED MODULES -->
+<style>
+#scr-ext-row{display:none}
+.scr-hover-chart{position:fixed;z-index:9000;background:var(--bg2);border:1px solid var(--bdr2);padding:8px;pointer-events:none;width:260px}
+.scr-alert-badge{display:inline-block;padding:1px 5px;font-size:8px;font-weight:700;background:rgba(255,165,0,.18);border:1px solid var(--org);color:var(--org);margin-left:4px}
+.scr-formula-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:var(--bg4);border:1px solid var(--bdr2);font-size:9px;color:var(--cyn);margin:2px}
+</style>
+
+<!-- Row 2: Extended Screener Modules -->
+<div id="scr-ext-row" class="wrow" style="height:180px;flex-shrink:0">
+  <!-- EX1: Saved Screens (server-persisted) -->
+  <div class="win" style="width:210px">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">4</span><span class="wtitle">SAVED SCREENS</span></div>
+      <div class="wbar-r"><span class="wbtn" onclick="scrExtSaveScreen()" title="Save current screen">💾</span></div>
+    </div>
+    <div class="scroll" id="scr-saved-list" style="font-size:10px"><div class="loading">RUN SCREEN TO SAVE</div></div>
+  </div>
+  <!-- EX2: Screen Entry Alert -->
+  <div class="win" style="width:200px">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">5</span><span class="wtitle">ENTRY ALERTS</span></div>
+      <div class="wbar-r">
+        <span id="scr-alert-dot" style="width:6px;height:6px;border-radius:50%;background:var(--txt3);display:inline-block"></span>
+      </div>
+    </div>
+    <div style="padding:6px 8px;font-size:10px">
+      <div style="display:flex;gap:4px;margin-bottom:5px">
+        <button class="btn on" style="font-size:8px;padding:1px 5px" onclick="scrExtWatchAlerts()" id="scr-alert-watch-btn">WATCH SCREEN</button>
+        <button class="btn" style="font-size:8px;padding:1px 5px" onclick="scrExtStopAlerts()">STOP</button>
+      </div>
+      <div id="scr-alert-log" style="font-size:9px;height:100px;overflow-y:auto">
+        <div class="loading">START WATCHING TO DETECT ENTRIES/EXITS</div>
+      </div>
+    </div>
+  </div>
+  <!-- EX3: Momentum + Liquidity Scores -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">6</span><span class="wtitle">MOMENTUM &amp; LIQUIDITY SCORES</span></div>
+      <div class="wbar-r" style="gap:6px">
+        <span style="font-size:9px;color:var(--txt3)">SORT</span>
+        <select id="scr-score-sort" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px;outline:none" onchange="scrExtRenderScores()">
+          <option value="mom">MOMENTUM</option><option value="liq">LIQUIDITY</option><option value="combo">COMBINED</option>
+        </select>
+      </div>
+    </div>
+    <div class="scroll">
+      <table class="dt" style="font-size:9px" id="scr-scores-tbl">
+        <thead><tr><th>TICKER</th><th class="r">CHG%</th><th class="r">RSI</th><th class="r">VOL SPIKE</th><th class="r">MOM SCORE</th><th class="r">SPREAD%</th><th class="r">DEPTH</th><th class="r">LIQ SCORE</th><th class="r">COMBO</th><th></th></tr></thead>
+        <tbody id="scr-scores-tbody"><tr><td colspan="10" class="loading">RUN SCREEN FIRST</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <!-- EX4: Custom Formula -->
+  <div class="win" style="width:220px">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">7</span><span class="wtitle">CUSTOM FORMULA</span></div></div>
+    <div style="padding:6px 8px;font-size:10px">
+      <div style="font-size:9px;color:var(--txt3);margin-bottom:4px">EXPR: use chg_pct, rsi, vol_spike, sharpe, spread_pct, hhi, volatility</div>
+      <div style="display:flex;gap:4px;margin-bottom:5px">
+        <input id="scr-formula-inp" type="text" placeholder="e.g. rsi < 40 && vol_spike > 1.5" style="flex:1;background:var(--bg);border:1px solid var(--bdr2);color:var(--cyn);font-family:var(--font);font-size:9px;padding:2px 5px;outline:none">
+        <button class="btn on" style="font-size:8px;padding:1px 5px" onclick="scrExtApplyFormula()">APPLY</button>
+      </div>
+      <div style="font-size:9px;color:var(--txt3);margin-bottom:4px">PRESETS</div>
+      <div id="scr-formula-presets">
+        <span class="scr-formula-chip" onclick="scrExtPreset('rsi < 35 && vol_spike > 1.5')">OVERSOLD+SPIKE</span>
+        <span class="scr-formula-chip" onclick="scrExtPreset('sharpe > 1.5 && volatility < 30')">QUALITY</span>
+        <span class="scr-formula-chip" onclick="scrExtPreset('chg_pct > 2 && spread_pct < 0.3')">BREAKOUT LIQUID</span>
+        <span class="scr-formula-chip" onclick="scrExtPreset('hhi > 3000 && vol_spike > 2')">WHALE ALERT</span>
+      </div>
+      <div id="scr-formula-result" style="margin-top:6px;font-size:9px;color:var(--txt3)">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Quick chart hover popup -->
+<div id="scr-hover-chart" class="scr-hover-chart" style="display:none">
+  <div style="font-size:9px;font-weight:700;color:var(--org);margin-bottom:4px" id="scr-hover-title">—</div>
+  <canvas id="scr-hover-canvas" width="244" height="90"></canvas>
+  <div id="scr-hover-stats" style="display:flex;gap:10px;margin-top:4px;font-size:9px"></div>
+</div>
+
+<script>
+(function(){
+let _scrSaved = [];
+let _scrAlertPrev = null, _scrAlertTimer = null;
+let _hoverChart = null;
+
+// ── Load saved screens from server ───────────────────────────────────────────
+async function scrExtLoadSaved(){
+  const r = await api('/api/screener/saved');
+  if(r.ok) _scrSaved = r.d || [];
+  renderSavedList();
+}
+
+function renderSavedList(){
+  const el = document.getElementById('scr-saved-list');
+  if(!_scrSaved.length){ el.innerHTML='<div class="loading">NO SAVED SCREENS</div>'; return; }
+  el.innerHTML = _scrSaved.map((s,i)=>`
+    <div style="padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="scrExtLoadSaved_run(${i})">
+      <div>
+        <div class="wht" style="font-weight:700;font-size:9px">${s.name}</div>
+        <div class="dim" style="font-size:8px">${(s.filters||[]).length} filters · ${s.days||30}D · ${new Date(s.ts||0).toLocaleDateString()}</div>
+      </div>
+      <span class="wbtn" onclick="event.stopPropagation();scrExtDeleteSaved(${i})" style="font-size:9px">✕</span>
+    </div>`).join('');
+}
+
+window.scrExtSaveScreen = async function(){
+  if(typeof _filters === 'undefined' || !_filters || !_filters.length){
+    alert('Run a screen first to save it'); return;
+  }
+  const name = prompt('Screen name:'); if(!name) return;
+  const payload = {name, filters:[..._filters], days: +(document.getElementById('scr-days')?.value||30), ts: Date.now()};
+  const r = await apiPost('/api/screener/saved', payload);
+  if(r.ok) await scrExtLoadSaved();
+};
+
+window.scrExtLoadSaved_run = function(i){
+  const s = _scrSaved[i]; if(!s) return;
+  if(typeof _filters !== 'undefined'){
+    window._filters = [...s.filters];
+    if(document.getElementById('scr-days')) document.getElementById('scr-days').value = s.days||30;
+    if(window.renderFilterTags) renderFilterTags();
+    if(window.runScreener) runScreener();
+  }
+};
+
+window.scrExtDeleteSaved = async function(i){
+  const s = _scrSaved[i]; if(!s) return;
+  await apiPost('/api/screener/saved', {delete: s.name});
+  await scrExtLoadSaved();
+};
+
+// ── Entry Alerts ──────────────────────────────────────────────────────────────
+window.scrExtWatchAlerts = async function(){
+  if(typeof _results === 'undefined' || !_results || !_results.length){
+    alert('Run a screen first'); return;
+  }
+  _scrAlertPrev = (_results||[]).map(r=>r.ticker);
+  document.getElementById('scr-alert-dot').style.background = 'var(--up)';
+  document.getElementById('scr-alert-watch-btn').textContent = 'WATCHING…';
+  document.getElementById('scr-alert-log').innerHTML = `<div class="up" style="font-size:9px">WATCHING ${_scrAlertPrev.length} SECURITIES — POLLING EVERY 60s</div>`;
+  _scrAlertTimer = setInterval(scrExtPollAlerts, 60000);
+};
+
+window.scrExtStopAlerts = function(){
+  if(_scrAlertTimer){ clearInterval(_scrAlertTimer); _scrAlertTimer = null; }
+  document.getElementById('scr-alert-dot').style.background = 'var(--txt3)';
+  document.getElementById('scr-alert-watch-btn').textContent = 'WATCH SCREEN';
+};
+
+async function scrExtPollAlerts(){
+  if(!_scrAlertPrev) return;
+  if(window.runScreener) await runScreener();
+  const newTickers = (window._results||[]).map(r=>r.ticker);
+  const entered = newTickers.filter(t=>!_scrAlertPrev.includes(t));
+  const exited  = _scrAlertPrev.filter(t=>!newTickers.includes(t));
+  const log = document.getElementById('scr-alert-log');
+  const now = new Date().toTimeString().slice(0,5);
+  let html = log.innerHTML.replace('<div class="loading">START WATCHING TO DETECT ENTRIES/EXITS</div>','');
+  entered.forEach(t=>{ html = `<div class="up" style="font-size:9px">[${now}] ▲ ${t} ENTERED SCREEN</div>` + html; });
+  exited.forEach(t=>{  html = `<div class="dn" style="font-size:9px">[${now}] ▼ ${t} EXITED SCREEN</div>`  + html; });
+  if(entered.length || exited.length) log.innerHTML = html;
+  _scrAlertPrev = newTickers;
+}
+
+// ── Momentum + Liquidity Scores ───────────────────────────────────────────────
+window.scrExtRenderScores = function(){
+  if(!window._results || !window._results.length){
+    document.getElementById('scr-scores-tbody').innerHTML='<tr><td colspan="10" class="loading">RUN SCREEN FIRST</td></tr>';
+    return;
+  }
+  const sortKey = document.getElementById('scr-score-sort').value;
+  const scored = window._results.map(r => {
+    // Momentum score [0–100]: RSI(normalized 0-1), CHG%, VOL spike
+    const rsiN  = r.rsi != null ? r.rsi/100 : 0.5;
+    const chgN  = Math.min(Math.max((r.chg_pct+10)/20, 0), 1);
+    const spikeN= Math.min((r.vol_spike||1)/3, 1);
+    const mom   = Math.round((rsiN*0.4 + chgN*0.35 + spikeN*0.25)*100);
+    // Liquidity score [0–100]: spread (inverted), depth
+    const sprdN = r.spread_pct != null ? Math.max(0, 1 - r.spread_pct/2) : 0.5;
+    const depN  = Math.min((r.liq_depth||0)/5000, 1);
+    const liq   = Math.round((sprdN*0.6 + depN*0.4)*100);
+    const combo = Math.round((mom + liq)/2);
+    return {...r, mom, liq, combo};
+  });
+  const sorted = [...scored].sort((a,b)=>b[sortKey]-a[sortKey]);
+  document.getElementById('scr-scores-tbody').innerHTML = sorted.map(r=>`
+    <tr>
+      <td class="wht" style="font-weight:700">${r.ticker}</td>
+      <td class="r ${r.chg_pct>=0?'up':'dn'}">${fp(r.chg_pct)}</td>
+      <td class="r ${r.rsi!=null?(r.rsi>70?'dn':r.rsi<30?'up':'dim'):'dim'}">${r.rsi!=null?r.rsi.toFixed(0):'—'}</td>
+      <td class="r ${(r.vol_spike||0)>1.5?'org':'dim'}">${r.vol_spike?r.vol_spike.toFixed(1)+'x':'—'}</td>
+      <td class="r" style="color:${r.mom>=60?'var(--up)':r.mom>=40?'var(--yel)':'var(--dn)'};font-weight:700">${r.mom}</td>
+      <td class="r ${r.spread_pct!=null?(r.spread_pct<0.2?'up':r.spread_pct<1?'yel':'dn'):'dim'}">${r.spread_pct!=null?r.spread_pct.toFixed(3)+'%':'—'}</td>
+      <td class="r dim">${fk(r.liq_depth||0)}</td>
+      <td class="r" style="color:${r.liq>=60?'var(--up)':r.liq>=40?'var(--yel)':'var(--dn)'};font-weight:700">${r.liq}</td>
+      <td class="r" style="color:${r.combo>=60?'var(--up)':r.combo>=40?'var(--yel)':'var(--dn)'};font-weight:700">${r.combo}</td>
+      <td>
+        <span class="wbtn" onclick="addToWatchlist_ext('${r.ticker}')" title="Add to Watchlist">★</span>
+      </td>
+    </tr>`).join('');
+};
+
+// ── Custom Formula ────────────────────────────────────────────────────────────
+window.scrExtPreset = function(formula){
+  document.getElementById('scr-formula-inp').value = formula;
+  scrExtApplyFormula();
+};
+
+window.scrExtApplyFormula = function(){
+  const formula = document.getElementById('scr-formula-inp').value.trim();
+  if(!formula || !window._results || !window._results.length){
+    document.getElementById('scr-formula-result').textContent = 'RUN SCREEN FIRST';
+    return;
+  }
+  let matched = 0, errors = 0;
+  const results = [];
+  window._results.forEach(r => {
+    try {
+      // Expose row fields as local variables for eval
+      const {chg_pct, rsi, vol_spike, sharpe, spread_pct, hhi, volatility, market_cap, max_dd, atr_pct} = r;
+      // eslint-disable-next-line no-eval
+      const pass = Function('chg_pct','rsi','vol_spike','sharpe','spread_pct','hhi','volatility','market_cap','max_dd','atr_pct',
+        `return (${formula})`)(chg_pct, rsi, vol_spike, sharpe, spread_pct, hhi, volatility, market_cap, max_dd, atr_pct);
+      if(pass){ matched++; results.push(r.ticker); }
+    } catch(e){ errors++; }
+  });
+  const el = document.getElementById('scr-formula-result');
+  if(errors){ el.innerHTML = `<span class="dn">FORMULA ERROR — check syntax</span>`; return; }
+  el.innerHTML = `<span class="up" style="font-weight:700">${matched} MATCHED</span><span class="dim"> / ${window._results.length}</span><br>
+    <span class="dim" style="font-size:8px">${results.slice(0,8).join(', ')}${results.length>8?' +more':''}</span>`;
+};
+
+// ── Quick Chart on Hover ──────────────────────────────────────────────────────
+document.addEventListener('mouseover', async function(e){
+  const tr = e.target.closest('#scr-tbody tr');
+  if(!tr) return;
+  const tkCell = tr.querySelector('td:first-child strong');
+  if(!tkCell) return;
+  const ticker = tkCell.textContent.trim();
+  if(!ticker) return;
+  const popup = document.getElementById('scr-hover-chart');
+  popup.style.display = 'block';
+  popup.style.left = (e.clientX + 15) + 'px';
+  popup.style.top  = Math.min(e.clientY - 20, window.innerHeight - 160) + 'px';
+  document.getElementById('scr-hover-title').textContent = ticker + ' — PRICE HISTORY';
+  document.getElementById('scr-hover-stats').innerHTML = '<span class="loading" style="font-size:9px">LOADING…</span>';
+  const r = await api(`/api/price_history/${ticker}?days=14`);
+  if(!r.ok){ popup.style.display='none'; return; }
+  const pts = (r.d.prices||[]).slice(-14);
+  if(!pts.length){ popup.style.display='none'; return; }
+  const labels = pts.map(p=>p.date||'');
+  const vals   = pts.map(p=>p.close||p.price||0);
+  if(_hoverChart) _hoverChart.destroy();
+  _hoverChart = mkLine(document.getElementById('scr-hover-canvas'), labels, [{label:ticker, data:vals, borderColor:vals[vals.length-1]>=vals[0]?'#00c853':'#f44336', fill:false, pointRadius:0}]);
+  const first=vals[0], last=vals[vals.length-1], pct=((last-first)/first*100);
+  document.getElementById('scr-hover-stats').innerHTML =
+    `<span class="dim">OPEN <span class="wht">${f(first)}</span></span>
+     <span class="dim">LAST <span class="wht">${f(last)}</span></span>
+     <span class="${pct>=0?'up':'dn'}">${fp(pct)}</span>`;
+});
+document.addEventListener('mouseout', function(e){
+  const tr = e.target.closest('#scr-tbody tr');
+  if(tr && !tr.contains(e.relatedTarget))
+    document.getElementById('scr-hover-chart').style.display = 'none';
+});
+document.addEventListener('mousemove', function(e){
+  const popup = document.getElementById('scr-hover-chart');
+  if(popup.style.display==='block'){
+    popup.style.left = (e.clientX + 15) + 'px';
+    popup.style.top  = Math.min(e.clientY - 20, window.innerHeight - 160) + 'px';
+  }
+});
+
+// ── Export Results to Watchlist ───────────────────────────────────────────────
+window.scrExtExportWatchlist = function(){
+  if(!window._results || !window._results.length){ alert('No results to export'); return; }
+  let added = 0;
+  window._results.forEach(r => {
+    if(!BB.watchlist.find(w=>w.ticker===r.ticker)){
+      BB.watchlist.push({ticker:r.ticker,price:null,prev:null,hi:null,lo:null,rhi:null,rlo:null,rsi:null});
+      added++;
+    }
+  });
+  alert(`Added ${added} securities to watchlist (${window._results.length - added} already present)`);
+  sw('wl');
+};
+
+function addToWatchlist_ext(ticker){
+  if(!BB.watchlist.find(w=>w.ticker===ticker))
+    BB.watchlist.push({ticker,price:null,prev:null,hi:null,lo:null,rhi:null,rlo:null,rsi:null});
+}
+
+// ── Hook runScreener to show ext row & update scores ─────────────────────────
+const _origRunScreener = window.runScreener;
+window.runScreener = async function(){
+  await _origRunScreener.apply(this, arguments);
+  document.getElementById('scr-ext-row').style.display = 'flex';
+  // Add export button to toolbar if not present
+  if(!document.getElementById('scr-ext-export-btn')){
+    const btn = document.createElement('button');
+    btn.id = 'scr-ext-export-btn';
+    btn.className = 'btn';
+    btn.textContent = '★ ALL → WATCHLIST';
+    btn.onclick = scrExtExportWatchlist;
+    btn.style.cssText = 'font-size:8px;padding:1px 6px';
+    const countEl = document.getElementById('scr-count');
+    if(countEl && countEl.parentNode) countEl.parentNode.insertBefore(btn, countEl);
+  }
+  scrExtRenderScores();
+};
+
+// ── Page show hook ────────────────────────────────────────────────────────────
+const _origScrOnShow = window.PAGE_scr_onShow;
+window.PAGE_scr_onShow = function(){
+  if(_origScrOnShow) _origScrOnShow();
+  scrExtLoadSaved();
+};
+})();
+</script>

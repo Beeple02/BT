@@ -144,3 +144,48 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 .act-b{font-size:8px;padding:1px 5px;background:rgba(0,200,83,.12);border:1px solid rgba(0,200,83,.4);color:var(--up);cursor:pointer;font-family:var(--font);font-weight:700;line-height:1.4}
 .act-s{font-size:8px;padding:1px 5px;background:rgba(244,67,54,.12);border:1px solid rgba(244,67,54,.4);color:var(--dn);cursor:pointer;font-family:var(--font);font-weight:700;line-height:1.4}
 .act-b:hover{background:rgba(0,200,83,.3)}.act-s:hover{background:rgba(244,67,54,.3)}
+
+/* ── Cross-cutting Features ──────────────────────────────────────────────── */
+/* Quick-Trade Panel */
+#qt-panel{position:fixed;right:-310px;top:30px;bottom:22px;width:290px;background:var(--bg2);border-left:2px solid var(--org);z-index:8000;display:flex;flex-direction:column;transition:right .18s;box-shadow:-6px 0 24px rgba(0,0,0,.7)}
+#qt-panel.open{right:0}
+#qt-hdr{background:var(--org);color:#000;font-size:10px;font-weight:700;letter-spacing:2px;padding:5px 10px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+#qt-body{padding:10px;flex:1;overflow-y:auto;font-size:11px}
+/* Notification center */
+#notif-panel{position:fixed;top:30px;right:0;width:300px;max-height:380px;background:var(--bg2);border:1px solid var(--bdr2);border-top:2px solid var(--org);z-index:8001;display:none;flex-direction:column;box-shadow:-4px 4px 16px rgba(0,0,0,.6)}
+#notif-panel.open{display:flex}
+.notif-item{padding:5px 10px;border-bottom:1px solid rgba(46,46,46,.5);font-size:10px;cursor:pointer}
+.notif-item:hover{background:var(--bg3)}
+.notif-item .ni-time{font-size:8px;color:var(--txt3)}
+.notif-item .ni-msg{color:var(--wht)}
+/* Keyboard overlay */
+#kbd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:9990;display:none;align-items:flex-start;justify-content:center;padding:30px 20px;overflow-y:auto}
+#kbd-overlay.open{display:flex}
+#kbd-box{width:100%;max-width:680px;font-family:var(--font);font-size:10px}
+.kbd-section{margin-bottom:12px}
+.kbd-section-hdr{font-size:9px;font-weight:700;letter-spacing:2px;color:var(--org);border-bottom:1px solid var(--bdr2);padding-bottom:3px;margin-bottom:6px}
+.kbd-row{display:grid;grid-template-columns:140px 1fr;gap:2px 10px;margin:2px 0}
+.kbd-key{background:var(--bg3);border:1px solid var(--bdr2);padding:1px 5px;display:inline-block;font-size:9px;color:var(--cyn)}
+.kbd-desc{color:var(--txt2);font-size:9px}
+/* Position sizing modal */
+#psz-modal{position:fixed;inset:0;background:rgba(0,0,0,.87);z-index:9995;display:none;align-items:center;justify-content:center}
+#psz-modal.open{display:flex}
+#psz-box{background:var(--bg2);border:1px solid var(--org);width:420px;font-family:var(--font);font-size:11px}
+/* Theme dimmer */
+#theme-dimmer{position:fixed;inset:0;background:rgba(0,0,0,0);pointer-events:none;z-index:9980;transition:background .25s}
+/* Module collapse — double-click wbar to collapse */
+.win.collapsed .scroll,.win.collapsed .chart-wrap,.win.collapsed canvas:not(.wbar canvas){display:none!important}
+.win.collapsed{flex:0!important;min-height:0!important;height:20px!important}
+/* Data staleness pip */
+.stale-pip{width:5px;height:5px;border-radius:50%;display:inline-block;vertical-align:middle;margin-left:3px;flex-shrink:0}
+.stale-fresh{background:var(--up)}.stale-old{background:var(--yel)}.stale-stale{background:var(--dn)}
+/* CMD autocomplete dropdown */
+#cmd-suggestions{position:fixed;bottom:22px;left:0;background:var(--bg2);border:1px solid var(--bdr2);border-bottom:none;max-height:180px;overflow-y:auto;z-index:8999;min-width:320px;display:none}
+.cmd-sug-item{padding:3px 10px;font-size:10px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.cmd-sug-item:hover,.cmd-sug-item.active{background:var(--bg4)}
+.cmd-sug-tk{color:var(--cyn);font-weight:700;width:55px;flex-shrink:0}
+.cmd-sug-name{color:var(--txt3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.cmd-sug-px{color:var(--wht);font-size:9px;flex-shrink:0}
+/* Latency monitor */
+#tb-latency{font-size:9px;font-family:var(--font);cursor:pointer;padding:0 8px;border-left:1px solid var(--bdr);color:var(--txt3)}
+#tb-latency.fast{color:var(--up)}.latency.slow{color:var(--yel)}.latency.very-slow{color:var(--dn)}
