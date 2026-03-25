@@ -1576,7 +1576,7 @@ def enterprise_page(pg):
 
 @app.route("/page/<n>")
 def page(n):
-    allowed = ["market","ticker","portfolio","orders","backtest","compare","watchlist",
+    allowed = ["dashboard","market","ticker","portfolio","orders","backtest","compare","watchlist",
                "heatmap","exchange","liquidity","holders","screener","alerts",
                "fundamentals","transactions","news","debug"]
     if n not in allowed: return "Not found", 404

@@ -1,0 +1,353 @@
+<!-- F0: DASHBOARD — Configurable multi-widget overview -->
+<style>
+.dash-grid{display:grid;gap:0;flex:1;min-height:0}
+.dash-widget{background:var(--bg2);border:1px solid var(--bdr);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.dash-widget .wbar{flex-shrink:0}
+.dash-widget-body{flex:1;overflow-y:auto;min-height:0}
+.dash-empty{display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:10px;letter-spacing:1px;height:100%;flex-direction:column;gap:6px}
+.dash-cfg-btn{position:absolute;top:4px;right:4px;font-size:8px;color:var(--txt3);cursor:pointer;background:var(--bg3);border:1px solid var(--bdr2);padding:1px 5px;z-index:2;display:none}
+.dash-widget:hover .dash-cfg-btn{display:block}
+.dash-picker{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9990;display:flex;align-items:center;justify-content:center}
+.dash-picker-box{background:var(--bg2);border:1px solid var(--org);width:340px;font-family:var(--font)}
+.dash-picker-hdr{background:var(--org);color:#000;padding:5px 10px;font-size:10px;font-weight:700;letter-spacing:2px;display:flex;justify-content:space-between}
+.dash-picker-list{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--bdr)}
+.dash-picker-item{background:var(--bg);padding:8px 10px;cursor:pointer;font-size:10px;color:var(--txt2);transition:background .08s}
+.dash-picker-item:hover{background:var(--bg3);color:var(--wht)}
+.dash-picker-item .dp-label{font-weight:700;letter-spacing:.5px}
+.dash-picker-item .dp-desc{font-size:9px;color:var(--txt3);margin-top:2px}
+.dash-layout-sel{display:flex;gap:4px;padding:6px 10px;border-bottom:1px solid var(--bdr);background:var(--bg3)}
+.dash-layout-opt{padding:3px 8px;font-size:9px;font-weight:700;border:1px solid var(--bdr2);color:var(--txt3);cursor:pointer;letter-spacing:.5px}
+.dash-layout-opt.active{border-color:var(--org);color:var(--org)}
+.dash-kpi{display:flex;padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.4);align-items:center;gap:8px;font-size:11px}
+.dash-kpi-l{color:var(--txt3);font-size:9px;width:90px;flex-shrink:0}
+.dash-kpi-v{color:var(--wht);font-weight:700;flex:1;font-variant-numeric:tabular-nums}
+.dash-kpi-chg{font-size:10px;font-variant-numeric:tabular-nums}
+</style>
+
+<div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+
+<!-- Toolbar -->
+<div style="background:var(--bg3);border-bottom:1px solid var(--bdr);padding:4px 10px;flex-shrink:0;display:flex;align-items:center;gap:10px">
+  <span style="font-size:9px;font-weight:700;letter-spacing:2px;color:var(--org)">DASHBOARD</span>
+  <span style="font-size:9px;color:var(--txt3)">Custom multi-widget layout</span>
+  <div class="dash-layout-sel" style="padding:0;border:0;background:transparent;margin-left:auto">
+    <span class="dash-layout-opt active" onclick="dashSetLayout(2,2)" id="dash-lay-4">2×2</span>
+    <span class="dash-layout-opt" onclick="dashSetLayout(3,2)" id="dash-lay-6">3×2</span>
+    <span class="dash-layout-opt" onclick="dashSetLayout(2,3)" id="dash-lay-6b">2×3</span>
+    <span class="dash-layout-opt" onclick="dashSetLayout(4,2)" id="dash-lay-8">4×2</span>
+  </div>
+  <span class="wbtn" onclick="dashRefreshAll()" title="Refresh all widgets">↻ REFRESH</span>
+</div>
+
+<!-- Widget grid -->
+<div class="dash-grid" id="dash-grid" style="grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)">
+</div>
+
+</div>
+
+<script>
+(function(){
+
+const WIDGETS = {
+  market_breadth: {
+    label:'MARKET BREADTH', desc:'Adv/Dec + breadth bar',
+    render: async function(body) {
+      const r = await api('/api/market/breadth');
+      if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
+      const d = r.d;
+      const adv = d.advancing||0, dec = d.declining||0, flat = d.flat||0, tot = adv+dec+flat||1;
+      const adr = dec>0?(adv/dec).toFixed(2):'∞';
+      body.innerHTML = `
+        <div class="dash-kpi"><span class="dash-kpi-l">ADV/DEC</span><span class="dash-kpi-v">${adr}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">ADVANCING</span><span class="dash-kpi-v" style="color:var(--up)">${adv}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">DECLINING</span><span class="dash-kpi-v" style="color:var(--dn)">${dec}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">FLAT</span><span class="dash-kpi-v" style="color:var(--txt3)">${flat}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">AVG CHG%</span><span class="dash-kpi-v" style="color:${gc(d.avg_chg_pct)}">${fp(d.avg_chg_pct)}</span></div>
+        <div style="padding:6px 8px">
+          <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--txt3);margin-bottom:3px"><span>ADV ${adv}</span><span>FLAT ${flat}</span><span>DEC ${dec}</span></div>
+          <div style="height:5px;background:var(--bdr);display:flex;border-radius:1px;overflow:hidden">
+            <div style="width:${(adv/tot*100).toFixed(1)}%;background:var(--up)"></div>
+            <div style="width:${(flat/tot*100).toFixed(1)}%;background:var(--txt3)"></div>
+            <div style="flex:1;background:var(--dn)"></div>
+          </div>
+        </div>`;
+    }
+  },
+  top_movers: {
+    label:'TOP MOVERS', desc:'Biggest gainers & losers',
+    render: async function(body) {
+      const r = await api('/api/market/breadth');
+      if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
+      const secs = (r.d.securities||[]).sort((a,b)=>(b.chg_pct||0)-(a.chg_pct||0));
+      const top5 = secs.slice(0,5);
+      const bot5 = secs.slice(-5).reverse();
+      let h = '';
+      top5.forEach(s=>{
+        h+=`<div class="dash-kpi"><span class="dash-kpi-l" style="color:var(--txt2)">${s.ticker}</span><span class="dash-kpi-v" style="color:var(--up)">${fp(s.chg_pct)}</span><span style="font-size:9px;color:var(--txt3)">${f(s.last_price,4)}</span></div>`;
+      });
+      h+=`<div style="height:1px;background:var(--bdr);margin:3px 0"></div>`;
+      bot5.forEach(s=>{
+        h+=`<div class="dash-kpi"><span class="dash-kpi-l" style="color:var(--txt2)">${s.ticker}</span><span class="dash-kpi-v" style="color:var(--dn)">${fp(s.chg_pct)}</span><span style="font-size:9px;color:var(--txt3)">${f(s.last_price,4)}</span></div>`;
+      });
+      body.innerHTML = h;
+    }
+  },
+  watchlist_summary: {
+    label:'WATCHLIST', desc:'Current watchlist prices',
+    render: async function(body) {
+      const wl = BB.watchlist||[];
+      if(!wl.length) { body.innerHTML='<div class="dash-empty">NO WATCHLIST<span style="font-size:8px">Add tickers in F7</span></div>'; return; }
+      const r = await api('/api/market/breadth');
+      const secMap = {};
+      (r.ok ? r.d.securities||[] : []).forEach(s=>{ secMap[s.ticker]=s; });
+      let h='';
+      wl.forEach(w=>{
+        const s = secMap[w.ticker]||{};
+        const chg = s.chg_pct;
+        h+=`<div class="dash-kpi" style="cursor:pointer" onclick="bbLockTicker&&bbLockTicker('${w.ticker}');sw('tkr')">
+          <span class="dash-kpi-l" style="color:var(--wht);font-weight:700">${w.ticker}</span>
+          <span class="dash-kpi-v">${s.last_price!=null?f(s.last_price,4):'—'}</span>
+          <span class="dash-kpi-chg" style="color:${gc(chg)}">${chg!=null?fp(chg):'—'}</span>
+        </div>`;
+      });
+      body.innerHTML=h;
+    }
+  },
+  recent_trades: {
+    label:'RECENT TRADES', desc:'Latest execution feed',
+    render: async function(body) {
+      const r = await api('/api/orders/recent?limit=20');
+      if(!r.ok||!r.d.length) { body.innerHTML='<div class="dash-empty">NO RECENT TRADES</div>'; return; }
+      let h='';
+      r.d.slice(0,15).forEach(tx=>{
+        const isBuy = tx.side==='buy'||tx.side==='BUY';
+        h+=`<div class="dash-kpi">
+          <span class="dash-kpi-l" style="color:var(--org)">${tx.ticker}</span>
+          <span style="font-size:9px;font-weight:700;color:${isBuy?'var(--up)':'var(--dn)'};width:30px;flex-shrink:0">${isBuy?'BUY':'SELL'}</span>
+          <span class="dash-kpi-v">${(tx.quantity||0).toLocaleString()}</span>
+          <span style="font-size:9px;color:var(--yel)">${f(tx.price,4)}</span>
+        </div>`;
+      });
+      body.innerHTML=h;
+    }
+  },
+  portfolio_pnl: {
+    label:'PORTFOLIO P&L', desc:'Positions + unrealised P&L',
+    render: async function(body) {
+      const r = await api('/api/portfolio');
+      if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
+      const d = r.d;
+      const pos = d.positions||[];
+      const totalPnl = d.total_unrealized_pnl;
+      let h=`<div class="dash-kpi" style="background:var(--bg3)">
+        <span class="dash-kpi-l">UNREALISED</span>
+        <span class="dash-kpi-v" style="color:${gc(totalPnl)};font-size:13px">${totalPnl!=null?'$'+f(totalPnl):'—'}</span>
+      </div>`;
+      pos.slice(0,10).forEach(p=>{
+        const pnl = p.unrealized_pnl;
+        h+=`<div class="dash-kpi">
+          <span class="dash-kpi-l" style="color:var(--wht);font-weight:700">${p.ticker}</span>
+          <span class="dash-kpi-v">${(p.quantity||0).toLocaleString()}</span>
+          <span class="dash-kpi-chg" style="color:${gc(pnl)}">${pnl!=null?'$'+f(pnl):'—'}</span>
+        </div>`;
+      });
+      if(!pos.length) h+='<div class="dash-empty">NO OPEN POSITIONS</div>';
+      body.innerHTML=h;
+    }
+  },
+  active_alerts: {
+    label:'ACTIVE ALERTS', desc:'Current alert rules',
+    render: async function(body) {
+      // Read from global _rules if available (alerts page)
+      const rules = window._rules||[];
+      if(!rules.length) { body.innerHTML='<div class="dash-empty">NO ALERTS SET<span style="font-size:8px">Configure in F13</span></div>'; return; }
+      let h='';
+      rules.filter(r=>r.active).forEach(r=>{
+        h+=`<div class="dash-kpi">
+          <span class="dash-kpi-l" style="color:var(--org);font-weight:700">${r.ticker}</span>
+          <span class="dash-kpi-v" style="font-size:9px">${r.cond}</span>
+          <span style="font-size:9px;color:var(--txt3)">${r.val}</span>
+        </div>`;
+      });
+      if(!h) h='<div class="dash-empty">NO ACTIVE ALERTS</div>';
+      body.innerHTML=h;
+    }
+  },
+  market_summary: {
+    label:'MARKET SUMMARY', desc:'Exchange KPIs snapshot',
+    render: async function(body) {
+      const r = await api('/api/market/summary');
+      if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
+      const d = r.d;
+      body.innerHTML = `
+        <div class="dash-kpi"><span class="dash-kpi-l">TOTAL VOL</span><span class="dash-kpi-v">${fk(d.total_volume)}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">TOTAL VALUE</span><span class="dash-kpi-v">$${fk(d.total_value)}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">TRADES</span><span class="dash-kpi-v">${(d.trade_count||0).toLocaleString()}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">TICKERS</span><span class="dash-kpi-v">${(d.ticker_count||0).toLocaleString()}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">AVG SPREAD</span><span class="dash-kpi-v">${d.avg_spread!=null?f(d.avg_spread,4):'—'}</span></div>`;
+    }
+  },
+  news_feed: {
+    label:'LATEST NEWS', desc:'Recent market feed items',
+    render: async function(body) {
+      const r = await api('/api/feed?limit=10');
+      if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
+      const items = r.d.items||r.d||[];
+      if(!items.length) { body.innerHTML='<div class="dash-empty">NO FEED ITEMS</div>'; return; }
+      let h='';
+      items.slice(0,8).forEach(item=>{
+        h+=`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.4);cursor:pointer" onclick="sw('nf')">
+          <div style="font-size:9px;font-weight:700;color:var(--wht)">${item.headline||item.title||'—'}</div>
+          <div style="font-size:8px;color:var(--txt3);margin-top:1px">${item.ticker||''} ${item.time||''}</div>
+        </div>`;
+      });
+      body.innerHTML=h;
+    }
+  }
+};
+
+const WIDGET_KEYS = Object.keys(WIDGETS);
+let _layout = { cols:2, rows:2 };
+let _slots = []; // array of widget keys or null
+let _refreshTimers = [];
+
+function dashSaveState() {
+  try { localStorage.setItem('dash_slots', JSON.stringify(_slots)); localStorage.setItem('dash_layout', JSON.stringify(_layout)); } catch(e){}
+}
+function dashLoadState() {
+  try {
+    const s = localStorage.getItem('dash_slots');
+    const l = localStorage.getItem('dash_layout');
+    if(s) _slots = JSON.parse(s);
+    if(l) _layout = JSON.parse(l);
+  } catch(e){}
+}
+
+function dashSetLayout(cols, rows) {
+  _layout = {cols, rows};
+  const total = cols*rows;
+  // Resize _slots array
+  while(_slots.length < total) _slots.push(null);
+  _slots = _slots.slice(0, total);
+  // Update UI
+  document.querySelectorAll('.dash-layout-opt').forEach(el=>el.classList.remove('active'));
+  const id = `dash-lay-${cols===2&&rows===2?4:cols===3&&rows===2?6:cols===2&&rows===3?'6b':8}`;
+  const el = document.getElementById(id);
+  if(el) el.classList.add('active');
+  dashRender();
+  dashSaveState();
+}
+
+function dashRender() {
+  const grid = document.getElementById('dash-grid');
+  if(!grid) return;
+  const {cols, rows} = _layout;
+  grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  grid.style.gridTemplateRows = `repeat(${rows},1fr)`;
+  // Stop existing timers
+  _refreshTimers.forEach(t=>clearInterval(t));
+  _refreshTimers = [];
+
+  grid.innerHTML = '';
+  for(let i=0; i<cols*rows; i++) {
+    const key = _slots[i]||null;
+    const widget = key ? WIDGETS[key] : null;
+    const div = document.createElement('div');
+    div.className = 'dash-widget';
+    div.dataset.idx = i;
+
+    const wbar = document.createElement('div');
+    wbar.className = 'wbar';
+    wbar.innerHTML = `<div class="wbar-l"><span class="wnum">${i+1}</span><span class="wtitle">${widget?widget.label:'EMPTY'}</span></div>`;
+    div.appendChild(wbar);
+
+    const cfgBtn = document.createElement('span');
+    cfgBtn.className = 'dash-cfg-btn';
+    cfgBtn.textContent = '⚙ CHANGE';
+    cfgBtn.onclick = (e) => { e.stopPropagation(); dashShowPicker(i); };
+    div.appendChild(cfgBtn);
+
+    const body = document.createElement('div');
+    body.className = 'dash-widget-body';
+    div.appendChild(body);
+
+    if(widget) {
+      body.innerHTML = '<div class="dash-empty">LOADING…</div>';
+      widget.render(body).catch(()=>{ body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; });
+      // Auto-refresh every 60s
+      const t = setInterval(()=>{ widget.render(body).catch(()=>{}); }, 60000);
+      _refreshTimers.push(t);
+    } else {
+      body.innerHTML = `<div class="dash-empty"><span>EMPTY SLOT</span><span style="font-size:9px;cursor:pointer;color:var(--org)" onclick="dashShowPicker(${i})">+ ADD WIDGET</span></div>`;
+    }
+
+    grid.appendChild(div);
+  }
+}
+
+function dashShowPicker(slotIdx) {
+  const existing = document.getElementById('dash-picker-overlay');
+  if(existing) existing.remove();
+
+  const ov = document.createElement('div');
+  ov.className = 'dash-picker';
+  ov.id = 'dash-picker-overlay';
+  ov.onclick = (e)=>{ if(e.target===ov) ov.remove(); };
+
+  let items = WIDGET_KEYS.map(k=>`
+    <div class="dash-picker-item" onclick="dashSetWidget(${slotIdx},'${k}')">
+      <div class="dp-label">${WIDGETS[k].label}</div>
+      <div class="dp-desc">${WIDGETS[k].desc}</div>
+    </div>`).join('');
+  items += `<div class="dash-picker-item" onclick="dashSetWidget(${slotIdx},null)">
+    <div class="dp-label" style="color:var(--dn)">REMOVE</div>
+    <div class="dp-desc">Clear this slot</div>
+  </div>`;
+
+  ov.innerHTML = `<div class="dash-picker-box">
+    <div class="dash-picker-hdr"><span>SELECT WIDGET — SLOT ${slotIdx+1}</span><span style="cursor:pointer" onclick="document.getElementById('dash-picker-overlay').remove()">✕</span></div>
+    <div class="dash-picker-list">${items}</div>
+  </div>`;
+  document.body.appendChild(ov);
+}
+
+window.dashSetWidget = function(idx, key) {
+  const ov = document.getElementById('dash-picker-overlay');
+  if(ov) ov.remove();
+  _slots[idx] = key;
+  dashSaveState();
+  dashRender();
+};
+
+window.dashRefreshAll = function() {
+  const grid = document.getElementById('dash-grid');
+  if(!grid) return;
+  const {cols, rows} = _layout;
+  for(let i=0; i<cols*rows; i++) {
+    const key = _slots[i]||null;
+    if(!key) continue;
+    const widget = WIDGETS[key];
+    if(!widget) continue;
+    const div = grid.children[i];
+    if(!div) continue;
+    const body = div.querySelector('.dash-widget-body');
+    if(body) widget.render(body).catch(()=>{});
+  }
+};
+
+window.PAGE_dash_onShow = function() {
+  dashRender();
+};
+
+// Init
+dashLoadState();
+// Default layout: fill with useful widgets
+if(!_slots.length || _slots.every(s=>!s)) {
+  const defaults = ['market_breadth','top_movers','watchlist_summary','portfolio_pnl'];
+  _slots = defaults.slice(0, _layout.cols * _layout.rows);
+  while(_slots.length < _layout.cols * _layout.rows) _slots.push(null);
+}
+// Don't render on load — wait for onShow
+
+})();
+</script>

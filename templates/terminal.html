@@ -38,8 +38,8 @@
 .fk.active .fk-n{background:var(--org);color:#000}
 .fk-l{font-size:10px;font-weight:700;letter-spacing:1px}
 #panels{flex:1;overflow:hidden;position:relative}
-.panel{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
-.panel.active{display:flex}
+.panel{position:absolute;inset:0;display:none;overflow-y:auto}
+.panel.active{display:block}
 #cmdbar{display:flex;align-items:center;height:22px;background:#000;border-top:1px solid var(--bdr);flex-shrink:0}
 .cmd-p{padding:0 8px;font-size:10px;color:var(--org);border-right:1px solid var(--bdr);height:100%;display:flex;align-items:center;white-space:nowrap}
 #cmd-in{flex:1;background:transparent;border:none;outline:none;color:var(--wht);font-family:var(--font);font-size:11px;padding:0 8px;caret-color:var(--wht)}
@@ -125,6 +125,7 @@
 </div>
 
 <div id="fkbar">
+  <div class="fk"        data-p="dash" ><span class="fk-n">F0</span><span class="fk-l">DASHBOARD</span></div>
   <div class="fk active" data-p="mkt"  ><span class="fk-n">F1</span><span class="fk-l">MARKET</span></div>
   <div class="fk"        data-p="tkr"  ><span class="fk-n">F2</span><span class="fk-l">TICKER</span></div>
   <div class="fk"        data-p="pf"   ><span class="fk-n">F3</span><span class="fk-l">PORTFOLIO</span></div>
@@ -142,6 +143,7 @@
 </div>
 
 <div id="panels">
+  <div class="panel"        id="p-dash"></div>
   <div class="panel active" id="p-mkt" ></div>
   <div class="panel"        id="p-tkr" ></div>
   <div class="panel"        id="p-pf"  ></div>
@@ -359,6 +361,7 @@ setInterval(tick,1000);tick();
 
 // ── Page loader — properly awaits script execution ────────────────────────────
 const PAGE_SRCS = {
+  dash:'dashboard',
   mkt:'market',tkr:'ticker',pf:'portfolio',ord:'orders',
   bt:'backtest',cmp:'compare',wl:'watchlist',hm:'heatmap',
   exch:'exchange',liq:'liquidity',hold:'holders',
@@ -431,7 +434,7 @@ document.querySelectorAll('.fk').forEach(fk=>{
   fk.addEventListener('click',()=>sw(fk.dataset.p));
 });
 document.addEventListener('keydown',e=>{
-  const m={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf'};
+  const m={F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf',F15:'dash'};
   if(m[e.key]){e.preventDefault();sw(m[e.key]);return;}
   // Global shortcuts — only fire when command bar is not focused
   const cmd=document.getElementById('cmd-in');
@@ -486,7 +489,8 @@ function buildTape(newList){
   const whenReady = (fn, cb, ms=50) => { const t=setInterval(()=>{ if(window[fn]){clearInterval(t);cb();} },ms); };
 
   // Page alias map
-  const PAGE = {F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf',
+  const PAGE = {F0:'dash',F1:'mkt',F2:'tkr',F3:'pf',F4:'ord',F5:'bt',F6:'cmp',F7:'wl',F8:'hm',F9:'exch',F10:'liq',F11:'hold',F12:'scr',F13:'al',F14:'nf',
+    DASH:'dash',DASHBOARD:'dash',
     MKT:'mkt',TKR:'tkr',PF:'pf',PORT:'pf',ORD:'ord',ORDER:'ord',ORDERS:'ord',BT:'bt',BACKTEST:'bt',
     CMP:'cmp',COMPARE:'cmp',WL:'wl',WATCH:'wl',HM:'hm',HEATMAP:'hm',EXCH:'exch',LIQ:'liq',
     HOLD:'hold',HOLDERS:'hold',SCR:'scr',SCREENER:'scr',AL:'al',ALERTS:'al',NF:'nf',NEWS:'nf',FEED:'nf'};
