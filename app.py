@@ -3718,11 +3718,11 @@ _saved_screens: list = []   # [{name, filters, created_at}]
 
 @app.route("/api/screener/saved", methods=["GET", "POST", "DELETE"])
 def screener_saved():
+    global _saved_screens
     if request.method == "GET":
         return jsonify(_saved_screens), 200
     if request.method == "DELETE":
         name = request.args.get("name")
-        global _saved_screens
         _saved_screens = [s for s in _saved_screens if s.get("name") != name]
         return jsonify({"ok": True}), 200
     # POST
