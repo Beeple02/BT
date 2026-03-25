@@ -1031,3 +1031,392 @@ window.PAGE_tkr_onShow = function(ticker, exchange){
 };
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F2 EXTENDED MODULES — dense analytics row
+════════════════════════════════════════════════════════════════════════ -->
+<div class="wrow" style="flex:none;height:170px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 20: Trade Size Distribution -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">11</span><span class="wtitle">TRADE SIZE DIST</span></div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="tkr-tsd-c"></canvas></div>
+  </div>
+
+  <!-- Module 21: Price vs VWAP Deviation -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">12</span><span class="wtitle">PRICE vs VWAP</span></div></div>
+    <div id="tkr-vwap-dev" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">
+      <div class="loading">SELECT TICKER</div>
+    </div>
+  </div>
+
+  <!-- Module 22: Session Open Range -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">13</span><span class="wtitle">OPEN RANGE</span></div></div>
+    <div id="tkr-or" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">
+      <div class="loading">SELECT TICKER</div>
+    </div>
+  </div>
+
+  <!-- Module 30: Candlestick Pattern Detector -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">14</span><span class="wtitle">PATTERNS</span></div></div>
+    <div class="scroll" id="tkr-patterns">
+      <div class="loading">SELECT TICKER</div>
+    </div>
+  </div>
+
+  <!-- Module 35: Price Return Table -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">15</span><span class="wtitle">PRICE RETURNS</span></div></div>
+    <div id="tkr-returns" style="padding:6px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">
+      <div class="loading">SELECT TICKER</div>
+    </div>
+  </div>
+
+  <!-- Module 36: Bid-Ask Spread History -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">16</span><span class="wtitle">SPREAD HISTORY</span></div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="tkr-sph-c"></canvas></div>
+  </div>
+
+  <!-- Module 34: Peer Comparison -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">17</span><span class="wtitle">PEER COMPARE</span></div></div>
+    <div class="scroll" id="tkr-peers"></div>
+  </div>
+
+  <!-- Module 27: Options — Coming Soon -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">18</span><span class="wtitle">OPTIONS</span></div><div class="wbar-r"><span class="badge b-org" style="font-size:8px">PENDING</span></div></div>
+    <div style="padding:10px 12px;font-size:10px;color:var(--txt3);line-height:1.7">
+      Options data requires Atlas API integration.<br>
+      <span style="color:var(--org)">Status: Not yet available.</span><br>
+      Once Atlas implements the <code style="color:var(--cyn)">/options</code> endpoint,<br>
+      IV, Greeks (Δ/Γ/Θ) and chain will appear here.
+    </div>
+  </div>
+
+</div>
+
+<!-- ─── Row 2: HV Cone + Return Distribution + VIX gauge ─── -->
+<div class="wrow" style="flex:none;height:160px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 31: Historical Volatility Cone -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">19</span><span class="wtitle">HV CONE</span></div><div class="wbar-r" style="font-size:9px;color:var(--txt3)">5/10/20-session HV</div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="tkr-hvc-c"></canvas></div>
+  </div>
+
+  <!-- Module 18: VWAP Band Info -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">20</span><span class="wtitle">VWAP BANDS</span></div></div>
+    <div id="tkr-vwap-bands" style="padding:8px;font-size:10px;overflow-y:auto;height:calc(100% - 20px)">—</div>
+  </div>
+
+  <!-- Volume Profile placeholder note -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">21</span><span class="wtitle">VOL PROFILE</span></div></div>
+    <div id="tkr-volprofile" style="padding:6px;font-size:10px;overflow-y:auto;height:calc(100% - 20px)"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── F2 Extended modules ───────────────────────────────────────────────────────
+let _tkrExtTicker = null, _tsdChart = null, _sphChart = null, _hvcChart = null;
+let _spreadHist = [];
+
+// Hook into existing ticker load
+const _origLoad = window.PAGE_tkr_loadStats;
+if(_origLoad) {
+  window.PAGE_tkr_loadStats = async function(ticker, exchange) {
+    _tkrExtTicker = ticker;
+    const result = await _origLoad(ticker, exchange);
+    tkrExtLoad(ticker, exchange);
+    return result;
+  };
+}
+
+// Also hook into _d updates via the existing loadAll
+const _origLoadAll = window.tkrLoadAll;
+if(_origLoadAll) {
+  window.tkrLoadAll = async function(ticker, exchange) {
+    _tkrExtTicker = ticker;
+    const result = await _origLoadAll(ticker, exchange);
+    tkrExtLoad(ticker, exchange);
+    return result;
+  };
+}
+
+// Fallback: hook onShow
+const _origPgShow = window.PAGE_tkr_onShow;
+window.PAGE_tkr_onShow = function(ticker, exchange) {
+  if(!ticker){
+    try{
+      const last=sessionStorage.getItem('bb_last_ticker');
+      if(last){ const parts=last.split('|'); ticker=parts[0]; exchange=parts[1]||null; }
+    }catch(e){}
+  }
+  _tkrExtTicker = ticker || null;
+  const result = _origPgShow(ticker, exchange);
+  if(ticker) setTimeout(()=>tkrExtLoad(ticker, exchange), 800);
+  return result;
+};
+
+// Listen for ticker changes from sel
+document.addEventListener('DOMContentLoaded', ()=>{
+  const sel = document.getElementById('tkr-sel');
+  if(sel) sel.addEventListener('change', ()=>{
+    const v = sel.value; if(!v) return;
+    const parts=v.split('|');
+    _tkrExtTicker=parts[0];
+    setTimeout(()=>tkrExtLoad(parts[0], parts[1]||null), 600);
+  });
+});
+
+// Watch for ticker changes in BB.secs updates (SSE)
+setInterval(()=>{
+  const sel=document.getElementById('tkr-sel');
+  if(sel?.value && sel.value!==_tkrExtTicker) {
+    const parts=sel.value.split('|');
+    _tkrExtTicker=parts[0];
+    tkrExtLoad(parts[0], parts[1]||null);
+  }
+}, 30000);
+
+async function tkrExtLoad(ticker, exchange) {
+  if(!ticker) return;
+  await Promise.all([
+    tkrLoadTSD(ticker, exchange),
+    tkrLoadVwapDev(ticker, exchange),
+    tkrLoadOpenRange(ticker, exchange),
+    tkrLoadPatterns(ticker, exchange),
+    tkrLoadReturns(ticker, exchange),
+    tkrLoadPeers(ticker, exchange),
+    tkrLoadHVCone(ticker, exchange),
+  ]);
+}
+
+async function tkrLoadTSD(ticker, exchange) {
+  const ctx = document.getElementById('tkr-tsd-c'); if(!ctx) return;
+  const r = await api(`/api/transactions?ticker=${encodeURIComponent(ticker)}&limit=200`);
+  if(!r.ok || !Array.isArray(r.d)) return;
+  const trades = r.d.filter(t=>t.quantity);
+  const small  = trades.filter(t=>Math.abs(t.quantity)<10).length;
+  const medium = trades.filter(t=>Math.abs(t.quantity)>=10&&Math.abs(t.quantity)<100).length;
+  const large  = trades.filter(t=>Math.abs(t.quantity)>=100).length;
+  if(_tsdChart){_tsdChart.destroy();_tsdChart=null;}
+  _tsdChart = new Chart(ctx,{
+    type:'bar',
+    data:{labels:['SMALL\n<10','MED\n10-99','LARGE\n≥100'],datasets:[{
+      data:[small,medium,large],
+      backgroundColor:['rgba(0,229,255,.5)','rgba(255,214,0,.5)','rgba(255,140,0,.8)'],
+      borderWidth:0
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{...TT}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444',font:{size:9}}},
+              y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444'}}}}
+  });
+}
+
+async function tkrLoadVwapDev(ticker, exchange) {
+  const el = document.getElementById('tkr-vwap-dev'); if(!el) return;
+  const r = await api(`/api/ticker_stats/${encodeURIComponent(ticker)}`);
+  if(!r.ok) return;
+  const d = r.d;
+  const vwap = d.vwap; const last = d.last_price;
+  if(!vwap || !last) { el.innerHTML='<div class="dim">No VWAP data</div>'; return; }
+  const dev = (last - vwap) / vwap * 100;
+  const col = dev>=0?'var(--up)':'var(--dn)';
+  el.innerHTML = `
+    <div class="rm"><span class="k">VWAP</span><span class="v">${f(vwap,4)}</span></div>
+    <div class="rm"><span class="k">LAST</span><span class="v">${f(last,4)}</span></div>
+    <div class="rm"><span class="k">DEV R$</span><span class="v" style="color:${col}">${(last-vwap)>=0?'+':''}${f(last-vwap,4)}</span></div>
+    <div class="rm"><span class="k">DEV %</span><span class="v" style="color:${col}">${fp(dev)}</span></div>
+    <div class="rm"><span class="k">POSITION</span><span class="v" style="color:${col}">${dev>=0?'ABOVE VWAP':'BELOW VWAP'}</span></div>
+  `;
+  // VWAP bands
+  const el2 = document.getElementById('tkr-vwap-bands');
+  if(el2 && d.bb_upper && d.bb_lower) {
+    const mid=(d.bb_upper+d.bb_lower)/2;
+    el2.innerHTML=`
+      <div class="rm"><span class="k">BB UPPER</span><span class="v up">${f(d.bb_upper,4)}</span></div>
+      <div class="rm"><span class="k">BB MID</span><span class="v">${f(mid,4)}</span></div>
+      <div class="rm"><span class="k">BB LOWER</span><span class="v dn">${f(d.bb_lower,4)}</span></div>
+      <div class="rm"><span class="k">VWAP</span><span class="v yel">${f(vwap,4)}</span></div>
+      <div class="rm"><span class="k">ATR(14)</span><span class="v yel">${f(d.atr,4)}</span></div>
+    `;
+  }
+}
+
+async function tkrLoadOpenRange(ticker, exchange) {
+  const el = document.getElementById('tkr-or'); if(!el) return;
+  const r = await api(`/api/analytics/ohlcv/${encodeURIComponent(ticker)}?days=7`);
+  if(!r.ok || !r.d.candles?.length) { el.innerHTML='<div class="dim">No data</div>'; return; }
+  const cs = r.d.candles;
+  // Last candle = "session"
+  const last = cs[cs.length-1];
+  const range = last.high - last.low;
+  const mid = (last.high + last.low) / 2;
+  const ext = last.close > mid ? 'UPPER HALF' : 'LOWER HALF';
+  el.innerHTML = `
+    <div class="rm"><span class="k">SESSION H</span><span class="v up">${f(last.high,4)}</span></div>
+    <div class="rm"><span class="k">SESSION L</span><span class="v dn">${f(last.low,4)}</span></div>
+    <div class="rm"><span class="k">RANGE R$</span><span class="v yel">${f(range,4)}</span></div>
+    <div class="rm"><span class="k">MID</span><span class="v">${f(mid,4)}</span></div>
+    <div class="rm"><span class="k">CLOSE POS</span><span class="v">${ext}</span></div>
+    <div class="rm"><span class="k">OPEN</span><span class="v">${f(last.open,4)}</span></div>
+  `;
+}
+
+function _detectPatterns(candles) {
+  const results = [];
+  if(candles.length < 3) return results;
+  const c = candles;
+  const n = c.length - 1;
+  const body = i => Math.abs(c[i].close-c[i].open);
+  const range = i => c[i].high - c[i].low;
+  const upShadow = i => c[i].high - Math.max(c[i].open,c[i].close);
+  const downShadow = i => Math.min(c[i].open,c[i].close) - c[i].low;
+  const isBull = i => c[i].close > c[i].open;
+  const isBear = i => c[i].close < c[i].open;
+
+  // Doji
+  if(body(n) <= range(n)*0.1 && range(n)>0) results.push({name:'DOJI',col:'var(--yel)',desc:'Indecision'});
+  // Hammer
+  if(downShadow(n)>body(n)*2 && upShadow(n)<body(n)*0.5) results.push({name:'HAMMER',col:'var(--up)',desc:'Bullish reversal'});
+  // Shooting Star
+  if(upShadow(n)>body(n)*2 && downShadow(n)<body(n)*0.5) results.push({name:'SHOOTING STAR',col:'var(--dn)',desc:'Bearish reversal'});
+  // Bullish Engulfing
+  if(n>=1 && isBear(n-1) && isBull(n) && c[n].open<c[n-1].close && c[n].close>c[n-1].open) results.push({name:'BULL ENGULF',col:'var(--up)',desc:'Strong reversal'});
+  // Bearish Engulfing
+  if(n>=1 && isBull(n-1) && isBear(n) && c[n].open>c[n-1].close && c[n].close<c[n-1].open) results.push({name:'BEAR ENGULF',col:'var(--dn)',desc:'Reversal top'});
+  // Three white soldiers
+  if(n>=2 && isBull(n) && isBull(n-1) && isBull(n-2) && c[n].close>c[n-1].close && c[n-1].close>c[n-2].close) results.push({name:'3 WHITE SOL',col:'var(--up)',desc:'Strong uptrend'});
+  // Three black crows
+  if(n>=2 && isBear(n) && isBear(n-1) && isBear(n-2) && c[n].close<c[n-1].close && c[n-1].close<c[n-2].close) results.push({name:'3 BLACK CROW',col:'var(--dn)',desc:'Strong downtrend'});
+
+  return results;
+}
+
+async function tkrLoadPatterns(ticker, exchange) {
+  const el = document.getElementById('tkr-patterns'); if(!el) return;
+  const r = await api(`/api/analytics/ohlcv/${encodeURIComponent(ticker)}?days=14`);
+  if(!r.ok || !r.d.candles?.length) { el.innerHTML='<div class="dim" style="padding:6px 8px">No data</div>'; return; }
+  const patterns = _detectPatterns(r.d.candles);
+  if(!patterns.length) { el.innerHTML='<div class="dim" style="padding:6px 8px;font-size:10px">No patterns detected</div>'; return; }
+  el.innerHTML = patterns.map(p=>`<div style="padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+    <div style="font-size:10px;font-weight:700;color:${p.col}">${p.name}</div>
+    <div style="font-size:9px;color:var(--txt3)">${p.desc}</div>
+  </div>`).join('');
+}
+
+async function tkrLoadReturns(ticker, exchange) {
+  const el = document.getElementById('tkr-returns'); if(!el) return;
+  const r = await api(`/api/analytics/price_history/${encodeURIComponent(ticker)}?days=30`);
+  if(!r.ok || !r.d.length) { el.innerHTML='<div class="dim">No data</div>'; return; }
+  const pts = [...r.d].sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
+  const last = pts[pts.length-1]?.price;
+  const getReturn = (days) => {
+    const ref = pts[Math.max(0, pts.length-1-days)];
+    if(!ref?.price) return null;
+    return (last - ref.price) / ref.price * 100;
+  };
+  const rows = [
+    {l:'1D', v:getReturn(1)},{l:'3D', v:getReturn(3)},{l:'7D', v:getReturn(7)},
+    {l:'14D', v:getReturn(14)},{l:'30D', v:getReturn(30)},
+  ];
+  el.innerHTML = rows.map(r=>`<div class="rm">
+    <span class="k">${r.l}</span>
+    <span class="v" style="color:${r.v==null?'var(--txt3)':r.v>=0?'var(--up)':'var(--dn)'}">${r.v==null?'—':fp(r.v)}</span>
+  </div>`).join('');
+}
+
+async function tkrLoadPeers(ticker, exchange) {
+  const el = document.getElementById('tkr-peers'); if(!el) return;
+  const secs = BB.secs || [];
+  const isTSE = ticker.startsWith('TSE:') || exchange==='TSE';
+  const peers = secs.filter(s=>{
+    const t = s.ticker; if(t===ticker) return false;
+    return isTSE ? t.startsWith('TSE:') : !t.startsWith('TSE:');
+  }).slice(0,6);
+  el.innerHTML = peers.map(s=>{
+    const chg = s.change_pct || 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;cursor:pointer" onclick="sw('tkr');setTimeout(()=>{const sel=document.getElementById('tkr-sel');if(sel){sel.value='${s.ticker}';sel.dispatchEvent(new Event('change'));}},200)">
+      <span class="org" style="font-weight:700">${s.ticker}</span>
+      <span class="wht">${f(s.market_price,4)}</span>
+      <span style="color:${gcI(chg)};font-weight:700">${fp(chg)}</span>
+    </div>`;
+  }).join('') || '<div class="dim" style="padding:6px;font-size:10px">No peers</div>';
+}
+
+async function tkrLoadHVCone(ticker, exchange) {
+  const ctx = document.getElementById('tkr-hvc-c'); if(!ctx) return;
+  const r = await api(`/api/analytics/ohlcv/${encodeURIComponent(ticker)}?days=60`);
+  if(!r.ok || !r.d.candles?.length) return;
+  const cs = r.d.candles;
+  const closes = cs.map(c=>c.close);
+  function hv(n) {
+    if(closes.length < n+1) return null;
+    const rets = [];
+    for(let i=closes.length-n;i<closes.length;i++) rets.push(Math.log(closes[i]/closes[i-1]));
+    const mean = rets.reduce((a,b)=>a+b,0)/rets.length;
+    const variance = rets.reduce((a,b)=>a+(b-mean)**2,0)/(rets.length-1);
+    return Math.sqrt(variance * 365) * 100;
+  }
+  const hv5=hv(5), hv10=hv(10), hv20=hv(20);
+  if(_hvcChart){_hvcChart.destroy();_hvcChart=null;}
+  _hvcChart = new Chart(ctx,{
+    type:'bar',
+    data:{labels:['HV5','HV10','HV20'],datasets:[{
+      data:[hv5,hv10,hv20],
+      backgroundColor:['rgba(0,229,255,.6)','rgba(255,214,0,.6)','rgba(255,140,0,.6)'],
+      borderWidth:0
+    }]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{...TT,callbacks:{label:c=>' HV: '+c.raw?.toFixed(1)+'%'}}},
+      scales:{x:{grid:{color:'#1a1a1a'},ticks:{color:'#444'}},
+              y:{grid:{color:'#1a1a1a'},position:'right',ticks:{color:'#444',callback:v=>v+'%'}}}}
+  });
+  // Volume Profile (price level distribution)
+  const vpEl = document.getElementById('tkr-volprofile');
+  if(vpEl && cs.length) {
+    const mn=Math.min(...closes), mx=Math.max(...closes), rng=mx-mn||1;
+    const buckets = new Array(8).fill(0);
+    cs.forEach(c=>{ const b=Math.floor((c.close-mn)/rng*7.99); buckets[b]+=(c.volume||1); });
+    const maxB=Math.max(...buckets,1);
+    const prices = buckets.map((_,i)=>f(mn+rng/8*i,2));
+    vpEl.innerHTML = buckets.map((v,i)=>`<div style="display:flex;align-items:center;gap:4px;padding:1px 2px;font-size:9px">
+      <span class="dim" style="width:38px;text-align:right">${prices[i]}</span>
+      <div style="flex:1;height:5px;background:var(--bdr)"><div style="height:100%;width:${(v/maxB*100).toFixed(1)}%;background:rgba(0,229,255,.6)"></div></div>
+    </div>`).join('');
+  }
+}
+
+// Spread history (session-tracked)
+async function tkrLoadSpreadHist(ticker) {
+  const ctx = document.getElementById('tkr-sph-c'); if(!ctx) return;
+  const r = await api(`/api/orderbook/${encodeURIComponent(ticker)}`);
+  if(!r.ok) return;
+  const d = r.d;
+  const bid = d.best_bid || (d.bids?.[0]?.price);
+  const ask = d.best_ask || (d.asks?.[0]?.price);
+  if(!bid||!ask) return;
+  const spr = (ask-bid)/ask*100;
+  _spreadHist.push(spr);
+  if(_spreadHist.length > 40) _spreadHist.shift();
+  if(_sphChart){_sphChart.destroy();_sphChart=null;}
+  if(_spreadHist.length < 2) return;
+  _sphChart = mkLine(ctx, _spreadHist.map((_,i)=>i==='0'?'':i===_spreadHist.length-1?'NOW':''),
+    [{data:_spreadHist,borderColor:'var(--yel)',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(255,214,0,.05)',tension:.3}],
+    {y:{ticks:{callback:v=>v.toFixed(3)+'%',color:'#444'}}});
+}
+setInterval(()=>{ if(_tkrExtTicker) tkrLoadSpreadHist(_tkrExtTicker); }, 15000);
+
+})();
+</script>
+</script>

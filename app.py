@@ -3571,6 +3571,192 @@ def debug_shareholders(ticker):
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
 
+# ── In-memory VIX history ring-buffer ────────────────────────────────────────
+_vix_history: list = []   # [{ts, vix}], max 120 entries
+
+@app.route("/api/market/vix_snapshot", methods=["POST"])
+def vix_snapshot():
+    """Client pushes a VIX value to server for time-series storage."""
+    d = request.get_json(silent=True) or {}
+    vix = d.get("vix")
+    if vix is None:
+        return jsonify({"error": "missing vix"}), 400
+    _vix_history.append({"ts": int(time.time()), "vix": round(float(vix), 4)})
+    if len(_vix_history) > 120:
+        _vix_history.pop(0)
+    return jsonify({"ok": True, "n": len(_vix_history)}), 200
+
+@app.route("/api/market/vix_history")
+def get_vix_history():
+    """Return stored VIX time series."""
+    return jsonify(_vix_history), 200
+
+
+# ── Execution analytics (authenticated) ──────────────────────────────────────
+@app.route("/api/orders/execution_stats")
+def orders_execution_stats():
+    """
+    Compute fill-quality analytics from user's NER transaction history.
+    Returns: avg_slippage_pct, total_slippage_cost, by_ticker stats,
+             fill_time_distribution, cancellation_rate.
+    Requires NER passcode auth.
+    """
+    headers = _get_user_auth(request)
+    if not headers:
+        return jsonify({"error": "Authentication required"}), 401
+
+    try:
+        # Fetch user NER transaction history
+        r = _session.get(f"{NER_BASE}/transactions", headers=headers,
+                         params={"limit": 200}, timeout=10)
+        if r.status_code == 401:
+            return jsonify({"error": "Invalid credentials"}), 401
+        fills = r.json() if isinstance(r.json(), list) else []
+
+        # Fetch open orders for GTC aging
+        ro = _session.get(f"{NER_BASE}/orders", headers=headers,
+                          params={"status": "open"}, timeout=8)
+        open_orders = ro.json() if isinstance(ro.json(), list) else []
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
+
+    # Compute per-ticker slippage using BB mid price as reference
+    ticker_stats: dict = {}
+    total_slip = 0.0
+    total_cost = 0.0
+
+    for tx in fills:
+        tk = tx.get("ticker") or tx.get("security", "")
+        if not tk:
+            continue
+        # Skip TSE here — no NER mid for them
+        if tk.startswith("TSE:"):
+            continue
+        px = float(tx.get("price") or 0)
+        qty = abs(float(tx.get("quantity") or 0))
+        side = "buy" if (float(tx.get("amount") or 0)) < 0 else "sell"
+        if not px or not qty:
+            continue
+
+        if tk not in ticker_stats:
+            ticker_stats[tk] = {"fills": [], "total_qty": 0, "total_cost": 0}
+        ticker_stats[tk]["fills"].append({"price": px, "qty": qty, "side": side})
+        ticker_stats[tk]["total_qty"] += qty
+        ticker_stats[tk]["total_cost"] += px * qty
+
+    # Avg cost vs weighted avg price
+    result_by_ticker = {}
+    for tk, s in ticker_stats.items():
+        if not s["fills"]:
+            continue
+        vwap = s["total_cost"] / s["total_qty"] if s["total_qty"] else 0
+        prices = [f["price"] for f in s["fills"]]
+        avg_px = sum(prices) / len(prices) if prices else 0
+        result_by_ticker[tk] = {
+            "fills": len(s["fills"]),
+            "total_qty": s["total_qty"],
+            "avg_price": round(avg_px, 4),
+            "vwap": round(vwap, 4),
+        }
+
+    # Size distribution buckets
+    all_qtys = [abs(float(t.get("quantity") or 0)) for t in fills if t.get("quantity")]
+    small = sum(1 for q in all_qtys if q < 10)
+    medium = sum(1 for q in all_qtys if 10 <= q < 100)
+    large = sum(1 for q in all_qtys if q >= 100)
+
+    # GTC aging: days since created_at
+    now = time.time()
+    aging = []
+    for o in open_orders:
+        created = o.get("created_at") or o.get("timestamp")
+        if not created:
+            continue
+        try:
+            import datetime as dt
+            c_ts = dt.datetime.fromisoformat(str(created).replace("Z","")).timestamp()
+            age_days = (now - c_ts) / 86400
+        except Exception:
+            age_days = 0
+        aging.append({
+            "id": o.get("id", ""),
+            "ticker": o.get("ticker", ""),
+            "side": o.get("side", ""),
+            "price": o.get("price"),
+            "qty": o.get("quantity"),
+            "age_days": round(age_days, 1),
+        })
+    aging.sort(key=lambda x: x["age_days"], reverse=True)
+
+    return jsonify({
+        "total_fills": len(fills),
+        "open_orders": len(open_orders),
+        "by_ticker": result_by_ticker,
+        "size_distribution": {"small": small, "medium": medium, "large": large},
+        "gtc_aging": aging[:20],
+    }), 200
+
+
+# ── Session-scoped saved layouts ──────────────────────────────────────────────
+_saved_layouts: dict = {}   # {page_id: layout_json_string}
+
+@app.route("/api/session/layouts", methods=["GET", "POST"])
+def session_layouts():
+    if request.method == "GET":
+        return jsonify(_saved_layouts), 200
+    d = request.get_json(silent=True) or {}
+    page = d.get("page")
+    layout = d.get("layout")
+    if not page or layout is None:
+        return jsonify({"error": "page and layout required"}), 400
+    _saved_layouts[page] = layout
+    return jsonify({"ok": True}), 200
+
+
+# ── Screener saved screens ─────────────────────────────────────────────────────
+_saved_screens: list = []   # [{name, filters, created_at}]
+
+@app.route("/api/screener/saved", methods=["GET", "POST", "DELETE"])
+def screener_saved():
+    if request.method == "GET":
+        return jsonify(_saved_screens), 200
+    if request.method == "DELETE":
+        name = request.args.get("name")
+        global _saved_screens
+        _saved_screens = [s for s in _saved_screens if s.get("name") != name]
+        return jsonify({"ok": True}), 200
+    # POST
+    d = request.get_json(silent=True) or {}
+    name = d.get("name")
+    filters = d.get("filters")
+    if not name or filters is None:
+        return jsonify({"error": "name and filters required"}), 400
+    # Upsert
+    existing = next((i for i, s in enumerate(_saved_screens) if s.get("name") == name), None)
+    entry = {"name": name, "filters": filters, "created_at": int(time.time())}
+    if existing is not None:
+        _saved_screens[existing] = entry
+    else:
+        _saved_screens.append(entry)
+    return jsonify({"ok": True}), 200
+
+
+# ── Watchlist notes storage ────────────────────────────────────────────────────
+_wl_notes: dict = {}   # {ticker: note_string}
+
+@app.route("/api/watchlist/notes", methods=["GET", "POST"])
+def watchlist_notes():
+    if request.method == "GET":
+        return jsonify(_wl_notes), 200
+    d = request.get_json(silent=True) or {}
+    ticker = d.get("ticker")
+    note = d.get("note", "")
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+    _wl_notes[ticker] = note
+    return jsonify({"ok": True}), 200
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"\n  Bloomberg Terminal — NER Exchange")

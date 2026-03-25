@@ -2049,3 +2049,205 @@ function doRefresh(){setTimeout(()=>{loadOpenOrders();loadFunds();const tk=g('op
 
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F4 EXTENDED MODULES — execution analytics
+════════════════════════════════════════════════════════════════════════ -->
+<div class="wrow" style="flex:none;height:180px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 52: Order Status Summary Bar -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">STATUS SUMMARY</span></div><div class="wbar-r"><span class="wbtn" onclick="ordExtLoad()">↻</span></div></div>
+    <div id="ord-status-sum" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">
+      <div class="loading">LOGIN REQUIRED</div>
+    </div>
+  </div>
+
+  <!-- Module 55: Algo Watcher Status Grid -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">ALGO GRID</span></div></div>
+    <div class="scroll" id="ord-algo-grid"></div>
+  </div>
+
+  <!-- Module 56: Cancellation Rate -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">CANCEL RATE</span></div></div>
+    <div id="ord-cancel-rate" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">—</div>
+  </div>
+
+  <!-- Module 58: GTC Order Aging Table -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">ORDER AGING (GTC)</span></div></div>
+    <div class="scroll" style="overflow-x:auto">
+      <table class="dt" style="width:100%">
+        <thead><tr><th>TICKER</th><th>SIDE</th><th class="r">PRICE</th><th class="r">QTY</th><th class="r">AGE (D)</th></tr></thead>
+        <tbody id="ord-aging-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Module 57: Avg Slippage per Ticker -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX5</span><span class="wtitle">FILLS BY TICKER</span></div></div>
+    <div class="scroll" id="ord-fills-ticker"></div>
+  </div>
+
+  <!-- Module 59-60: Execution Cost + Size Dist -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX6</span><span class="wtitle">EXEC COST / SIZE</span></div></div>
+    <div id="ord-exec-cost" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">—</div>
+  </div>
+
+</div>
+
+<!-- ─── Row 2: Smart Order Suggestion (Module 61) ─── -->
+<div class="wrow" style="flex:none;height:90px;border-top:1px solid var(--bdr)">
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX7</span><span class="wtitle">SMART ORDER SUGGESTION</span></div></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:6px 10px;font-size:11px">
+      <div class="ff"><label>TICKER</label>
+        <select id="ord-smart-tk" style="min-width:120px"><option value="">SELECT…</option></select>
+      </div>
+      <div class="ff"><label>QTY</label><input type="number" id="ord-smart-qty" value="100" style="width:70px"></div>
+      <div class="ff"><label>URGENCY</label>
+        <select id="ord-smart-urg"><option value="low">LOW (best price)</option><option value="med" selected>MEDIUM</option><option value="high">HIGH (speed)</option></select>
+      </div>
+      <button class="btn on" onclick="ordSmartSuggest()">ANALYSE</button>
+      <div id="ord-smart-result" style="flex:1;font-size:10px;color:var(--txt3)">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+// ── F4 Extended modules ───────────────────────────────────────────────────────
+const _origOrdOnShow = window.PAGE_ord_onShow;
+if(_origOrdOnShow) {
+  window.PAGE_ord_onShow = function() {
+    _origOrdOnShow();
+    setTimeout(ordExtLoad, 800);
+    populateSel('ord-smart-tk');
+  };
+} else {
+  // Fallback
+  document.addEventListener('DOMContentLoaded', ()=>{
+    populateSel('ord-smart-tk');
+  });
+}
+
+window.ordExtLoad = async function() {
+  ordExtLoadAlgos();
+  ordExtLoadExecStats();
+};
+
+async function ordExtLoadAlgos() {
+  const r = await api('/api/session/algos');
+  if(!r.ok) return;
+  const algos = r.d || [];
+  const el = document.getElementById('ord-algo-grid'); if(!el) return;
+  if(!algos.length) { el.innerHTML='<div class="dim" style="padding:6px 8px;font-size:10px">No active algos</div>'; return; }
+  el.innerHTML = algos.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="org" style="font-weight:700">${a.ticker||'—'}</span>
+    <span class="dim">${a.type||'WATCHER'}</span>
+    <span class="badge ${a.active?'b-up':'b-dim'}">${a.active?'LIVE':'IDLE'}</span>
+  </div>`).join('');
+}
+
+async function ordExtLoadExecStats() {
+  const r = await api('/api/orders/execution_stats');
+  if(!r.ok) {
+    const msg = r.s===401 ? 'LOGIN TO SEE EXECUTION STATS' : 'Error loading stats';
+    ['ord-status-sum','ord-cancel-rate','ord-exec-cost'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.innerHTML=`<div class="dim" style="font-size:10px">${msg}</div>`;
+    });
+    return;
+  }
+  const d = r.d;
+
+  // Status summary
+  const el1 = document.getElementById('ord-status-sum');
+  if(el1) el1.innerHTML = `
+    <div class="rm"><span class="k">TOTAL FILLS</span><span class="v wht">${d.total_fills||0}</span></div>
+    <div class="rm"><span class="k">OPEN ORDERS</span><span class="v yel">${d.open_orders||0}</span></div>
+    <div class="rm"><span class="k">TICKERS TRADED</span><span class="v">${Object.keys(d.by_ticker||{}).length}</span></div>
+    <div class="rm"><span class="k">SMALL FILLS</span><span class="v dim">${d.size_distribution?.small||0}</span></div>
+    <div class="rm"><span class="k">MEDIUM FILLS</span><span class="v">${d.size_distribution?.medium||0}</span></div>
+    <div class="rm"><span class="k">BLOCK FILLS</span><span class="v org">${d.size_distribution?.large||0}</span></div>
+  `;
+
+  // Fills by ticker
+  const el2 = document.getElementById('ord-fills-ticker');
+  if(el2) {
+    const rows = Object.entries(d.by_ticker||{}).sort((a,b)=>b[1].fills-a[1].fills).slice(0,8);
+    el2.innerHTML = rows.map(([tk,s])=>`<div style="display:flex;justify-content:space-between;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <span class="wht" style="font-weight:700">${tk}</span>
+      <span class="dim">${s.fills}×</span>
+      <span class="cyn">${fk(s.total_qty)}</span>
+    </div>`).join('') || '<div class="dim" style="padding:6px;font-size:10px">No fills</div>';
+  }
+
+  // Cancel rate
+  const el3 = document.getElementById('ord-cancel-rate');
+  if(el3) {
+    const total = d.total_fills + d.open_orders;
+    const openPct = total ? (d.open_orders/total*100).toFixed(1) : 0;
+    el3.innerHTML = `
+      <div class="rm"><span class="k">FILL RATE</span><span class="v up">${total?(d.total_fills/total*100).toFixed(1):'0'}%</span></div>
+      <div class="rm"><span class="k">OPEN RATE</span><span class="v yel">${openPct}%</span></div>
+      <div class="rm"><span class="k">SMALL%</span><span class="v">${d.total_fills?(d.size_distribution.small/d.total_fills*100).toFixed(0):0}%</span></div>
+      <div class="rm"><span class="k">BLOCK%</span><span class="v org">${d.total_fills?(d.size_distribution.large/d.total_fills*100).toFixed(0):0}%</span></div>
+    `;
+  }
+
+  // GTC aging
+  const tbody = document.getElementById('ord-aging-body');
+  if(tbody) {
+    const rows = d.gtc_aging || [];
+    tbody.innerHTML = rows.length ? rows.map(o=>`<tr>
+      <td class="org" style="font-weight:700">${o.ticker||'—'}</td>
+      <td class="${o.side==='buy'?'up':'dn'}">${(o.side||'').toUpperCase()}</td>
+      <td class="r wht">${f(o.price,4)}</td>
+      <td class="r">${o.qty}</td>
+      <td class="r ${o.age_days>3?'dn org':''}" style="font-weight:${o.age_days>3?'700':'400'}">${o.age_days}d</td>
+    </tr>`).join('') : '<tr><td colspan="5" class="dim loading">No open orders</td></tr>';
+  }
+
+  // Exec cost
+  const el4 = document.getElementById('ord-exec-cost');
+  if(el4) {
+    const { small=0, medium=0, large=0 } = d.size_distribution||{};
+    const tot = small+medium+large||1;
+    el4.innerHTML = `
+      <div class="rm"><span class="k">SMALL &lt;10</span><span class="v">${small} <span class="dim">(${(small/tot*100).toFixed(0)}%)</span></span></div>
+      <div class="rm"><span class="k">MED 10-99</span><span class="v">${medium} <span class="dim">(${(medium/tot*100).toFixed(0)}%)</span></span></div>
+      <div class="rm"><span class="k">BLOCK ≥100</span><span class="v org">${large} <span class="dim">(${(large/tot*100).toFixed(0)}%)</span></span></div>
+    `;
+  }
+}
+
+window.ordSmartSuggest = async function() {
+  const tk = document.getElementById('ord-smart-tk').value;
+  const qty = parseFloat(document.getElementById('ord-smart-qty').value) || 100;
+  const urg = document.getElementById('ord-smart-urg').value;
+  const el = document.getElementById('ord-smart-result');
+  if(!tk) { el.textContent = 'Select a ticker first.'; return; }
+  el.textContent = 'Analysing…';
+  const r = await api(`/api/liquidity/${encodeURIComponent(tk)}`);
+  if(!r.ok) { el.textContent = 'Could not load liquidity data.'; return; }
+  const d = r.d;
+  const spread = d.spread_pct || 0;
+  const bidDepth = d.bid_total_depth || 0;
+  const askDepth = d.ask_total_depth || 0;
+  const liqScore = d.liquidity_score || 0;
+  let type = 'LIMIT';
+  let note = '';
+  if(urg==='high') { type='MARKET'; note='Use market for speed — expect slippage.'; }
+  else if(spread > 0.5) { type='LIMIT'; note=`Wide spread (${spread.toFixed(2)}%) — use limit to avoid cost.`; }
+  else if(qty > askDepth * 0.5) { type='LIMIT'; note=`Size (${qty}) is large vs depth (${fk(askDepth)}) — use limit + TWAP.`; }
+  else { type='LIMIT'; note=`Tight spread, adequate depth. Limit order optimal.`; }
+  el.innerHTML = `<span class="org" style="font-weight:700">${type}</span> — ${note} <span class="dim">LIQ: ${liqScore}/100 · SPR: ${spread.toFixed(2)}%</span>`;
+};
+
+})();
+</script>

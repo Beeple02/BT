@@ -512,3 +512,194 @@ window.hmToggleLive = function(btn) {
 _hmIv = setInterval(()=>{ if(_hmLive && BB.activePanel==='hm') loadHM(); }, 30000);
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F8 EXTENDED: Drill-Down + Session Percentile + Toggle Controls
+════════════════════════════════════════════════════════════════════════ -->
+<style>
+.hm-drill-overlay{position:absolute;background:var(--bg2);border:1px solid var(--org);padding:10px;z-index:20;min-width:200px;font-size:10px;box-shadow:0 4px 20px rgba(0,0,0,.6)}
+.hm-drill-overlay .hm-d-close{position:absolute;top:5px;right:8px;cursor:pointer;color:var(--txt3);font-size:13px}
+</style>
+
+<!-- Label toggle & legend strip (Module 96, 97) -->
+<div style="display:flex;align-items:center;gap:8px;padding:3px 10px;background:var(--bg3);border-top:1px solid var(--bdr);flex-shrink:0">
+  <span style="font-size:9px;color:var(--txt3);letter-spacing:1px">LABELS:</span>
+  <button class="btn btn-xs on" id="hm-lbl-price" onclick="hmToggleLabel('price')">PRICE</button>
+  <button class="btn btn-xs on" id="hm-lbl-pct" onclick="hmToggleLabel('pct')">CHG%</button>
+  <button class="btn btn-xs" id="hm-lbl-vol" onclick="hmToggleLabel('vol')">VOL</button>
+  <span style="margin-left:8px;font-size:9px;color:var(--txt3)">COLOR:</span>
+  <button class="btn btn-xs" id="hm-col-rsi" onclick="hmSetColorMode('rsi')">RSI</button>
+  <button class="btn btn-xs" id="hm-col-spr" onclick="hmSetColorMode('spread')">SPREAD</button>
+  <button class="btn btn-xs on" id="hm-col-chg" onclick="hmSetColorMode('chg')">CHG%</button>
+  <span id="hm-ext-legend" style="margin-left:auto;font-size:9px;color:var(--txt3)"></span>
+</div>
+
+<!-- Drill-down popup container -->
+<div id="hm-drill-popup" style="display:none;position:fixed;z-index:1000;top:50%;left:50%;transform:translate(-50%,-50%)" class="hm-drill-overlay">
+  <span class="hm-d-close" onclick="document.getElementById('hm-drill-popup').style.display='none'">✕</span>
+  <div id="hm-drill-content"></div>
+</div>
+
+<script>
+(function(){
+// ── F8 Extended modules ─────────────────────────────────────────────────────
+let _hmLabels = new Set(['price','pct']);
+let _hmColorMode = 'chg';
+let _hmExtData = null;
+
+window.hmToggleLabel = function(lbl) {
+  if(_hmLabels.has(lbl)) _hmLabels.delete(lbl);
+  else _hmLabels.add(lbl);
+  document.getElementById(`hm-lbl-${lbl}`)?.classList.toggle('on', _hmLabels.has(lbl));
+  hmExtPatchCells();
+};
+
+window.hmSetColorMode = function(mode) {
+  _hmColorMode = mode;
+  ['rsi','spread','chg'].forEach(m=>{
+    document.getElementById(`hm-col-${m}`)?.classList.toggle('on', m===mode);
+  });
+  // Rebuild heatmap with new color mode
+  if(_hmExtData) hmExtRebuildColors(_hmExtData);
+};
+
+// Hook into existing loadHM to capture data
+const _origLoadHM = window.loadHM;
+if(_origLoadHM) {
+  window.loadHM = async function() {
+    await _origLoadHM();
+    setTimeout(hmExtPost, 300);
+  };
+}
+
+async function hmExtPost() {
+  // Grab current cells from DOM and enrich
+  const days = document.getElementById('hm-rng')?.value || 7;
+  const r = await api(`/api/market_breadth?days=${days}`);
+  if(!r.ok) return;
+  _hmExtData = r.d.securities || [];
+  hmExtPatchCells();
+  hmExtUpdateLegend();
+}
+
+function hmExtGetColor(s) {
+  if(_hmColorMode==='rsi') {
+    const rsi = s.rsi || 50;
+    if(rsi>=70) return `rgba(244,67,54,${0.4+((rsi-70)/30)*0.5})`;
+    if(rsi<=30) return `rgba(0,200,83,${0.4+((30-rsi)/30)*0.5})`;
+    return 'rgba(50,50,50,0.5)';
+  }
+  if(_hmColorMode==='spread') {
+    const spr = s.spread_pct || 0;
+    const intensity = Math.min(spr/2, 1);
+    return `rgba(255,214,0,${0.1+intensity*0.8})`;
+  }
+  // Default: chg%
+  const chg = s.chg_pct || 0;
+  if(chg > 0) return `rgba(0,200,83,${Math.min(0.15+Math.abs(chg)/5*0.8,0.9)})`;
+  if(chg < 0) return `rgba(244,67,54,${Math.min(0.15+Math.abs(chg)/5*0.8,0.9)})`;
+  return 'rgba(38,38,38,0.8)';
+}
+
+function hmExtPatchCells() {
+  if(!_hmExtData) return;
+  // Find heatmap cells by their data-ticker attributes
+  document.querySelectorAll('[data-hm-ticker]').forEach(cell=>{
+    const tk = cell.dataset.hmTicker;
+    const s = _hmExtData.find(x=>x.ticker===tk); if(!s) return;
+    // Update label visibility
+    const priceEl = cell.querySelector('[data-hm-price]');
+    const pctEl = cell.querySelector('[data-hm-pct]');
+    const volEl = cell.querySelector('[data-hm-vol]');
+    if(priceEl) priceEl.style.display = _hmLabels.has('price')?'':'none';
+    if(pctEl)   pctEl.style.display   = _hmLabels.has('pct')?'':'none';
+    if(volEl)   volEl.style.display   = _hmLabels.has('vol')?'':'none';
+    // Color mode
+    cell.style.background = hmExtGetColor(s);
+  });
+}
+
+function hmExtRebuildColors(secs) {
+  secs.forEach(s=>{
+    document.querySelectorAll(`[data-hm-ticker="${s.ticker}"]`).forEach(cell=>{
+      cell.style.background = hmExtGetColor(s);
+    });
+  });
+}
+
+function hmExtUpdateLegend() {
+  const el = document.getElementById('hm-ext-legend'); if(!el) return;
+  if(_hmColorMode==='rsi') el.textContent='COLOR: RSI — RED=OB(≥70) GREEN=OS(≤30) GRAY=NEUTRAL';
+  else if(_hmColorMode==='spread') el.textContent='COLOR: SPREAD% — yellow intensity = wider spread';
+  else el.textContent='COLOR: CHG% — standard price change heatmap';
+}
+
+// Drill-down handler (Module 93)
+window.hmDrillDown = async function(ticker, event) {
+  const popup = document.getElementById('hm-drill-popup');
+  const content = document.getElementById('hm-drill-content');
+  if(!popup||!content) return;
+  content.innerHTML='<div class="loading" style="padding:10px">LOADING…</div>';
+  popup.style.display='block';
+  // Load stats
+  const [r1, r2] = await Promise.all([
+    api(`/api/ticker_stats/${encodeURIComponent(ticker)}`),
+    api(`/api/analytics/price_history/${encodeURIComponent(ticker)}?days=7`)
+  ]);
+  const stats = r1.ok?r1.d:{};
+  const pts = r2.ok?r2.d.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)):[];
+  const last = pts[pts.length-1]?.price;
+  const first = pts[0]?.price;
+  const ret7 = first&&last?((last-first)/first*100):null;
+  // Session percentile vs history
+  const chg = stats.chg_pct || 0;
+  // Simple percentile: rank chg vs historical volatility
+  const hv = stats.volatility || 1;
+  const zScore = hv ? chg / (hv / Math.sqrt(365) * 100) : 0;
+  const percPctile = Math.min(99, Math.max(1, Math.round((1/(1+Math.exp(-zScore))*100))));
+  const sparkCanvas = document.createElement('canvas');
+  sparkCanvas.width=140; sparkCanvas.height=30;
+  if(pts.length>=2) {
+    const cv=sparkCanvas.getContext('2d');
+    const prices=pts.map(p=>p.price);
+    const mn=Math.min(...prices),mx=Math.max(...prices),rng=mx-mn||1;
+    cv.strokeStyle=ret7>=0?'var(--up)':'var(--dn)'; cv.lineWidth=1.5; cv.beginPath();
+    prices.forEach((v,i)=>{const x=i/(prices.length-1)*138+1,y=(1-(v-mn)/rng)*28+1;i===0?cv.moveTo(x,y):cv.lineTo(x,y);});
+    cv.stroke();
+  }
+  content.innerHTML = `
+    <div style="font-size:11px;font-weight:700;color:var(--org);margin-bottom:6px">${ticker}
+      <span style="font-size:10px;color:var(--wht);margin-left:6px">${f(stats.last_price,4)}</span>
+    </div>`;
+  content.appendChild(sparkCanvas);
+  content.innerHTML += `
+    <div style="margin-top:6px">
+    <div class="rm"><span class="k">7D RETURN</span><span class="v ${(ret7||0)>=0?'up':'dn'}">${ret7!=null?fp(ret7):'—'}</span></div>
+    <div class="rm"><span class="k">RSI</span><span class="v ${(stats.rsi||50)>=70?'dn':(stats.rsi||50)<=30?'up':''}">${f(stats.rsi,1)}</span></div>
+    <div class="rm"><span class="k">VOLATILITY</span><span class="v yel">${f(stats.volatility,1)}%</span></div>
+    <div class="rm"><span class="k">MOVE PERCENTILE</span><span class="v">${percPctile}th</span></div>
+    <div class="rm"><span class="k">SHARPE</span><span class="v ${(stats.sharpe||0)>=0?'up':'dn'}">${f(stats.sharpe,2)}</span></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="act-b" onclick="mktQuickOrder('${ticker}','buy');document.getElementById('hm-drill-popup').style.display='none'">BUY</button>
+      <button class="act-s" onclick="mktQuickOrder('${ticker}','sell');document.getElementById('hm-drill-popup').style.display='none'">SELL</button>
+      <button class="btn btn-xs" onclick="sw('tkr')" style="margin-left:auto">FULL VIEW →</button>
+    </div>
+  `;
+};
+
+// Expose mktQuickOrder if not available
+if(!window.mktQuickOrder) {
+  window.mktQuickOrder = function(ticker, side) {
+    sw('ord');
+    setTimeout(()=>{
+      const tkSel=document.getElementById('op-tk');
+      if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+      if(window.opSide) opSide(side);
+    }, 300);
+  };
+}
+
+})();
+</script>
+</script>

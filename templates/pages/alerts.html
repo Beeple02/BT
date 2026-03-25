@@ -525,3 +525,280 @@ window.populateSel_al_tk = function(){};  // handled inline
 })();
 })();
 </script>
+
+<!-- F13 EXTENDED MODULES -->
+<style>
+.al-ext-cond{background:var(--bg3);border:1px solid var(--bdr2);padding:5px 8px;margin-bottom:4px;font-size:9px;display:flex;gap:6px;align-items:center}
+.al-ext-cond select,
+.al-ext-cond input{background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 4px;outline:none}
+.al-hist-row{padding:3px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:9px;display:flex;gap:8px;align-items:center}
+</style>
+
+<div class="wrow" style="height:185px;flex-shrink:0">
+  <!-- EX1: Alert History Log -->
+  <div class="win" style="flex:1">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">ALERT HISTORY LOG</span></div>
+      <div class="wbar-r" style="gap:6px">
+        <span style="font-size:9px;color:var(--txt3)" id="al-hist-count">0 EVENTS</span>
+        <span class="wbtn" onclick="alExtClearHistory()" title="Clear log">✕</span>
+        <span class="wbtn" onclick="alExtExportCSV()" title="Export CSV">CSV</span>
+      </div>
+    </div>
+    <div class="scroll" id="al-hist-log"><div class="loading">ALERTS WILL APPEAR HERE WHEN FIRED</div></div>
+  </div>
+
+  <!-- EX2: Quiet Hours -->
+  <div class="win" style="width:200px">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">QUIET HOURS</span></div></div>
+    <div style="padding:8px;font-size:10px">
+      <div class="rm" style="margin-bottom:6px">
+        <span class="k">QUIET HOURS</span>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="al-quiet-en" onchange="alExtSaveQuiet()"> ENABLED
+        </label>
+      </div>
+      <div class="rm"><span class="k">FROM (UTC)</span>
+        <input type="time" id="al-quiet-from" value="22:00" onchange="alExtSaveQuiet()"
+          style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 4px;outline:none">
+      </div>
+      <div class="rm" style="margin-top:4px"><span class="k">TO (UTC)</span>
+        <input type="time" id="al-quiet-to" value="06:00" onchange="alExtSaveQuiet()"
+          style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 4px;outline:none">
+      </div>
+      <div id="al-quiet-status" style="margin-top:8px;font-size:9px;color:var(--txt3)">—</div>
+      <div style="margin-top:8px;font-size:9px;color:var(--txt3);border-top:1px solid var(--bdr);padding-top:6px">
+        <div class="rm"><span class="k">SOUND ALERTS</span>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="al-sound-en" onchange="alExtSaveQuiet()" checked> ENABLED
+          </label>
+        </div>
+        <div id="al-sound-status" style="font-size:8px;color:var(--txt3);margin-top:4px">CLICK TO TEST</div>
+        <button class="btn" style="font-size:8px;margin-top:4px;padding:1px 6px" onclick="alExtTestSound()">▶ TEST BEEP</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EX3: Multi-Condition Alert Builder -->
+  <div class="win" style="flex:1.2">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">MULTI-CONDITION ALERT</span></div>
+      <div class="wbar-r"><button class="btn on" style="font-size:8px;padding:1px 6px" onclick="alExtAddMultiCond()">+ ADD CONDITION</button></div>
+    </div>
+    <div style="padding:6px 8px;font-size:10px;height:calc(100% - 28px);overflow-y:auto">
+      <div id="al-multi-conds"></div>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+        <span style="font-size:9px;color:var(--txt3)">LOGIC:</span>
+        <label style="font-size:9px;cursor:pointer"><input type="radio" name="al-logic" value="AND" checked> ALL (AND)</label>
+        <label style="font-size:9px;cursor:pointer"><input type="radio" name="al-logic" value="OR"> ANY (OR)</label>
+        <button class="btn on" style="font-size:8px;padding:1px 6px;margin-left:auto" onclick="alExtSaveMultiCond()">SAVE MULTI-ALERT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EX4: Volume Spike + Spread Widening Alerts -->
+  <div class="win" style="width:210px">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">QUICK SPIKE/SPREAD ALERTS</span></div></div>
+    <div style="padding:6px 8px;font-size:10px">
+      <div style="font-size:9px;color:var(--txt3);margin-bottom:5px">ONE-CLICK ALERTS FOR COMMON CONDITIONS</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;background:var(--bg3);border:1px solid var(--bdr2)">
+          <span class="dim" style="font-size:9px">VOL SPIKE &gt; <input type="number" id="al-qvs-val" value="2" min="1" max="10" step="0.5" style="width:36px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none">x</span>
+          <button class="btn on" style="font-size:8px;padding:1px 5px" onclick="alExtQuickAdd('vol_spike',document.getElementById('al-qvs-val').value,'gt')">ADD</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;background:var(--bg3);border:1px solid var(--bdr2)">
+          <span class="dim" style="font-size:9px">SPREAD &gt; <input type="number" id="al-qsp-val" value="0.5" min="0.05" max="5" step="0.05" style="width:36px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none">%</span>
+          <button class="btn on" style="font-size:8px;padding:1px 5px" onclick="alExtQuickAdd('spread_pct',document.getElementById('al-qsp-val').value,'gt')">ADD</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;background:var(--bg3);border:1px solid var(--bdr2)">
+          <span class="dim" style="font-size:9px">RSI &lt; <input type="number" id="al-qrsi-val" value="30" min="1" max="100" step="1" style="width:36px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none"></span>
+          <button class="btn on" style="font-size:8px;padding:1px 5px" onclick="alExtQuickAdd('rsi',document.getElementById('al-qrsi-val').value,'lt')">ADD</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;background:var(--bg3);border:1px solid var(--bdr2)">
+          <span class="dim" style="font-size:9px">NEW HOLDER ENTRY</span>
+          <button class="btn on" style="font-size:8px;padding:1px 5px" onclick="alExtQuickAdd('holder_change',1,'gte')">ADD</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+// ── Alert history log ─────────────────────────────────────────────────────────
+let _alHistory = JSON.parse(sessionStorage.getItem('al_history')||'[]');
+let _alQuiet   = JSON.parse(localStorage.getItem('al_quiet')||'{"en":false,"from":"22:00","to":"06:00","sound":true}');
+
+function alExtSaveHistory(ev){
+  _alHistory.unshift(ev);
+  if(_alHistory.length > 200) _alHistory.length = 200;
+  sessionStorage.setItem('al_history', JSON.stringify(_alHistory));
+  renderAlHistory();
+}
+
+function renderAlHistory(){
+  const el = document.getElementById('al-hist-log');
+  document.getElementById('al-hist-count').textContent = _alHistory.length + ' EVENTS';
+  if(!_alHistory.length){ el.innerHTML='<div class="loading">NO HISTORY YET</div>'; return; }
+  el.innerHTML = _alHistory.map(ev=>`
+    <div class="al-hist-row">
+      <span class="dim" style="width:42px;flex-shrink:0">${ev.time||'—'}</span>
+      <span class="wht" style="font-weight:700;width:50px;flex-shrink:0">${ev.ticker||'—'}</span>
+      <span class="${ev.type==='fired'?'org':'dim'}" style="font-size:8px;flex-shrink:0">${ev.label||''}</span>
+      <span class="dim" style="font-size:8px;margin-left:auto">${ev.value||''}</span>
+    </div>`).join('');
+}
+
+window.alExtClearHistory = function(){
+  _alHistory = []; sessionStorage.removeItem('al_history'); renderAlHistory();
+};
+
+window.alExtExportCSV = function(){
+  if(!_alHistory.length) return;
+  const rows = [['TIME','TICKER','TYPE','LABEL','VALUE']].concat(_alHistory.map(e=>[e.time,e.ticker,e.type,e.label,e.value]));
+  const csv = rows.map(r=>r.map(v=>`"${(v||'').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = 'alert_history.csv';
+  a.click();
+};
+
+// ── Quiet Hours ───────────────────────────────────────────────────────────────
+window.alExtSaveQuiet = function(){
+  _alQuiet.en    = document.getElementById('al-quiet-en').checked;
+  _alQuiet.from  = document.getElementById('al-quiet-from').value;
+  _alQuiet.to    = document.getElementById('al-quiet-to').value;
+  _alQuiet.sound = document.getElementById('al-sound-en').checked;
+  localStorage.setItem('al_quiet', JSON.stringify(_alQuiet));
+  alExtUpdateQuietStatus();
+};
+
+function alExtUpdateQuietStatus(){
+  document.getElementById('al-quiet-en').checked   = _alQuiet.en;
+  document.getElementById('al-quiet-from').value   = _alQuiet.from||'22:00';
+  document.getElementById('al-quiet-to').value     = _alQuiet.to||'06:00';
+  document.getElementById('al-sound-en').checked   = _alQuiet.sound !== false;
+  const inQuiet = alExtIsQuiet();
+  document.getElementById('al-quiet-status').innerHTML = _alQuiet.en
+    ? `<span class="${inQuiet?'dn':'up'}">${inQuiet?'QUIET ACTIVE — ALERTS SUPPRESSED':'QUIET HOURS INACTIVE'}</span>`
+    : '<span class="dim">QUIET HOURS DISABLED</span>';
+}
+
+function alExtIsQuiet(){
+  if(!_alQuiet.en) return false;
+  const now = new Date();
+  const hhmm = now.getUTCHours()*100 + now.getUTCMinutes();
+  const from = parseInt((_alQuiet.from||'22:00').replace(':',''),10);
+  const to   = parseInt((_alQuiet.to||'06:00').replace(':',''),10);
+  return from > to ? (hhmm >= from || hhmm < to) : (hhmm >= from && hhmm < to);
+}
+
+// Store reference so alert engine can check quiet hours
+window._alExtIsQuiet  = alExtIsQuiet;
+window._alExtLogAlert = alExtSaveHistory;
+
+window.alExtTestSound = function(){
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(); osc.stop(ctx.currentTime + 0.4);
+    document.getElementById('al-sound-status').innerHTML = '<span class="up">SOUND WORKS</span>';
+  } catch(e){
+    document.getElementById('al-sound-status').innerHTML = '<span class="dn">NO AUDIO CONTEXT</span>';
+  }
+};
+
+// ── Multi-Condition Alert Builder ─────────────────────────────────────────────
+let _multiConds = [];
+const MULTI_METRICS = ['vol_spike','rsi','chg_pct','spread_pct','price','volatility','sharpe','max_dd','hhi','top1_pct'];
+
+window.alExtAddMultiCond = function(){
+  const id = Date.now();
+  _multiConds.push({id, metric:'vol_spike', op:'gt', val:2});
+  renderMultiConds();
+};
+
+function renderMultiConds(){
+  document.getElementById('al-multi-conds').innerHTML = _multiConds.map(c=>`
+    <div class="al-ext-cond">
+      <select onchange="alExtUpdateCond(${c.id},'metric',this.value)">
+        ${MULTI_METRICS.map(m=>`<option value="${m}" ${m===c.metric?'selected':''}>${m.toUpperCase()}</option>`).join('')}
+      </select>
+      <select onchange="alExtUpdateCond(${c.id},'op',this.value)">
+        <option value="gt" ${c.op==='gt'?'selected':''}>></option>
+        <option value="lt" ${c.op==='lt'?'selected':''}><</option>
+        <option value="gte" ${c.op==='gte'?'selected':''}>≥</option>
+        <option value="lte" ${c.op==='lte'?'selected':''}>≤</option>
+      </select>
+      <input type="number" value="${c.val}" step="any" style="width:50px" onchange="alExtUpdateCond(${c.id},'val',+this.value)">
+      <span class="wbtn" onclick="alExtRemoveCond(${c.id})">✕</span>
+    </div>`).join('');
+}
+
+window.alExtUpdateCond = function(id, field, val){
+  const c = _multiConds.find(x=>x.id===id); if(c) c[field] = val;
+};
+window.alExtRemoveCond = function(id){
+  _multiConds = _multiConds.filter(x=>x.id!==id); renderMultiConds();
+};
+
+window.alExtSaveMultiCond = function(){
+  if(!_multiConds.length){ alert('Add at least one condition'); return; }
+  const tkSel = document.getElementById('al-tk');
+  const ticker = tkSel ? tkSel.value : '*';
+  const logic  = document.querySelector('input[name="al-logic"]:checked')?.value || 'AND';
+  const name   = `MULTI-${logic}:${_multiConds.map(c=>`${c.metric}${c.op}${c.val}`).join('+')}`;
+  // Push as a special rule to the existing alert engine
+  if(typeof _rules !== 'undefined'){
+    _rules.push({ticker, type:'multi_cond', conditions:[..._multiConds], logic, label:name, id:Date.now(), active:true});
+    if(window.renderRules) renderRules();
+    _multiConds = []; renderMultiConds();
+  } else {
+    alert('Alert engine not ready');
+  }
+};
+
+// ── Quick Add Helpers ─────────────────────────────────────────────────────────
+const TYPE_MAP = {vol_spike:'vol_spike', spread_pct:'spread', rsi:'rsi', holder_change:'holder_change'};
+window.alExtQuickAdd = function(metric, val, op){
+  const tkSel = document.getElementById('al-tk');
+  const ticker = tkSel ? tkSel.value : '*';
+  if(typeof _rules !== 'undefined'){
+    _rules.push({ticker, type:metric==='holder_change'?'holder_change':metric, threshold:+val, op:op||'gt',
+      label:`${metric.toUpperCase()} ${op}${val}`, id:Date.now(), active:true});
+    if(window.renderRules) renderRules();
+  }
+};
+
+// ── Intercept toast to log history ───────────────────────────────────────────
+const _origShowAlertToast = window.showAlertToast;
+window.showAlertToast = function(msg, ticker, type){
+  // Check quiet hours
+  if(alExtIsQuiet()) return;
+  if(_origShowAlertToast) _origShowAlertToast(msg, ticker, type);
+  alExtSaveHistory({time:new Date().toTimeString().slice(0,8), ticker:ticker||'—', type:'fired', label:type||'ALERT', value:msg||''});
+  // Sound
+  if(_alQuiet.sound !== false){
+    try {
+      const ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const g   = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.frequency.value = 660;
+      g.gain.setValueAtTime(0.2, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(); osc.stop(ctx.currentTime + 0.3);
+    } catch(e){}
+  }
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderAlHistory();
+alExtUpdateQuietStatus();
+})();
+</script>

@@ -87,6 +87,28 @@
     <span style="color:var(--cyn);font-size:11px">◇</span>
     <span class="v" id="tb-account-lbl" style="font-size:10px;letter-spacing:.5px;color:var(--cyn)">ACCOUNT</span>
   </div>
+  <!-- Latency badge -->
+  <div class="tb-seg" style="padding:0;border-left:1px solid var(--bdr)">
+    <span id="tb-latency" title="Avg API latency — click to show Position Sizing Calculator" onclick="psz_open()" style="font-size:9px;color:var(--txt3);padding:0 8px;cursor:pointer;white-space:nowrap">—ms</span>
+  </div>
+  <!-- Ticker lock indicator -->
+  <div class="tb-seg" id="tb-ticker-lock" style="display:none;cursor:pointer" onclick="bbUnlockTicker()" title="Ticker locked — click to unlock">
+    <span style="color:var(--org);font-size:11px">🔒</span>
+    <span id="tb-lock-lbl" class="v" style="color:var(--org);font-size:10px;margin-left:3px">LOCKED</span>
+  </div>
+  <!-- Notification bell -->
+  <div class="tb-seg" style="cursor:pointer;padding:0 10px;position:relative" onclick="bbToggleNotif()" title="Notification center">
+    <span style="font-size:13px">🔔</span>
+    <span id="notif-dot" style="position:absolute;top:4px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--dn);display:none;border:1px solid #000"></span>
+  </div>
+  <!-- Theme dimmer toggle -->
+  <div class="tb-seg" style="cursor:pointer;padding:0 8px" title="Theme dimmer (cycle brightness)" onclick="bbCycleDimmer()">
+    <span id="tb-dimmer-icon" style="font-size:12px;color:var(--txt3)">◑</span>
+  </div>
+  <!-- Keyboard shortcuts hint -->
+  <div class="tb-seg" style="cursor:pointer;padding:0 8px" title="Keyboard shortcuts overlay (SHIFT+?)" onclick="bbToggleKbd()">
+    <span style="font-size:9px;color:var(--txt3);font-weight:700">?</span>
+  </div>
   <div class="tb-seg tb-right" style="cursor:pointer;user-select:none" title="Click to toggle UTC / local time" onclick="BB._utcMode=!BB._utcMode;tick()">
     <span id="tb-clock" style="color:var(--wht);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums">--:--:--</span>
     &nbsp;<span id="tb-tz" style="color:var(--txt3);font-size:9px;letter-spacing:.5px">LCL</span>
@@ -165,6 +187,151 @@
     </div>
   </div>
 </div>
+
+<!-- ── CMD Autocomplete Dropdown ──────────────────────────────────────────── -->
+<div id="cmd-suggestions"></div>
+
+<!-- ── Quick-Trade Panel ──────────────────────────────────────────────────── -->
+<div id="qt-panel">
+  <div id="qt-hdr">
+    <span>⚡ QUICK TRADE</span>
+    <span style="cursor:pointer;font-size:14px" onclick="bbCloseQt()">✕</span>
+  </div>
+  <div id="qt-body">
+    <div class="ff" style="margin-bottom:6px"><label>TICKER</label>
+      <select id="qt-tk" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" onchange="bbQtTickerChg()"><option value="">SELECT…</option></select>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <div class="ff" style="flex:1"><label>PRICE</label>
+        <input id="qt-px" type="number" step="any" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none" placeholder="Market">
+      </div>
+      <div class="ff" style="flex:1"><label>QTY</label>
+        <input id="qt-qty" type="number" step="1" min="1" style="width:100%;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none">
+      </div>
+    </div>
+    <!-- Cost preview -->
+    <div id="qt-preview" style="font-size:10px;color:var(--txt3);margin-bottom:8px;padding:4px 6px;background:var(--bg3);border:1px solid var(--bdr)">— select ticker + qty —</div>
+    <!-- Buy / Sell buttons -->
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <button class="btn buy" style="flex:1;font-size:11px;padding:6px" onclick="bbQtSubmit('buy')">▲ BUY</button>
+      <button class="btn sell" style="flex:1;font-size:11px;padding:6px" onclick="bbQtSubmit('sell')">▼ SELL</button>
+    </div>
+    <div id="qt-result" style="font-size:10px;min-height:14px;color:var(--txt3)"></div>
+    <div style="margin-top:10px;border-top:1px solid var(--bdr);padding-top:8px">
+      <div style="font-size:9px;color:var(--txt3);margin-bottom:5px;letter-spacing:1.5px">POSITION SIZING</div>
+      <div class="ff" style="margin-bottom:4px"><label>PORTFOLIO SIZE (R$)</label>
+        <input id="qt-portsize" type="number" step="100" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none;width:100%" oninput="bbQtCalcSize()">
+      </div>
+      <div class="ff"><label>RISK PER TRADE (%)</label>
+        <input id="qt-risk" type="number" step="0.1" value="2" min="0.1" max="100" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:10px;padding:2px 5px;outline:none;width:100%" oninput="bbQtCalcSize()">
+      </div>
+      <div id="qt-size-result" style="font-size:9px;color:var(--cyn);margin-top:5px">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Notification Center ──────────────────────────────────────────────── -->
+<div id="notif-panel">
+  <div style="padding:5px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+    <span style="font-size:9px;font-weight:700;letter-spacing:2px;color:var(--org)">NOTIFICATIONS</span>
+    <span style="cursor:pointer;font-size:9px;color:var(--txt3)" onclick="bbClearNotifs()">CLEAR ALL</span>
+  </div>
+  <div id="notif-list" style="overflow-y:auto;flex:1"><div class="loading" style="font-size:10px">NO NOTIFICATIONS</div></div>
+</div>
+
+<!-- ── Position Sizing Modal ───────────────────────────────────────────── -->
+<div id="psz-modal" onclick="if(event.target===this)psz_close()">
+  <div id="psz-box">
+    <div style="background:var(--org);color:#000;font-size:10px;font-weight:700;letter-spacing:2px;padding:6px 12px;display:flex;justify-content:space-between;align-items:center">
+      <span>⚖ POSITION SIZING CALCULATOR</span>
+      <span style="cursor:pointer;font-size:14px" onclick="psz_close()">✕</span>
+    </div>
+    <div style="padding:14px;font-size:11px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div class="ff"><label>PORTFOLIO EQUITY (R$)</label>
+          <input id="psz-equity" type="number" value="10000" step="100" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" oninput="pszCalc()">
+        </div>
+        <div class="ff"><label>RISK PER TRADE (%)</label>
+          <input id="psz-risk" type="number" value="2" step="0.1" min="0.1" max="50" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" oninput="pszCalc()">
+        </div>
+        <div class="ff"><label>ENTRY PRICE (R$)</label>
+          <input id="psz-entry" type="number" step="any" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" oninput="pszCalc()">
+        </div>
+        <div class="ff"><label>STOP LOSS PRICE (R$)</label>
+          <input id="psz-stop" type="number" step="any" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" oninput="pszCalc()">
+        </div>
+        <div class="ff"><label>TARGET PRICE (R$) (opt.)</label>
+          <input id="psz-target" type="number" step="any" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" oninput="pszCalc()">
+        </div>
+        <div class="ff"><label>WIN RATE ESTIMATE (%)</label>
+          <input id="psz-wr" type="number" value="50" step="1" min="1" max="99" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 6px;outline:none;width:100%" oninput="pszCalc()">
+        </div>
+      </div>
+      <div id="psz-results" style="background:var(--bg3);border:1px solid var(--bdr);padding:10px;font-size:11px">
+        <div style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:6px">RESULTS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px" id="psz-grid"><div class="loading" style="grid-column:1/-1">FILL IN FIELDS ABOVE</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Keyboard Shortcuts Overlay ─────────────────────────────────────── -->
+<div id="kbd-overlay" onclick="if(event.target===this||event.target.id==='kbd-close')bbToggleKbd()">
+  <div id="kbd-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;color:var(--org);letter-spacing:3px">KEYBOARD SHORTCUTS</div>
+      <button id="kbd-close" class="btn" style="font-size:9px;padding:2px 8px">CLOSE</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div class="kbd-section">
+          <div class="kbd-section-hdr">NAVIGATION</div>
+          <div class="kbd-row"><span><span class="kbd-key">F1</span>–<span class="kbd-key">F14</span></span><span class="kbd-desc">Jump to function key page</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">ESC</span></span><span class="kbd-desc">Close modal / clear cmd input</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">SHIFT</span>+<span class="kbd-key">?</span></span><span class="kbd-desc">This keyboard overlay</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">SHIFT</span>+<span class="kbd-key">T</span></span><span class="kbd-desc">Open Quick-Trade panel</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">SHIFT</span>+<span class="kbd-key">L</span></span><span class="kbd-desc">Lock/unlock ticker</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">↑</span>/<span class="kbd-key">↓</span> in CMD</span><span class="kbd-desc">Command history</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">TAB</span> in CMD</span><span class="kbd-desc">Ticker autocomplete</span></div>
+        </div>
+        <div class="kbd-section">
+          <div class="kbd-section-hdr">ORDER ENTRY (CMD BAR)</div>
+          <div class="kbd-row"><span><span class="kbd-key">B</span></span><span class="kbd-desc">Quick buy (no modifier)</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">S</span></span><span class="kbd-desc">Quick sell (no modifier)</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">B TKR QTY</span></span><span class="kbd-desc">Buy N shares at market</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">S TKR QTY PX</span></span><span class="kbd-desc">Limit sell</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="kbd-section">
+          <div class="kbd-section-hdr">CMD BAR COMMANDS</div>
+          <div class="kbd-row"><span><span class="kbd-key">&lt;TICKER&gt;</span></span><span class="kbd-desc">Navigate to ticker page</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">Q TKR</span></span><span class="kbd-desc">Quick quote in status bar</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">CMP T1 T2</span></span><span class="kbd-desc">Open Compare with tickers</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">LIQ TKR</span></span><span class="kbd-desc">Liquidation analysis</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">W+ TKR</span></span><span class="kbd-desc">Add to watchlist</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">W- TKR</span></span><span class="kbd-desc">Remove from watchlist</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">PX T1 T2</span></span><span class="kbd-desc">Compare two ticker prices</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">TIME</span></span><span class="kbd-desc">Session time status</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">HELP</span></span><span class="kbd-desc">Full command reference</span></div>
+        </div>
+        <div class="kbd-section">
+          <div class="kbd-section-hdr">UI CONTROLS</div>
+          <div class="kbd-row"><span><span class="kbd-key">DBLCLICK WBAR</span></span><span class="kbd-desc">Collapse/expand module</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">DBLCLICK TAPE</span></span><span class="kbd-desc">Add ticker to watchlist</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">◑ TOPBAR</span></span><span class="kbd-desc">Cycle theme dimmer</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">🔔 TOPBAR</span></span><span class="kbd-desc">Notification center</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">—ms TOPBAR</span></span><span class="kbd-desc">Position sizing calculator</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">CLICK CLOCK</span></span><span class="kbd-desc">Toggle UTC/Local time</span></div>
+          <div class="kbd-row"><span><span class="kbd-key">CLICK EXCH</span></span><span class="kbd-desc">Cycle tape filter ALL/NER/TSE</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Theme Dimmer Overlay ───────────────────────────────────────────── -->
+<div id="theme-dimmer"></div>
 
 <script>
 // ── Shared state ──────────────────────────────────────────────────────────────
@@ -1061,6 +1228,266 @@ window.drawSessionSpark = function(pts){
   if(!canvas) return;
   const up=pts[pts.length-1]>=pts[0];
   canvas.style.boxShadow=up?'0 0 4px rgba(0,200,83,.6)':'0 0 4px rgba(244,67,54,.5)';
+};
+
+// ── CMD Autocomplete ────────────────────────────────────────────────────────
+(function(){
+  const inp = document.getElementById('cmd-in');
+  const sug = document.getElementById('cmd-suggestions');
+  let _sugIdx = -1, _sugItems = [];
+
+  function showSuggestions(v){
+    if(!v||v.length<1){ hideSuggestions(); return; }
+    const upper = v.trim().toUpperCase();
+    // Match tickers starting with the query
+    const matches = (BB.secs||[]).filter(s=>s.ticker.startsWith(upper)||s.ticker.includes(upper)||(s.full_name||'').toUpperCase().includes(upper)).slice(0,10);
+    if(!matches.length){ hideSuggestions(); return; }
+    _sugItems = matches;
+    _sugIdx = -1;
+    // Position above cmd-in
+    const rect = inp.getBoundingClientRect();
+    sug.style.left = rect.left + 'px';
+    sug.style.width = Math.max(rect.width, 340) + 'px';
+    sug.innerHTML = matches.map((s,i)=>`
+      <div class="cmd-sug-item" data-i="${i}" onmousedown="bbSugSelect(${i})">
+        <span class="cmd-sug-tk">${s.ticker}</span>
+        <span class="cmd-sug-name">${s.full_name||''}</span>
+        <span class="cmd-sug-px">${s.market_price!=null?'$'+f(s.market_price,4):''}</span>
+      </div>`).join('');
+    sug.style.display = 'block';
+  }
+
+  function hideSuggestions(){ sug.style.display='none'; _sugIdx=-1; }
+
+  window.bbSugSelect = function(i){
+    const s = _sugItems[i]; if(!s) return;
+    inp.value = s.ticker;
+    hideSuggestions();
+    inp.focus();
+  };
+
+  inp.addEventListener('input', ()=>showSuggestions(inp.value.trim()));
+  inp.addEventListener('focus', ()=>{ if(inp.value.trim()) showSuggestions(inp.value.trim()); });
+  inp.addEventListener('blur', ()=>setTimeout(hideSuggestions, 150));
+  inp.addEventListener('keydown', e=>{
+    if(sug.style.display!=='block') return;
+    if(e.key==='ArrowDown'){
+      e.preventDefault();
+      _sugIdx=Math.min(_sugIdx+1,_sugItems.length-1);
+      sug.querySelectorAll('.cmd-sug-item').forEach((el,i)=>el.classList.toggle('active',i===_sugIdx));
+      if(_sugIdx>=0) inp.value=_sugItems[_sugIdx].ticker;
+    } else if(e.key==='ArrowUp'){
+      e.preventDefault();
+      _sugIdx=Math.max(_sugIdx-1,-1);
+      sug.querySelectorAll('.cmd-sug-item').forEach((el,i)=>el.classList.toggle('active',i===_sugIdx));
+    } else if(e.key==='Enter'){
+      if(_sugIdx>=0){ bbSugSelect(_sugIdx); e.stopImmediatePropagation(); }
+      hideSuggestions();
+    } else if(e.key==='Escape'){
+      hideSuggestions();
+    }
+  });
+})();
+
+// ── Quick-Trade Panel ────────────────────────────────────────────────────────
+window.bbOpenQt = function(ticker){
+  const sel = document.getElementById('qt-tk');
+  if(sel && !sel.options.length || sel.options.length<=1){
+    sel.innerHTML = '<option value="">SELECT…</option>' +
+      (BB.secs||[]).map(s=>`<option value="${s.ticker}">${s.ticker} — ${s.full_name||''}</option>`).join('');
+  }
+  if(ticker && sel) sel.value = ticker;
+  if(ticker) bbQtTickerChg();
+  document.getElementById('qt-panel').classList.add('open');
+};
+window.bbCloseQt = function(){ document.getElementById('qt-panel').classList.remove('open'); };
+
+window.bbQtTickerChg = function(){
+  const tk = document.getElementById('qt-tk').value;
+  const sec = BB.secs.find(s=>s.ticker===tk);
+  if(sec&&sec.market_price!=null) document.getElementById('qt-px').value = sec.market_price.toFixed(4);
+  bbQtUpdatePreview();
+};
+
+window.bbQtUpdatePreview = function(){
+  const tk = document.getElementById('qt-tk').value;
+  const px = parseFloat(document.getElementById('qt-px').value)||0;
+  const qty= parseInt(document.getElementById('qt-qty').value)||0;
+  const cost = px * qty;
+  const prev = document.getElementById('qt-preview');
+  if(!tk||!qty){ prev.textContent = '— select ticker + qty —'; return; }
+  prev.innerHTML = `<span class="wht">${qty.toLocaleString()} × ${tk}</span> @ <span class="cyn">$${f(px,4)}</span> = <span class="org">${fk(cost)}R$</span>`;
+  bbQtCalcSize();
+};
+document.getElementById('qt-qty').addEventListener('input', bbQtUpdatePreview);
+document.getElementById('qt-px').addEventListener('input', bbQtUpdatePreview);
+
+window.bbQtCalcSize = function(){
+  const portSize = parseFloat(document.getElementById('qt-portsize').value)||0;
+  const riskPct  = parseFloat(document.getElementById('qt-risk').value)||2;
+  const px       = parseFloat(document.getElementById('qt-px').value)||0;
+  const el = document.getElementById('qt-size-result');
+  if(!portSize||!px){ el.textContent='—'; return; }
+  const riskAmt = portSize * riskPct / 100;
+  const shares  = Math.floor(riskAmt / px);
+  el.innerHTML = `RISK <span class="org">${fk(riskAmt)}R$</span> → <span class="wht">${shares.toLocaleString()} shares</span> @ current price`;
+};
+
+window.bbQtSubmit = function(side){
+  const tk  = document.getElementById('qt-tk').value;
+  const px  = parseFloat(document.getElementById('qt-px').value)||null;
+  const qty = parseInt(document.getElementById('qt-qty').value)||0;
+  const el  = document.getElementById('qt-result');
+  if(!tk||!qty){ el.innerHTML='<span class="dn">Select ticker and quantity</span>'; return; }
+  // Navigate to orders page and pre-fill
+  sw('ord');
+  const setup = () => {
+    const tkSel=document.getElementById('op-tk');
+    if(tkSel){ tkSel.value=tk; if(window.opTickerChg) opTickerChg(); }
+    if(window.opSide) opSide(side);
+    if(qty){ const qEl=document.getElementById('op-qty'); if(qEl) qEl.value=qty; }
+    if(px){ const pEl=document.getElementById('op-px'); if(pEl){ pEl.value=px; const tEl=document.getElementById('op-type');if(tEl)tEl.value='limit'; } }
+    el.innerHTML = `<span class="${side==='buy'?'up':'dn'}">${side.toUpperCase()} order pre-filled — confirm in F4</span>`;
+  };
+  const chk=setInterval(()=>{ if(window.opSide){clearInterval(chk);setup();} },60);
+};
+
+// Open qt with current ticker on Shift+T
+document.addEventListener('keydown', e=>{
+  if(document.activeElement===document.getElementById('cmd-in')) return;
+  if(e.key==='T'&&e.shiftKey){ e.preventDefault(); bbOpenQt(BB.activePanel==='tkr'?document.getElementById('tkr-sel')?.value:null); }
+  if(e.key==='?'&&e.shiftKey){ e.preventDefault(); bbToggleKbd(); }
+  if(e.key==='L'&&e.shiftKey){ e.preventDefault(); if(BB.tickerLock) bbUnlockTicker(); else{ const tk=document.getElementById('tkr-sel')?.value; if(tk) bbLockTicker(tk); } }
+});
+
+// ── Global Ticker Lock ────────────────────────────────────────────────────────
+window.bbLockTicker = function(ticker){
+  BB.tickerLock = ticker;
+  const el = document.getElementById('tb-ticker-lock');
+  const lbl = document.getElementById('tb-lock-lbl');
+  if(el) el.style.display = 'flex';
+  if(lbl) lbl.textContent = ticker + ' LOCKED';
+  bbNotify('🔒 Ticker locked: ' + ticker, 'lock');
+};
+window.bbUnlockTicker = function(){
+  BB.tickerLock = null;
+  const el = document.getElementById('tb-ticker-lock');
+  if(el) el.style.display = 'none';
+};
+
+// ── Notification Center ───────────────────────────────────────────────────────
+window._bbNotifs = [];
+window.bbNotify = function(msg, type){
+  const ev = { msg, type:type||'info', time:new Date().toLocaleTimeString('en-GB'), id:Date.now() };
+  _bbNotifs.unshift(ev);
+  if(_bbNotifs.length > 50) _bbNotifs.length = 50;
+  // Show dot
+  document.getElementById('notif-dot').style.display = 'block';
+  renderNotifList();
+  // Also fire as status bar notification for important events
+  if(type==='alert'){
+    const bar=document.getElementById('cmd-st');
+    if(bar){ bar.textContent=msg; bar.style.color='var(--dn)'; setTimeout(()=>{bar.style.color='var(--txt3)';},3000); }
+  }
+};
+// Expose globally so page modules can use it
+window.BB_NOTIFY = bbNotify;
+
+function renderNotifList(){
+  const el = document.getElementById('notif-list');
+  if(!_bbNotifs.length){ el.innerHTML='<div class="loading" style="font-size:10px">NO NOTIFICATIONS</div>'; return; }
+  el.innerHTML = _bbNotifs.map(n=>`
+    <div class="notif-item">
+      <div class="ni-time">${n.time}</div>
+      <div class="ni-msg">${n.msg}</div>
+    </div>`).join('');
+}
+
+window.bbToggleNotif = function(){
+  const p = document.getElementById('notif-panel');
+  p.classList.toggle('open');
+  if(p.classList.contains('open')) document.getElementById('notif-dot').style.display = 'none';
+};
+window.bbClearNotifs = function(){
+  _bbNotifs.length = 0; renderNotifList();
+  document.getElementById('notif-dot').style.display = 'none';
+};
+// Close notif panel on outside click
+document.addEventListener('click', e=>{
+  const p = document.getElementById('notif-panel');
+  if(p.classList.contains('open') && !p.contains(e.target) && !e.target.closest('[onclick*="bbToggleNotif"]'))
+    p.classList.remove('open');
+});
+
+// ── Theme Dimmer ──────────────────────────────────────────────────────────────
+(function(){
+  const LEVELS=[0,0.15,0.30,0.50];
+  let _level = parseInt(localStorage.getItem('bb_dimmer')||'0');
+  function applyDimmer(){
+    const el=document.getElementById('theme-dimmer');
+    if(el) el.style.background=`rgba(0,0,0,${LEVELS[_level]||0})`;
+    const icon=document.getElementById('tb-dimmer-icon');
+    if(icon){ const icons=['◑','◔','◑','●']; icon.style.color=_level>0?'var(--org)':'var(--txt3)'; icon.textContent=icons[_level]||'◑'; }
+  }
+  window.bbCycleDimmer=function(){
+    _level=(_level+1)%LEVELS.length;
+    localStorage.setItem('bb_dimmer',_level);
+    applyDimmer();
+  };
+  applyDimmer();
+})();
+
+// ── Keyboard Overlay ──────────────────────────────────────────────────────────
+window.bbToggleKbd = function(){
+  document.getElementById('kbd-overlay').classList.toggle('open');
+};
+
+// ── Position Sizing Calculator ────────────────────────────────────────────────
+window.psz_open = function(){ document.getElementById('psz-modal').classList.add('open'); pszCalc(); };
+window.psz_close = function(){ document.getElementById('psz-modal').classList.remove('open'); };
+window.pszCalc = function(){
+  const equity = parseFloat(document.getElementById('psz-equity').value)||0;
+  const riskPct= parseFloat(document.getElementById('psz-risk').value)||2;
+  const entry  = parseFloat(document.getElementById('psz-entry').value)||0;
+  const stop   = parseFloat(document.getElementById('psz-stop').value)||0;
+  const target = parseFloat(document.getElementById('psz-target').value)||0;
+  const wr     = parseFloat(document.getElementById('psz-wr').value)||50;
+  const grid   = document.getElementById('psz-grid');
+  if(!equity||!entry||!stop){ grid.innerHTML='<div class="loading" style="grid-column:1/-1">FILL EQUITY, ENTRY AND STOP FIELDS</div>'; return; }
+
+  const riskAmt    = equity * riskPct / 100;
+  const riskPerSh  = Math.abs(entry - stop);
+  const shares     = riskPerSh>0 ? Math.floor(riskAmt / riskPerSh) : 0;
+  const posVal     = shares * entry;
+  const posPct     = equity > 0 ? posVal/equity*100 : 0;
+  const rrRatio    = (target&&riskPerSh>0) ? Math.abs(target-entry)/riskPerSh : null;
+  const wrFrac     = wr/100;
+  const expEdge    = rrRatio ? (wrFrac*rrRatio - (1-wrFrac))*100 : null;
+  // Kelly %
+  const kelly      = rrRatio ? Math.max(0, wrFrac - (1-wrFrac)/rrRatio)*100 : null;
+
+  const row = (k,v,cls='')=>`<div style="font-size:10px;color:var(--txt3)">${k}</div><div style="font-weight:700;color:${cls||'var(--wht)'}">${v}</div>`;
+  grid.innerHTML = [
+    row('RISK AMOUNT', fk(riskAmt)+'R$', 'var(--org)'),
+    row('RISK PER SHARE', f(riskPerSh,4)+'R$'),
+    row('POSITION SIZE', shares.toLocaleString()+' shares', 'var(--cyn)'),
+    row('POSITION VALUE', fk(posVal)+'R$'),
+    row('% OF PORTFOLIO', posPct.toFixed(1)+'%', posPct>20?'var(--dn)':posPct>10?'var(--yel)':'var(--up)'),
+    row('R/R RATIO', rrRatio?rrRatio.toFixed(2)+'R':'N/A (no target)', rrRatio&&rrRatio>=2?'var(--up)':'var(--txt2)'),
+    row('EXPECTED EDGE', expEdge!=null?(expEdge>0?'+':'')+expEdge.toFixed(1)+'%':'N/A', expEdge>0?'var(--up)':expEdge!=null?'var(--dn)':'var(--txt2)'),
+    row('KELLY %', kelly!=null?kelly.toFixed(1)+'%':'N/A'),
+  ].join('');
+};
+// Pre-fill entry from current ticker when opening
+const _origPszOpen = window.psz_open;
+window.psz_open = function(){
+  if(BB.activePanel==='tkr'){
+    const tk=document.getElementById('tkr-sel')?.value;
+    const sec=BB.secs.find(s=>s.ticker===tk);
+    if(sec&&sec.market_price&&!document.getElementById('psz-entry').value)
+      document.getElementById('psz-entry').value = sec.market_price.toFixed(4);
+  }
+  _origPszOpen();
 };
 </script>
 </body>

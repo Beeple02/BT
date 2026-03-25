@@ -301,3 +301,215 @@ window.calcSlip = function(){
 };
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F10 EXTENDED MODULES
+════════════════════════════════════════════════════════════════════════ -->
+<div class="wrow" style="flex:none;height:175px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 108: Multi-Ticker Liquidity Rank -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">LIQUIDITY RANK</span></div><div class="wbar-r"><span class="wbtn" onclick="liqExtLoadRank()">↻</span></div></div>
+    <div class="scroll" id="liq-rank-list"><div class="loading">CLICK ↻</div></div>
+  </div>
+
+  <!-- Module 109: Spread History Chart -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">SPREAD HISTORY</span></div><div class="wbar-r" id="liq-sph-label" style="font-size:9px;color:var(--txt3)">select ticker</div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="liq-sph-c"></canvas></div>
+  </div>
+
+  <!-- Module 111: Queue Position Estimator -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">QUEUE POSITION</span></div></div>
+    <div style="padding:6px 8px;border-bottom:1px solid var(--bdr);flex-shrink:0">
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        <div class="ff"><label>LIMIT PRICE</label><input type="number" id="liq-q-px" step="0.0001" placeholder="e.g. 57.00" style="width:80px"></div>
+        <div class="ff"><label>SIDE</label><select id="liq-q-side"><option value="buy">BUY</option><option value="sell">SELL</option></select></div>
+        <button class="btn on" onclick="liqCalcQueue()">CALC</button>
+      </div>
+    </div>
+    <div id="liq-queue-res" style="padding:6px 8px;font-size:10px">—</div>
+  </div>
+
+  <!-- Module 112: Optimal Limit Price Suggester -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">OPTIMAL LIMIT</span></div></div>
+    <div id="liq-opt-limit" style="padding:8px;font-size:10px;overflow-y:auto;height:calc(100% - 20px)">SELECT TICKER ABOVE</div>
+  </div>
+
+  <!-- Module 113: Liquidity Heatmap by Price Level + Module 114: Effective vs Quoted Spread -->
+  <div class="win" style="flex:2">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">EX5</span><span class="wtitle">PRICE LEVEL HEAT / EFF SPREAD</span></div>
+      <div class="wbar-r">
+        <span class="wbtn on" id="liq-ex5-ht" onclick="liqExtTab5('heat')">HEAT</span>
+        <span class="wbtn" id="liq-ex5-eff" onclick="liqExtTab5('eff')">EFF SPR</span>
+      </div>
+    </div>
+    <div id="liq-priceheat" style="padding:4px;overflow-y:auto;height:calc(100% - 20px)"></div>
+    <div id="liq-eff-spr" style="display:none;padding:8px;font-size:10px;overflow-y:auto;height:calc(100% - 20px)"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── F10 Extended modules ─────────────────────────────────────────────────────
+let _liqExtData = null, _sphChart = null, _liqExtTicker = null;
+let _spreadHist = [];
+
+// Hook into loadLiq
+const _origLoadLiq = window.loadLiq;
+if(_origLoadLiq) {
+  window.loadLiq = async function(ticker) {
+    await _origLoadLiq(ticker);
+    if(ticker) {
+      _liqExtTicker = ticker;
+      setTimeout(()=>liqExtOnLoad(ticker), 300);
+    }
+  };
+}
+
+async function liqExtOnLoad(ticker) {
+  const r = await api(`/api/liquidity/${encodeURIComponent(ticker)}`);
+  if(!r.ok) return;
+  _liqExtData = r.d;
+  liqExtRenderOptLimit(r.d);
+  liqExtRenderPriceHeat(r.d);
+  liqExtRenderEffSpread(r.d);
+  liqExtUpdateSpreadHist(r.d, ticker);
+}
+
+window.liqExtLoadRank = async function() {
+  const el = document.getElementById('liq-rank-list'); if(!el) return;
+  el.innerHTML='<div class="loading">LOADING…</div>';
+  const secs = BB.secs || [];
+  const results = await Promise.all(secs.slice(0,12).map(async s=>{
+    const r = await api(`/api/liquidity/${encodeURIComponent(s.ticker)}`);
+    if(!r.ok) return null;
+    return {ticker:s.ticker, score:r.d.liquidity_score||0, spread:r.d.spread_pct||0};
+  }));
+  const valid = results.filter(Boolean).sort((a,b)=>b.score-a.score);
+  el.innerHTML = valid.map(s=>`<div style="display:flex;align-items:center;gap:5px;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px;cursor:pointer" onclick="loadLiq('${s.ticker}')">
+    <span class="org" style="font-weight:700;width:44px">${s.ticker}</span>
+    <div style="flex:1;height:3px;background:var(--bdr)"><div style="height:100%;width:${s.score}%;background:${s.score>=70?'var(--up)':s.score>=40?'var(--yel)':'var(--dn)'};opacity:.8"></div></div>
+    <span style="font-size:9px;width:28px;text-align:right;font-weight:700;color:${s.score>=70?'var(--up)':s.score>=40?'var(--yel)':'var(--dn)'}">${s.score}</span>
+    <span class="dim" style="font-size:9px">${f(s.spread,3)}%</span>
+  </div>`).join('');
+};
+
+function liqExtUpdateSpreadHist(d, ticker) {
+  const spr = d.spread_pct || 0;
+  _spreadHist.push({t:Date.now(), v:spr});
+  if(_spreadHist.length>60) _spreadHist.shift();
+  const ctx = document.getElementById('liq-sph-c'); if(!ctx) return;
+  const el = document.getElementById('liq-sph-label');
+  if(el) el.textContent = `${ticker} — current: ${spr.toFixed(3)}%`;
+  if(_sphChart){_sphChart.destroy();_sphChart=null;}
+  if(_spreadHist.length<2) return;
+  _sphChart = mkLine(ctx, _spreadHist.map((_,i)=>i===_spreadHist.length-1?'NOW':''),
+    [{data:_spreadHist.map(p=>p.v),borderColor:'var(--yel)',borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:'rgba(255,214,0,.05)',tension:.3}],
+    {y:{ticks:{callback:v=>v.toFixed(3)+'%',color:'#444'}}});
+}
+
+function liqExtRenderOptLimit(d) {
+  const el = document.getElementById('liq-opt-limit'); if(!el) return;
+  const mid = d.mid_price || 0;
+  const spr = d.spread_pct || 0;
+  const bidDepth = d.bid_total_depth || 0;
+  const askDepth = d.ask_total_depth || 0;
+  // Optimal buy: 1 tick inside best ask; optimal sell: 1 tick inside best bid
+  const bestBid = d.best_bid || (mid*(1-spr/200));
+  const bestAsk = d.best_ask || (mid*(1+spr/200));
+  const optBuy  = bestAsk * 0.9999; // slightly below ask
+  const optSell = bestBid * 1.0001; // slightly above bid
+  el.innerHTML = `
+    <div class="rm"><span class="k">MID</span><span class="v">${f(mid,4)}</span></div>
+    <div class="rm"><span class="k">OPT BUY</span><span class="v up">${f(optBuy,4)}</span></div>
+    <div class="rm"><span class="k">OPT SELL</span><span class="v dn">${f(optSell,4)}</span></div>
+    <div class="rm"><span class="k">BID DEPTH</span><span class="v up">${fk(bidDepth)}</span></div>
+    <div class="rm"><span class="k">ASK DEPTH</span><span class="v dn">${fk(askDepth)}</span></div>
+    <div style="font-size:8px;color:var(--txt3);margin-top:4px">Optimal = 1 tick inside best quote</div>
+  `;
+}
+
+window.liqCalcQueue = function() {
+  const el = document.getElementById('liq-queue-res'); if(!el) return;
+  if(!_liqExtData) { el.textContent='No book data loaded.'; return; }
+  const px = parseFloat(document.getElementById('liq-q-px').value);
+  const side = document.getElementById('liq-q-side').value;
+  if(!px) { el.textContent='Enter a price.'; return; }
+  const book = side==='buy' ? (_liqExtData.bids||[]) : (_liqExtData.asks||[]);
+  // Queue ahead: all orders at better or equal price
+  const ahead = side==='buy'
+    ? book.filter(o=>o.price>px).reduce((s,o)=>s+o.quantity,0)
+    : book.filter(o=>o.price<px).reduce((s,o)=>s+o.quantity,0);
+  const atLevel = book.filter(o=>Math.abs(o.price-px)<0.0001).reduce((s,o)=>s+o.quantity,0);
+  el.innerHTML = `
+    <div class="rm"><span class="k">PRICE</span><span class="v">${f(px,4)}</span></div>
+    <div class="rm"><span class="k">AHEAD (QTY)</span><span class="v yel">${ahead.toLocaleString()}</span></div>
+    <div class="rm"><span class="k">AT LEVEL</span><span class="v">${atLevel.toLocaleString()}</span></div>
+    <div class="rm"><span class="k">QUEUE POS</span><span class="v org">~${ahead+1} in line</span></div>
+  `;
+};
+
+function liqExtRenderPriceHeat(d) {
+  const el = document.getElementById('liq-priceheat'); if(!el) return;
+  const bids = (d.bids||[]).sort((a,b)=>b.price-a.price).slice(0,8);
+  const asks = (d.asks||[]).sort((a,b)=>a.price-b.price).slice(0,8);
+  const all = [...asks.reverse(),...bids];
+  const maxQ = Math.max(...all.map(o=>o.quantity),1);
+  el.innerHTML = all.map(o=>{
+    const isBid = bids.includes(o);
+    const w = (o.quantity/maxQ*90).toFixed(1);
+    const col = isBid?'var(--up)':'var(--dn)';
+    return `<div style="display:flex;align-items:center;gap:4px;padding:1px 4px;font-size:9px">
+      <span style="width:52px;color:${col};font-weight:700">${f(o.price,4)}</span>
+      <div style="flex:1;height:5px;background:var(--bdr)"><div style="height:100%;width:${w}%;background:${col};opacity:0.7"></div></div>
+      <span style="color:var(--txt3);width:34px;text-align:right">${fk(o.quantity)}</span>
+    </div>`;
+  }).join('');
+}
+
+function liqExtRenderEffSpread(d) {
+  const el = document.getElementById('liq-eff-spr'); if(!el) return;
+  const quoted = d.spread_pct || 0;
+  // Effective spread estimate from slippage data
+  const slipBuy  = d.slippage_buy?.[0]?.slip_pct || quoted;
+  const slipSell = d.slippage_sell?.[0]?.slip_pct || quoted;
+  const eff = (slipBuy + slipSell) / 2;
+  el.innerHTML = `
+    <div class="rm"><span class="k">QUOTED SPREAD</span><span class="v yel">${f(quoted,4)}%</span></div>
+    <div class="rm"><span class="k">EFF SPREAD (1-lot)</span><span class="v org">${f(eff,4)}%</span></div>
+    <div class="rm"><span class="k">RATIO EFF/QTD</span><span class="v">${quoted?f(eff/quoted,2):'—'}×</span></div>
+    <div style="font-size:8px;color:var(--txt3);margin-top:4px">Effective = avg of 1-lot buy+sell slippage.</div>
+  `;
+}
+
+window.liqExtTab5 = function(tab) {
+  document.getElementById('liq-priceheat').style.display = tab==='heat'?'block':'none';
+  document.getElementById('liq-eff-spr').style.display   = tab==='eff'?'block':'none';
+  document.getElementById('liq-ex5-ht').classList.toggle('on', tab==='heat');
+  document.getElementById('liq-ex5-eff').classList.toggle('on', tab==='eff');
+};
+
+setInterval(()=>{
+  if(_liqExtTicker) {
+    api(`/api/orderbook/${encodeURIComponent(_liqExtTicker)}`).then(r=>{
+      if(!r.ok) return;
+      const d=r.d;
+      const bid=d.best_bid||(d.bids?.[0]?.price);
+      const ask=d.best_ask||(d.asks?.[0]?.price);
+      if(bid&&ask) {
+        const spr=(ask-bid)/ask*100;
+        _spreadHist.push({t:Date.now(),v:spr});
+        if(_spreadHist.length>60) _spreadHist.shift();
+        liqExtUpdateSpreadHist({spread_pct:spr}, _liqExtTicker);
+      }
+    });
+  }
+}, 15000);
+
+})();
+</script>

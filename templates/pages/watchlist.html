@@ -194,3 +194,222 @@ window.wlLoadChart=async function(ticker){
 setInterval(()=>{ if(BB.activePanel==='wl'&&BB.watchlist.length) wlRefresh(); },30000);
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F7 EXTENDED MODULES — dense watchlist
+════════════════════════════════════════════════════════════════════════ -->
+<style>
+.wl-tab-btn{font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:1.5px;padding:3px 10px;border:1px solid var(--bdr);background:transparent;color:var(--txt3);cursor:pointer}
+.wl-tab-btn.on{background:var(--org);color:#000;border-color:var(--org)}
+</style>
+
+<!-- Multi-Watchlist Tabs (Module 86) -->
+<div style="display:flex;align-items:center;gap:0;background:var(--bg3);border-top:1px solid var(--bdr);border-bottom:1px solid var(--bdr);flex-shrink:0;padding:3px 8px;gap:6px">
+  <span style="font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-right:4px">LISTS:</span>
+  <button class="wl-tab-btn on" id="wlt-0" onclick="wlSwitchList(0)">LIST 1</button>
+  <button class="wl-tab-btn" id="wlt-1" onclick="wlSwitchList(1)">LIST 2</button>
+  <button class="wl-tab-btn" id="wlt-2" onclick="wlSwitchList(2)">LIST 3</button>
+  <button class="wl-tab-btn" id="wlt-3" onclick="wlSwitchList(3)">MOMENTUM</button>
+  <button class="wl-tab-btn" id="wlt-4" onclick="wlSwitchList(4)">WATCHLIST 5</button>
+  <!-- Sort+Filter Bar (Module 87) -->
+  <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+    <span style="font-size:9px;color:var(--txt3)">SORT</span>
+    <select id="wl-sort-col" onchange="wlExtSort()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none">
+      <option value="">DEFAULT</option>
+      <option value="chg">CHG%</option>
+      <option value="spread">SPREAD</option>
+      <option value="vol">VOLUME</option>
+    </select>
+    <select id="wl-exch-flt" onchange="wlExtSort()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none">
+      <option value="">ALL</option>
+      <option value="NER">NER</option>
+      <option value="TSE">TSE</option>
+    </select>
+  </span>
+</div>
+
+<!-- Dense watchlist table with all extended columns -->
+<div class="wrow" style="flex:1">
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar">
+      <div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">ENHANCED WATCHLIST</span></div>
+    </div>
+    <div class="scroll" style="overflow-x:auto">
+      <table class="dt" style="min-width:680px">
+        <thead><tr>
+          <th>TICKER</th>
+          <th class="r">PRICE</th>
+          <th class="r">CHG%</th>
+          <th class="r">SPREAD</th>
+          <th class="r">FROM H</th>
+          <th class="r">FROM L</th>
+          <th style="width:70px">SPARK</th>
+          <th class="c">ALERT</th>
+          <th>NOTE</th>
+          <th>ACT</th>
+        </tr></thead>
+        <tbody id="wl-ext-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Quick chart unchanged -->
+  <div class="win" style="flex:1">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">QUICK CHART</span></div></div>
+    <div class="chart-wrap"><canvas id="wl-ext-c"></canvas></div>
+  </div>
+</div>
+
+<!-- Notes editor panel -->
+<div id="wl-note-editor" style="display:none;padding:6px 10px;background:var(--bg3);border-top:1px solid var(--bdr);flex-shrink:0">
+  <div style="display:flex;align-items:center;gap:8px">
+    <span class="org" style="font-weight:700;font-size:11px" id="wl-note-ticker-lbl">—</span>
+    <input type="text" id="wl-note-input" placeholder="Add note…" style="flex:1;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:3px 8px;outline:none">
+    <button class="btn on" onclick="wlExtSaveNote()">SAVE</button>
+    <button class="btn" onclick="document.getElementById('wl-note-editor').style.display='none'">✕</button>
+  </div>
+</div>
+
+<script>
+(function(){
+// ── F7 Extended watchlist ────────────────────────────────────────────────────
+let _wlLists = [[], [], [], [], []]; // 5 named lists; list 0 = main BB.watchlist
+let _wlActiveList = 0;
+let _wlNotes = {};
+let _wlExtChart = null;
+let _wlExtNoteTarget = null;
+
+// Load notes from server
+async function wlLoadNotes() {
+  const r = await api('/api/watchlist/notes');
+  if(r.ok) _wlNotes = r.d || {};
+}
+wlLoadNotes();
+
+// Sync BB.watchlist → list 0
+const _origWlRefresh = window.wlRefresh;
+window.wlRefresh = async function() {
+  await _origWlRefresh();
+  wlExtRender();
+};
+
+window.wlSwitchList = function(idx) {
+  _wlActiveList = idx;
+  document.querySelectorAll('.wl-tab-btn').forEach((b,i)=>b.classList.toggle('on',i===idx));
+  // Swap BB.watchlist if switching to list 0
+  if(idx===0) { wlExtRender(); }
+  else {
+    const list = _wlLists[idx] || [];
+    wlExtRenderList(list);
+  }
+};
+
+function wlExtRender() {
+  wlExtRenderList(BB.watchlist || []);
+}
+
+function wlExtRenderList(list) {
+  const tbody = document.getElementById('wl-ext-tbody'); if(!tbody) return;
+  if(!list.length) { tbody.innerHTML='<tr><td colspan="10" class="loading">EMPTY LIST</td></tr>'; return; }
+  const sortCol = document.getElementById('wl-sort-col')?.value || '';
+  const exchFlt = document.getElementById('wl-exch-flt')?.value || '';
+  let items = [...list];
+  if(exchFlt) items = items.filter(w=>{
+    const isTSE = w.ticker.startsWith('TSE:');
+    return exchFlt==='TSE'?isTSE:!isTSE;
+  });
+  if(sortCol==='chg') items.sort((a,b)=>(b.chg_pct||0)-(a.chg_pct||0));
+  else if(sortCol==='spread') items.sort((a,b)=>(b.spread_pct||0)-(a.spread_pct||0));
+  else if(sortCol==='vol') items.sort((a,b)=>(b.volume||0)-(a.volume||0));
+
+  tbody.innerHTML = items.map(w=>{
+    const sec = (BB.secs||[]).find(s=>s.ticker===w.ticker)||{};
+    const px = w.price ?? sec.market_price;
+    const chg = w.chg_pct ?? sec.change_pct ?? 0;
+    const hi = sec.high_24h || px;
+    const lo = sec.low_24h || px;
+    const fromHi = px && hi ? ((px-hi)/hi*100) : null;
+    const fromLo = px && lo ? ((px-lo)/lo*100) : null;
+    const hasAlert = (w.hi||w.lo||w.rhi||w.rlo) ? true : false;
+    const note = _wlNotes[w.ticker] || '';
+    const note_short = note.length>16 ? note.slice(0,16)+'…' : note;
+    return `<tr id="wle-${w.ticker.replace(':','-')}">
+      <td class="org" style="font-weight:700;cursor:pointer" onclick="wlExtLoadChart('${w.ticker}')">${w.ticker}</td>
+      <td class="r wht" style="font-variant-numeric:tabular-nums">${f(px,4)}</td>
+      <td class="r" style="color:${gcI(chg)};font-weight:${gcIW(chg)}">${fp(chg)}</td>
+      <td class="r dim">${w.spread_pct!=null?f(w.spread_pct,3)+'%':'—'}</td>
+      <td class="r ${fromHi==null?'dim':fromHi>-3?'up':'dn'}">${fromHi!=null?fp(fromHi):'—'}</td>
+      <td class="r ${fromLo==null?'dim':fromLo>0?'up':'dim'}">${fromLo!=null?fp(fromLo):'—'}</td>
+      <td style="width:70px"><span id="wl-spark-${w.ticker.replace(':','-')}">…</span></td>
+      <td class="c">${hasAlert?'<span class="badge b-org" style="font-size:8px">ALERT</span>':'<span class="dim" style="font-size:9px">—</span>'}</td>
+      <td style="font-size:9px;color:${note?'var(--cyn)':'var(--txt3)'};cursor:pointer;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="wlExtEditNote('${w.ticker}')">${note_short||'+ NOTE'}</td>
+      <td>
+        <button class="act-b" onclick="event.stopPropagation();mktQuickOrder('${w.ticker}','buy')">B</button>
+        <button class="act-s" onclick="event.stopPropagation();mktQuickOrder('${w.ticker}','sell')">S</button>
+      </td>
+    </tr>`;
+  }).join('');
+  // Load sparklines async
+  items.forEach(w=>wlExtLoadSpark(w.ticker));
+}
+
+window.wlExtSort = function() { wlExtRender(); };
+
+async function wlExtLoadSpark(ticker) {
+  const id = `wl-spark-${ticker.replace(':','-')}`;
+  const el = document.getElementById(id); if(!el) return;
+  const r = await api(`/api/analytics/price_history/${encodeURIComponent(ticker)}?days=7`);
+  if(!r.ok || !r.d.length) { el.innerHTML='—'; return; }
+  const pts = r.d.sort((a,b)=>a.timestamp.localeCompare(b.timestamp)).map(p=>p.price);
+  const col = pts[pts.length-1]>pts[0]?'var(--up)':'var(--dn)';
+  el.innerHTML = '';
+  el.appendChild(spark(pts, col, 70, 14));
+}
+
+async function wlExtLoadChart(ticker) {
+  const ctx = document.getElementById('wl-ext-c'); if(!ctx) return;
+  if(_wlExtChart){_wlExtChart.destroy();_wlExtChart=null;}
+  const r = await api(`/api/analytics/price_history/${encodeURIComponent(ticker)}?days=30`);
+  if(!r.ok||!r.d.length) return;
+  const pts = r.d.sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
+  const col = pts[pts.length-1].price>=pts[0].price?'var(--up)':'var(--dn)';
+  _wlExtChart = mkLine(ctx, pts.map(p=>p.timestamp.slice(5,10)),
+    [{data:pts.map(p=>p.price),borderColor:col,borderWidth:1.5,pointRadius:0,fill:true,backgroundColor:col==='var(--up)'?'rgba(0,200,83,.06)':'rgba(244,67,54,.06)',tension:.2}]);
+}
+
+window.wlExtEditNote = function(ticker) {
+  _wlExtNoteTarget = ticker;
+  const inp = document.getElementById('wl-note-input');
+  const lbl = document.getElementById('wl-note-ticker-lbl');
+  const ed  = document.getElementById('wl-note-editor');
+  if(inp) inp.value = _wlNotes[ticker] || '';
+  if(lbl) lbl.textContent = ticker;
+  if(ed)  ed.style.display = 'block';
+  if(inp) inp.focus();
+};
+
+window.wlExtSaveNote = async function() {
+  if(!_wlExtNoteTarget) return;
+  const inp = document.getElementById('wl-note-input');
+  const note = inp?.value || '';
+  _wlNotes[_wlExtNoteTarget] = note;
+  await apiPost('/api/watchlist/notes', {ticker:_wlExtNoteTarget, note});
+  document.getElementById('wl-note-editor').style.display='none';
+  wlExtRender();
+};
+
+// Expose mktQuickOrder if not available
+if(!window.mktQuickOrder) {
+  window.mktQuickOrder = function(ticker, side) {
+    sw('ord');
+    setTimeout(()=>{
+      const tkSel=document.getElementById('op-tk');
+      if(tkSel){tkSel.value=ticker;if(window.opTickerChg)opTickerChg();}
+      if(window.opSide) opSide(side);
+    }, 300);
+  };
+}
+
+})();
+</script>
+</script>

@@ -466,3 +466,161 @@ function renderPerfRank() {
 }
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F6 EXTENDED MODULES
+════════════════════════════════════════════════════════════════════════ -->
+<div class="wrow" style="flex:none;height:175px;border-top:1px solid var(--bdr)">
+
+  <!-- Module 73: Return Matrix Table -->
+  <div class="win" style="flex:2;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">RETURN MATRIX</span></div></div>
+    <div class="scroll" style="overflow-x:auto" id="cmp-ret-matrix"><div class="loading">RUN ANALYSIS FIRST</div></div>
+  </div>
+
+  <!-- Module 74: Volatility Comparison Bars -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">HV COMPARE</span></div></div>
+    <div class="chart-wrap" style="padding:2px"><canvas id="cmp-hv-c"></canvas></div>
+  </div>
+
+  <!-- Module 76: Volume Relative Comparison -->
+  <div class="win" style="flex:1;border-right:0">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">RELATIVE VOLUME</span></div></div>
+    <div class="scroll" id="cmp-relvol"></div>
+  </div>
+
+  <!-- Module 77: Drawdown Comparison + Module 78: Leadership + Module 79: Spread -->
+  <div class="win" style="flex:2">
+    <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">DD / LEADERSHIP / SPREAD</span></div></div>
+    <div class="scroll" id="cmp-dd-lead" style="padding:4px"></div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── F6 Extended modules ───────────────────────────────────────────────────────
+let _hvChart = null;
+
+const _origLoad = window.loadCompare;
+if(_origLoad) {
+  window.loadCompare = async function() {
+    await _origLoad();
+    setTimeout(cmpExtLoad, 600);
+  };
+}
+
+async function cmpExtLoad() {
+  const tickers = window.BB?.cmpTickers || [];
+  if(tickers.length < 2) return;
+  const days = document.getElementById('cmp-days')?.value || 90;
+
+  // Load OHLCV for all tickers
+  const ohlcvs = await Promise.all(tickers.map(tk=>api(`/api/analytics/ohlcv/${encodeURIComponent(tk)}?days=${days}`)));
+  const valid = tickers.map((tk,i)=>({tk, d:ohlcvs[i]?.ok?ohlcvs[i].d:null})).filter(x=>x.d?.candles?.length);
+
+  if(valid.length < 2) return;
+
+  // Return matrix
+  cmpRenderRetMatrix(valid, days);
+  // HV bars
+  cmpRenderHV(valid);
+  // Relative volume
+  cmpRenderRelVol(valid);
+  // DD + leadership + spread
+  cmpRenderDDLead(valid);
+}
+
+function getReturn(closes, days) {
+  if(closes.length < 2) return null;
+  const ref = closes[Math.max(0, closes.length-1-days)];
+  if(!ref) return null;
+  return (closes[closes.length-1]-ref)/ref*100;
+}
+
+function cmpRenderRetMatrix(valid, days) {
+  const el = document.getElementById('cmp-ret-matrix'); if(!el) return;
+  const periods = [1, 3, 7, 14, 30];
+  const rows = valid.map(({tk, d})=>{
+    const closes = d.candles.map(c=>c.close);
+    const rets = periods.map(p=>getReturn(closes, p));
+    return {tk, rets};
+  });
+  let html = `<table class="dt" style="min-width:340px"><thead><tr><th>TICKER</th>${periods.map(p=>`<th class="r">${p}D</th>`).join('')}</tr></thead><tbody>`;
+  rows.forEach(r=>{
+    html += `<tr><td class="org" style="font-weight:700">${r.tk}</td>`;
+    r.rets.forEach(v=>{
+      html += `<td class="r" style="color:${v==null?'var(--txt3)':gcI(v)};font-weight:700">${v==null?'—':fp(v)}</td>`;
+    });
+    html += '</tr>';
+  });
+  el.innerHTML = html + '</tbody></table>';
+}
+
+function cmpRenderHV(valid) {
+  const ctx = document.getElementById('cmp-hv-c'); if(!ctx) return;
+  const labels = [], data = [], colors = ['#00e5ff','#ffd600','#ff8c00','#e040fb','#00c853','#f44336'];
+  valid.forEach(({tk, d}, i)=>{
+    const closes = d.candles.map(c=>c.close);
+    if(closes.length < 11) return;
+    const rets = [];
+    for(let j=1;j<closes.length;j++) rets.push(Math.log(closes[j]/closes[j-1]));
+    const mean = rets.reduce((a,b)=>a+b,0)/rets.length;
+    const variance = rets.reduce((a,b)=>a+(b-mean)**2,0)/(rets.length-1);
+    const hv = Math.sqrt(variance*365)*100;
+    labels.push(tk); data.push(hv);
+  });
+  if(_hvChart){_hvChart.destroy();_hvChart=null;}
+  _hvChart = mkBar(ctx, labels, data, colors.slice(0,data.length));
+}
+
+function cmpRenderRelVol(valid) {
+  const el = document.getElementById('cmp-relvol'); if(!el) return;
+  el.innerHTML = valid.map(({tk, d})=>{
+    const cs = d.candles;
+    if(!cs.length) return '';
+    const vols = cs.map(c=>c.volume||0).filter(v=>v>0);
+    if(!vols.length) return '';
+    const avg = vols.reduce((a,b)=>a+b,0)/vols.length;
+    const last = vols[vols.length-1];
+    const rel = avg ? last/avg : 1;
+    const col = rel>1.5?'var(--org)':rel>1?'var(--up)':'var(--txt3)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+      <span class="org" style="font-weight:700">${tk}</span>
+      <span style="color:${col};font-weight:700">${rel.toFixed(2)}×</span>
+      <span class="dim">${fk(last)}</span>
+    </div>`;
+  }).join('');
+}
+
+function cmpRenderDDLead(valid) {
+  const el = document.getElementById('cmp-dd-lead'); if(!el) return;
+  const rows = valid.map(({tk, d})=>{
+    const closes = d.candles.map(c=>c.close);
+    let peak=closes[0], maxDD=0;
+    closes.forEach(v=>{ if(v>peak)peak=v; const dd=(peak-v)/peak*100; if(dd>maxDD)maxDD=dd; });
+    const ret = getReturn(closes, closes.length-1) || 0;
+    // Leadership: first day of biggest move
+    let leaderDay = 0;
+    let maxMove = 0;
+    for(let i=1;i<closes.length;i++){
+      const m = Math.abs((closes[i]-closes[i-1])/closes[i-1]*100);
+      if(m>maxMove){maxMove=m;leaderDay=i;}
+    }
+    // Spread: from BB.secs
+    const sec = (BB.secs||[]).find(s=>s.ticker===tk);
+    return {tk, maxDD, ret, leaderDay, maxMove, spread: sec?.spread_pct||null};
+  });
+  // Leadership: whoever moved first (smallest leaderDay)
+  const leader = rows.length?[...rows].sort((a,b)=>a.leaderDay-b.leaderDay)[0]:null;
+  el.innerHTML = rows.map(r=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
+    <span class="org" style="font-weight:700;width:52px">${r.tk}${r.tk===leader?.tk?' <span style="color:var(--yel);font-size:8px">★LEAD</span>':''}</span>
+    <span class="dim">DD</span><span class="dn" style="font-weight:700;width:36px;text-align:right">${f(r.maxDD,1)}%</span>
+    <span class="dim">SPR</span><span class="yel" style="width:36px;text-align:right">${r.spread!=null?f(r.spread,3)+'%':'—'}</span>
+  </div>`).join('');
+}
+
+})();
+</script>
+</script>

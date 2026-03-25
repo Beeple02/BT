@@ -1019,3 +1019,290 @@ window.sensValidateWF = function () {
 
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     F5 EXTENDED MODULES — post-backtest deep analysis
+════════════════════════════════════════════════════════════════════════ -->
+<div id="bt-ext-panel" style="display:none;border-top:2px solid var(--bdr2)">
+
+  <!-- Row 1: Strategy stats + Rolling Sharpe + Drawdown Duration -->
+  <div class="wrow" style="flex:none;height:175px">
+
+    <!-- Module 62: Strategy Comparison / Detailed Stats -->
+    <div class="win" style="flex:1;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">EX1</span><span class="wtitle">STRATEGY STATS</span></div></div>
+      <div id="bt-strat-stats" style="padding:6px 8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)"></div>
+    </div>
+
+    <!-- Module 63: Rolling Sharpe Chart -->
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">EX2</span><span class="wtitle">ROLLING SHARPE (20)</span></div></div>
+      <div class="chart-wrap" style="padding:2px"><canvas id="bt-rsharpe-c"></canvas></div>
+    </div>
+
+    <!-- Module 70: Drawdown Duration Chart -->
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">EX3</span><span class="wtitle">DRAWDOWN DURATION</span></div></div>
+      <div class="chart-wrap" style="padding:2px"><canvas id="bt-dd-dur-c"></canvas></div>
+    </div>
+
+    <!-- Module 72: Market Exposure % -->
+    <div class="win" style="flex:1">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">EX4</span><span class="wtitle">EXPOSURE %</span></div></div>
+      <div id="bt-exposure" style="padding:8px;font-size:11px;overflow-y:auto;height:calc(100% - 20px)">—</div>
+    </div>
+
+  </div>
+
+  <!-- Row 2: Trade-by-Trade + Return Distribution + MAE/MFE -->
+  <div class="wrow" style="flex:none;height:180px;border-top:1px solid var(--bdr)">
+
+    <!-- Module 65: Trade-by-Trade Log -->
+    <div class="win" style="flex:3;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">EX5</span><span class="wtitle">TRADE LOG</span></div></div>
+      <div class="scroll" style="overflow-x:auto">
+        <table class="dt" style="min-width:500px">
+          <thead><tr><th>#</th><th>SIDE</th><th class="r">ENTRY</th><th class="r">EXIT</th><th class="r">QTY</th><th class="r">P&amp;L</th><th class="r">R-MULT</th></tr></thead>
+          <tbody id="bt-trade-log"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Module 71: Return Distribution Histogram -->
+    <div class="win" style="flex:2;border-right:0">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">EX6</span><span class="wtitle">RETURN DIST</span></div></div>
+      <div class="chart-wrap" style="padding:2px"><canvas id="bt-retdist-c"></canvas></div>
+    </div>
+
+    <!-- Module 66: MAE/MFE Scatter + Module 67: Sizing Sensitivity -->
+    <div class="win" style="flex:2">
+      <div class="wbar">
+        <div class="wbar-l"><span class="wnum">EX7</span><span class="wtitle">MAE / MFE + SIZING</span></div>
+        <div class="wbar-r">
+          <span class="wbtn" id="bt-ext7-mae" onclick="btExtTab7('mae')">MAE/MFE</span>
+          <span class="wbtn on" id="bt-ext7-siz" onclick="btExtTab7('siz')">SIZING</span>
+        </div>
+      </div>
+      <div id="bt-mae-panel" style="display:none;padding:6px 8px;overflow-y:auto;height:calc(100% - 20px);font-size:10px"></div>
+      <div id="bt-sizing-panel" style="padding:6px 8px;overflow-y:auto;height:calc(100% - 20px);font-size:11px">
+        <div style="font-size:9px;color:var(--txt3);margin-bottom:6px;letter-spacing:1px">HOW POSITION SIZE % AFFECTS METRICS:</div>
+        <div id="bt-sizing-table"></div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+(function(){
+// ── F5 Extended modules ───────────────────────────────────────────────────────
+let _btLastResult = null;
+let _rsChart = null, _ddDurChart = null, _rdChart = null;
+
+window.btExtTab7 = function(tab) {
+  document.getElementById('bt-mae-panel').style.display = tab==='mae'?'block':'none';
+  document.getElementById('bt-sizing-panel').style.display = tab==='siz'?'block':'none';
+  document.getElementById('bt-ext7-mae').classList.toggle('on', tab==='mae');
+  document.getElementById('bt-ext7-siz').classList.toggle('on', tab==='siz');
+};
+
+// Hook into runBT to capture result
+const _origRunBT = window.runBT;
+if(_origRunBT) {
+  window.runBT = async function() {
+    await _origRunBT();
+    // Give existing code time to render, then grab result data
+    setTimeout(btExtAfterRun, 500);
+  };
+}
+
+async function btExtAfterRun() {
+  const ticker = document.getElementById('bt-tk')?.value;
+  const days = document.getElementById('bt-days')?.value || 90;
+  const strategy = document.getElementById('bt-str')?.value || 'buy_hold';
+  if(!ticker) return;
+
+  const params = btGetParams(strategy);
+  const r = await apiPost('/api/backtest', { ticker, days: parseInt(days), strategy, ...params });
+  if(!r.ok) return;
+  _btLastResult = r.d;
+
+  const panel = document.getElementById('bt-ext-panel');
+  if(panel) panel.style.display='block';
+
+  btExtRenderStats(r.d);
+  btExtRenderRollingSharpe(r.d);
+  btExtRenderDDDuration(r.d);
+  btExtRenderExposure(r.d);
+  btExtRenderTradeLog(r.d);
+  btExtRenderReturnDist(r.d);
+  btExtRenderMAEMFE(r.d);
+  btExtRenderSizing(ticker, days, strategy, params);
+}
+
+function btGetParams(strategy) {
+  const p = {};
+  if(strategy==='sma_cross') {
+    p.fast = parseInt(document.getElementById('btp-sf')?.value)||5;
+    p.slow = parseInt(document.getElementById('btp-ss')?.value)||20;
+  } else if(strategy==='rsi') {
+    p.rsi_period = parseInt(document.getElementById('btp-rp')?.value)||14;
+    p.overbought = parseInt(document.getElementById('btp-ob')?.value)||70;
+    p.oversold   = parseInt(document.getElementById('btp-os')?.value)||30;
+  } else if(strategy==='macd') {
+    p.fast = parseInt(document.getElementById('btp-mf')?.value)||12;
+    p.slow = parseInt(document.getElementById('btp-ms')?.value)||26;
+    p.signal = parseInt(document.getElementById('btp-mg')?.value)||9;
+  }
+  p.stop_loss_pct  = parseFloat(document.getElementById('btp-sl')?.value)||0;
+  p.take_profit_pct= parseFloat(document.getElementById('btp-tp')?.value)||0;
+  return p;
+}
+
+function btExtRenderStats(d) {
+  const el = document.getElementById('bt-strat-stats'); if(!el) return;
+  const m = d.metrics || {};
+  const trades = d.trades || [];
+  const wins = trades.filter(t=>(t.pnl||0)>0).length;
+  const losses = trades.filter(t=>(t.pnl||0)<0).length;
+  const avgW = wins ? trades.filter(t=>(t.pnl||0)>0).reduce((s,t)=>s+(t.pnl||0),0)/wins : 0;
+  const avgL = losses ? trades.filter(t=>(t.pnl||0)<0).reduce((s,t)=>s+(t.pnl||0),0)/losses : 0;
+  el.innerHTML = `
+    <div class="rm"><span class="k">RETURN</span><span class="v ${(m.total_return_pct||0)>=0?'up':'dn'}">${fp(m.total_return_pct)}</span></div>
+    <div class="rm"><span class="k">ALPHA</span><span class="v ${(m.alpha||0)>=0?'up':'dn'}">${fp(m.alpha)}</span></div>
+    <div class="rm"><span class="k">MAX DD</span><span class="v dn">${fp(m.max_drawdown)}</span></div>
+    <div class="rm"><span class="k">SHARPE</span><span class="v ${(m.sharpe||0)>=0?'up':'dn'}">${f(m.sharpe,2)}</span></div>
+    <div class="rm"><span class="k">WIN RATE</span><span class="v">${f(m.win_rate*100,1)}%</span></div>
+    <div class="rm"><span class="k">AVG WIN</span><span class="v up">R$ ${f(avgW,2)}</span></div>
+    <div class="rm"><span class="k">AVG LOSS</span><span class="v dn">R$ ${f(avgL,2)}</span></div>
+    <div class="rm"><span class="k">TRADES</span><span class="v">${trades.length}</span></div>
+  `;
+}
+
+function btExtRenderRollingSharpe(d) {
+  const ctx = document.getElementById('bt-rsharpe-c'); if(!ctx) return;
+  const eq = d.equity_curve || [];
+  if(eq.length < 22) return;
+  const rets = [];
+  for(let i=1;i<eq.length;i++) rets.push((eq[i]-eq[i-1])/eq[i-1]);
+  const window = 20;
+  const rolling = [];
+  for(let i=window;i<rets.length;i++) {
+    const slice = rets.slice(i-window, i);
+    const mean = slice.reduce((a,b)=>a+b,0)/window;
+    const std = Math.sqrt(slice.reduce((a,b)=>a+(b-mean)**2,0)/window) || 0.0001;
+    rolling.push(mean/std*Math.sqrt(365));
+  }
+  if(_rsChart){_rsChart.destroy();_rsChart=null;}
+  _rsChart = mkLine(ctx, rolling.map((_,i)=>i==='0'?'START':i===rolling.length-1?'END':''),
+    [{data:rolling,borderColor:'var(--cyn)',borderWidth:1.5,pointRadius:0,
+      fill:true,backgroundColor:'rgba(0,229,255,.05)',tension:.3,
+      segment:{borderColor:c=>c.p1.parsed.y>=0?'var(--cyn)':'var(--dn)'}}],
+    {y:{ticks:{color:'#444'}}});
+}
+
+function btExtRenderDDDuration(d) {
+  const ctx = document.getElementById('bt-dd-dur-c'); if(!ctx) return;
+  const eq = d.equity_curve || [];
+  if(eq.length < 5) return;
+  let peak = eq[0], dur = 0;
+  const durations = [], inDD = [];
+  eq.forEach((v,i)=>{
+    if(v>=peak){ if(dur>0){durations.push(dur);} peak=v; dur=0; }
+    else { dur++; }
+  });
+  if(dur>0) durations.push(dur);
+  durations.sort((a,b)=>a-b);
+  if(_ddDurChart){_ddDurChart.destroy();_ddDurChart=null;}
+  _ddDurChart = mkBar(ctx, durations.map((_,i)=>`DD${i+1}`), durations,
+    durations.map(v=>`rgba(244,67,54,${Math.min(0.3+v/Math.max(...durations)*0.7,1)})`));
+}
+
+function btExtRenderExposure(d) {
+  const el = document.getElementById('bt-exposure'); if(!el) return;
+  const trades = d.trades || [];
+  const eq = d.equity_curve || [];
+  const totalBars = eq.length;
+  let inMarket = 0;
+  trades.forEach(t=>{ inMarket += (t.bars_held || 1); });
+  const expPct = totalBars ? (inMarket/totalBars*100) : 0;
+  el.innerHTML = `
+    <div class="rm"><span class="k">IN MARKET</span><span class="v">${expPct.toFixed(1)}%</span></div>
+    <div class="rm"><span class="k">OUT</span><span class="v dim">${(100-expPct).toFixed(1)}%</span></div>
+    <div class="rm"><span class="k">TOTAL BARS</span><span class="v">${totalBars}</span></div>
+    <div class="rm"><span class="k">ACTIVE BARS</span><span class="v">${inMarket}</span></div>
+    <div class="pbar"><div class="pbar-fill" style="width:${expPct.toFixed(1)}%;background:var(--cyn)"></div></div>
+  `;
+}
+
+function btExtRenderTradeLog(d) {
+  const tbody = document.getElementById('bt-trade-log'); if(!tbody) return;
+  const trades = (d.trades||[]).slice(-30).reverse(); // last 30
+  if(!trades.length){tbody.innerHTML='<tr><td colspan="7" class="loading">No trades</td></tr>';return;}
+  const avgPnl = trades.reduce((s,t)=>s+(t.pnl||0),0)/trades.length;
+  tbody.innerHTML = trades.map((t,i)=>`<tr class="${(t.pnl||0)>0?'up-row':'dn-row'}">
+    <td class="dim">${i+1}</td>
+    <td class="${t.side==='buy'?'up':'dn'}">${(t.side||'').toUpperCase()}</td>
+    <td class="r wht">${f(t.entry_price,4)}</td>
+    <td class="r">${f(t.exit_price,4)}</td>
+    <td class="r">${t.qty||1}</td>
+    <td class="r ${(t.pnl||0)>=0?'up':'dn'}" style="font-weight:700">R$ ${f(t.pnl,2)}</td>
+    <td class="r dim">${avgPnl?((t.pnl||0)/Math.abs(avgPnl)).toFixed(2):'—'}</td>
+  </tr>`).join('');
+}
+
+function btExtRenderReturnDist(d) {
+  const ctx = document.getElementById('bt-retdist-c'); if(!ctx) return;
+  const trades = d.trades || [];
+  if(trades.length < 3) return;
+  const pnls = trades.map(t=>t.pnl||0);
+  const mn = Math.min(...pnls), mx = Math.max(...pnls), rng = mx-mn||1;
+  const bins = 10;
+  const counts = new Array(bins).fill(0);
+  pnls.forEach(v=>{ const b=Math.floor((v-mn)/rng*(bins-0.01)); counts[b]++; });
+  const labels = counts.map((_,i)=>`${(mn+rng/bins*i).toFixed(0)}`);
+  if(_rdChart){_rdChart.destroy();_rdChart=null;}
+  _rdChart = mkBar(ctx, labels, counts,
+    counts.map((_,i)=>i<bins/2?'rgba(244,67,54,.6)':'rgba(0,200,83,.6)'));
+}
+
+function btExtRenderMAEMFE(d) {
+  const el = document.getElementById('bt-mae-panel'); if(!el) return;
+  const trades = d.trades || [];
+  const mae = trades.map(t=>({ mae: t.mae||0, mfe: t.mfe||0, pnl: t.pnl||0 }));
+  if(!mae.length) { el.innerHTML='<div class="dim">No trade data</div>'; return; }
+  const avgMae = mae.reduce((s,t)=>s+t.mae,0)/mae.length;
+  const avgMfe = mae.reduce((s,t)=>s+t.mfe,0)/mae.length;
+  el.innerHTML = `
+    <div class="rm"><span class="k">AVG MAE</span><span class="v dn">R$ ${f(avgMae,2)}</span></div>
+    <div class="rm"><span class="k">AVG MFE</span><span class="v up">R$ ${f(avgMfe,2)}</span></div>
+    <div class="rm"><span class="k">MFE/MAE</span><span class="v">${avgMae?f(avgMfe/Math.abs(avgMae),2):'—'}</span></div>
+    <div style="font-size:9px;color:var(--txt3);margin-top:6px">Top trades by MFE:</div>
+    ${mae.sort((a,b)=>b.mfe-a.mfe).slice(0,5).map((t,i)=>`<div class="rm"><span class="k">#${i+1}</span><span class="v up">MFE R$ ${f(t.mfe,2)}</span><span class="v dim">MAE R$ ${f(t.mae,2)}</span></div>`).join('')}
+  `;
+}
+
+async function btExtRenderSizing(ticker, days, strategy, params) {
+  const el = document.getElementById('bt-sizing-table'); if(!el) return;
+  const sizes = [5, 10, 20, 33, 50, 100];
+  el.innerHTML = '<div class="loading">TESTING SIZES…</div>';
+  const results = await Promise.all(sizes.map(async sz=>{
+    const r = await apiPost('/api/backtest', { ticker, days:parseInt(days), strategy, position_size:sz, ...params });
+    if(!r.ok) return null;
+    return { sz, ...r.d.metrics };
+  }));
+  const valid = results.filter(Boolean);
+  el.innerHTML = `<table class="dt" style="width:100%;font-size:9px">
+    <thead><tr><th>SIZE%</th><th class="r">RETURN</th><th class="r">SHARPE</th><th class="r">MAX DD</th></tr></thead>
+    <tbody>${valid.map(r=>`<tr>
+      <td style="color:var(--cyn);font-weight:700">${r.sz}%</td>
+      <td class="r ${(r.total_return_pct||0)>=0?'up':'dn'}">${fp(r.total_return_pct)}</td>
+      <td class="r ${(r.sharpe||0)>=0?'up':'dn'}">${f(r.sharpe,2)}</td>
+      <td class="r dn">${fp(r.max_drawdown)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+})();
+</script>
