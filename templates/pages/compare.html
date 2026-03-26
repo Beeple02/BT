@@ -502,6 +502,21 @@ function renderPerfRank() {
 (function(){
 // ── F6 Extended modules ───────────────────────────────────────────────────────
 let _hvChart = null;
+window._cmpExtTickers = [];
+
+// Sync _tickers to window._cmpExtTickers via renderChips hook
+const _origRenderChips = window.renderChips;
+if(_origRenderChips) {
+  window.renderChips = function() {
+    _origRenderChips();
+    // Read tickers from chips DOM (each chip has ticker text + ✕ child span)
+    const chipsEl = document.getElementById('cmp-chips');
+    if(chipsEl) {
+      window._cmpExtTickers = [...chipsEl.children]
+        .map(c=>c.childNodes[0]?.textContent?.trim()).filter(Boolean);
+    }
+  };
+}
 
 const _origLoad = window.loadCompare;
 if(_origLoad) {
@@ -512,7 +527,7 @@ if(_origLoad) {
 }
 
 async function cmpExtLoad() {
-  const tickers = window.BB?.cmpTickers || [];
+  const tickers = window._cmpExtTickers || [];
   if(tickers.length < 2) return;
   const days = document.getElementById('cmp-days')?.value || 90;
 

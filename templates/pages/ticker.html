@@ -1228,7 +1228,11 @@ async function tkrLoadVwapDev(ticker, exchange) {
   const r = await api(`/api/ticker_stats/${encodeURIComponent(ticker)}`);
   if(!r.ok) return;
   const d = r.d;
-  const vwap = d.vwap; const last = d.last_price;
+  // vwap and bb_upper/bb_lower are series — extract last non-null value
+  const lastVal = arr => Array.isArray(arr) ? arr.filter(v=>v!=null).pop() : arr;
+  const vwap = lastVal(d.vwap);
+  const candles = d.candles || [];
+  const last = candles.length ? candles[candles.length-1].close : null;
   if(!vwap || !last) { el.innerHTML='<div class="dim">No VWAP data</div>'; return; }
   const dev = (last - vwap) / vwap * 100;
   const col = dev>=0?'var(--up)':'var(--dn)';
@@ -1241,14 +1245,15 @@ async function tkrLoadVwapDev(ticker, exchange) {
   `;
   // VWAP bands
   const el2 = document.getElementById('tkr-vwap-bands');
-  if(el2 && d.bb_upper && d.bb_lower) {
-    const mid=(d.bb_upper+d.bb_lower)/2;
+  const bbUp = lastVal(d.bb_upper), bbLo = lastVal(d.bb_lower), atrVal = lastVal(d.atr14);
+  if(el2 && bbUp && bbLo) {
+    const mid=(bbUp+bbLo)/2;
     el2.innerHTML=`
-      <div class="rm"><span class="k">BB UPPER</span><span class="v up">${f(d.bb_upper,4)}</span></div>
+      <div class="rm"><span class="k">BB UPPER</span><span class="v up">${f(bbUp,4)}</span></div>
       <div class="rm"><span class="k">BB MID</span><span class="v">${f(mid,4)}</span></div>
-      <div class="rm"><span class="k">BB LOWER</span><span class="v dn">${f(d.bb_lower,4)}</span></div>
+      <div class="rm"><span class="k">BB LOWER</span><span class="v dn">${f(bbLo,4)}</span></div>
       <div class="rm"><span class="k">VWAP</span><span class="v yel">${f(vwap,4)}</span></div>
-      <div class="rm"><span class="k">ATR(14)</span><span class="v yel">${f(d.atr,4)}</span></div>
+      <div class="rm"><span class="k">ATR(14)</span><span class="v yel">${f(atrVal,4)}</span></div>
     `;
   }
 }

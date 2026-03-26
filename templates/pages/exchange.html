@@ -791,13 +791,22 @@ function exExtRenderCircuitBreakers(secs) {
 
 function exExtRenderQualityScores(secs) {
   const el = document.getElementById('ex-quality'); if(!el) return;
-  // Quality = composite: depth + (100-spread*10) + volume_score
-  const scored = secs.map(s=>{
-    const spreadScore = Math.max(0, 100 - (s.spread_pct||0)*20);
-    const volScore = s.vol_spike ? Math.min(s.vol_spike*20, 50) : 25;
-    const q = Math.round((spreadScore*0.6 + volScore*0.4));
-    return {ticker:s.ticker, q: Math.min(q,100)};
-  }).sort((a,b)=>b.q-a.q);
+  // Filter to active exchange tab only
+  const isNERTab = (_exExtTab||'ner') === 'ner';
+  const filtered = secs.filter(s=> isNERTab ? !s.ticker.startsWith('TSE:') : s.ticker.startsWith('TSE:'));
+  // Quality = composite score based on spread, vol_spike, and chg diversity
+  const scored = filtered.map(s=>{
+    const spr = s.spread_pct;
+    const vs  = s.vol_spike;
+    const chg = Math.abs(s.chg_pct||0);
+    // Only score if we have real spread data
+    if(spr == null) return {ticker:s.ticker, q:null};
+    const spreadScore = Math.max(0, 100 - spr * 15);   // tight spread → higher score
+    const volScore    = vs != null ? Math.min(vs * 15, 40) : 20; // vol spike adds points
+    const actScore    = Math.min(chg * 3, 20);          // price movement shows activity
+    const q = Math.round(spreadScore * 0.5 + volScore * 0.3 + actScore * 0.2);
+    return {ticker:s.ticker, q: Math.min(Math.max(q, 1), 100)};
+  }).filter(s=>s.q!=null).sort((a,b)=>b.q-a.q);
   el.innerHTML = scored.slice(0,8).map(s=>`<div style="display:flex;align-items:center;gap:5px;padding:2px 8px;border-bottom:1px solid rgba(46,46,46,.4);font-size:10px">
     <span class="org" style="font-weight:700;width:44px">${s.ticker}</span>
     <div style="flex:1;height:4px;background:var(--bdr)"><div style="height:100%;width:${s.q}%;background:${s.q>=70?'var(--up)':s.q>=40?'var(--yel)':'var(--dn)'};opacity:.8"></div></div>

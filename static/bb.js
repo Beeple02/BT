@@ -220,7 +220,17 @@ window.csvExport = function(tableEl, filename) {
 // ── API Latency Tracker ───────────────────────────────────────────────────────
 window.BB_LATENCY = { samples: [], avg: null };
 const _origApi = api;
+// Auto-inject NER credentials into every API call as query params
+function _addCreds(path) {
+  try {
+    const c = JSON.parse(localStorage.getItem('ner_creds') || 'null');
+    if(!c || !c.user_id || !c.passcode) return path;
+    const sep = path.includes('?') ? '&' : '?';
+    return path + sep + 'ner_user_id=' + encodeURIComponent(c.user_id) + '&ner_passcode=' + encodeURIComponent(c.passcode);
+  } catch(e) { return path; }
+}
 window.api = async function(path, opts) {
+  path = _addCreds(path);
   const t0 = performance.now();
   const result = await _origApi(path, opts);
   const ms = Math.round(performance.now() - t0);

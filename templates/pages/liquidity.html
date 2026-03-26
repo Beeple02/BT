@@ -365,6 +365,7 @@ if(_origLoadLiq) {
   window.loadLiq = async function(ticker) {
     await _origLoadLiq(ticker);
     if(ticker) {
+      if(ticker !== _liqExtTicker) _spreadHist = []; // reset history on ticker change
       _liqExtTicker = ticker;
       setTimeout(()=>liqExtOnLoad(ticker), 300);
     }
