@@ -251,7 +251,8 @@ window.loadHolders = async function(){
   const whales=d.whales||[];
   document.getElementById('hi-whales').innerHTML=whales.length?whales.slice(0,15).map(w=>{
     const isCross=w.num_positions>=2;
-    return `<div style="padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5)">
+    const wposJson = JSON.stringify(w.positions||[]).replace(/"/g,'&quot;');
+    return `<div style="padding:4px 8px;border-bottom:1px solid rgba(46,46,46,.5);cursor:pointer" data-whale-id="${w.user_id}" data-whale-pos="${wposJson}" onclick="if(window.hiShowWhaleProfile){const p=JSON.parse(this.dataset.whalePos||'[]');window.hiShowWhaleProfile(this.dataset.whaleId,p);}">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
         <span class="${isCross?'cyn':'org'}" style="font-size:10px;font-weight:700">
           ${isCross?'⬡ MULTI-HOLD':'◉'} ${w.display_name||('…'+w.user_id.slice(-10))}
@@ -458,24 +459,7 @@ window.hiShowWhaleProfile = function(whalId, positions) {
   </div>`;
 };
 
-// Hook into whale click in existing holders page
-const _origRenderWhales = window.renderWhales;
-if(_origRenderWhales) {
-  window.renderWhales = function(data) {
-    const result = _origRenderWhales(data);
-    // After render, add click handlers to whale IDs
-    setTimeout(()=>{
-      document.querySelectorAll('[data-whale-id]').forEach(el=>{
-        el.addEventListener('click', ()=>{
-          const wid = el.dataset.whaleId;
-          const positions = JSON.parse(el.dataset.whalePos||'[]');
-          hiShowWhaleProfile(wid, positions);
-        });
-      });
-    }, 200);
-    return result;
-  };
-}
+// Whale IDs now have inline onclick handlers in the DOM directly
 
 })();
 </script>

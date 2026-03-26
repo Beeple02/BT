@@ -131,41 +131,35 @@ window.PAGE_nf_onShow = function(){
   _refreshT = setInterval(nfRefresh, 60000); // auto-refresh every 60s
 };
 
+let _nfRunning = false;
 // ── Main refresh ──────────────────────────────────────────────
 window.nfRefresh = async function(){
+  if(_nfRunning) return; // prevent concurrent refreshes
+  _nfRunning = true;
   document.getElementById('nf-status').textContent = 'Fetching data…';
   _items = [];
 
-  // Parallel fetch all data sources
-  const [secsR, obR, txR, filingsR] = await Promise.all([
+  try {
+  // Fetch only lightweight sources — no per-ticker loops, no full orderbook
+  const [secsR, txR, filingsR] = await Promise.all([
     api('/api/securities'),
-    api('/api/orderbook'),
     api('/api/transactions?type=Trade&limit=100'),
     api('/api/tse/filings?limit=30'),
   ]);
 
   const secs = secsR.ok && Array.isArray(secsR.d) ? secsR.d : [];
-  const allOb = obR.ok  && Array.isArray(obR.d)   ? obR.d  : [];
+  const allOb = []; // removed — too expensive; use BB.secs for price data
   const txs   = txR.ok  && Array.isArray(txR.d)   ? txR.d  : [];
   const filings = filingsR.ok && Array.isArray(filingsR.d) ? filingsR.d : [];
 
-  // Fetch shareholders for each ticker (use parallel but cap at 5 at a time)
+  // Fetch shareholders for top-5 most active tickers only
+  const activeTickers = [...new Set(txs.map(t=>t.ticker).filter(Boolean))].slice(0, 5);
   const shMap = {};
-  for(let i=0; i<secs.length; i+=5){
-    const batch = secs.slice(i, i+5);
-    const results = await Promise.all(batch.map(s=>api(`/api/liquidity/${s.ticker}`)));
-    batch.forEach((s, idx) => {
-      if(results[idx].ok) shMap[s.ticker] = results[idx].d;
-    });
-  }
-
-  // Also fetch shareholders
   const shRaw = {};
-  for(let i=0; i<secs.length; i+=5){
-    const batch = secs.slice(i, i+5);
-    const results = await Promise.all(batch.map(s=>api(`/api/shareholders?ticker=${s.ticker}`)));
-    batch.forEach((s, idx) => {
-      if(results[idx].ok && Array.isArray(results[idx].d)) shRaw[s.ticker] = results[idx].d;
+  if(activeTickers.length) {
+    const results = await Promise.all(activeTickers.map(tk=>api(`/api/shareholders?ticker=${tk}`)));
+    activeTickers.forEach((tk, idx) => {
+      if(results[idx].ok && Array.isArray(results[idx].d)) shRaw[tk] = results[idx].d;
     });
   }
 
@@ -338,6 +332,8 @@ window.nfRefresh = async function(){
   const ct = _items.length;
   document.getElementById('nf-status').textContent = `${ct} signal${ct!==1?'s':''} · auto-refresh 60s`;
   document.getElementById('nf-refresh-time').textContent = new Date().toLocaleTimeString('en-GB') + ' — ' + ct + ' signals generated';
+  } catch(e) { console.error('nfRefresh error', e); }
+  finally { _nfRunning = false; }
 };
 
 // ── Ownership session diff ────────────────────────────────────

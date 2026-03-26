@@ -212,6 +212,11 @@ setInterval(()=>{ if(BB.activePanel==='wl'&&BB.watchlist.length) wlRefresh(); },
   <button class="wl-tab-btn" id="wlt-3" onclick="wlSwitchList(3)">MOMENTUM</button>
   <button class="wl-tab-btn" id="wlt-4" onclick="wlSwitchList(4)">WATCHLIST 5</button>
   <!-- Sort+Filter Bar (Module 87) -->
+  <!-- Add to current list (only for lists 1-4) -->
+  <span id="wl-list-add" style="display:none;align-items:center;gap:4px;margin-left:8px">
+    <select id="wl-list-sel" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none;min-width:120px"><option value="">SELECT TICKER</option></select>
+    <button class="btn" style="font-size:9px;padding:1px 6px" onclick="wlListAddTicker()">+ ADD</button>
+  </span>
   <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
     <span style="font-size:9px;color:var(--txt3)">SORT</span>
     <select id="wl-sort-col" onchange="wlExtSort()" style="background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:9px;padding:1px 3px;outline:none">
@@ -296,12 +301,31 @@ window.wlRefresh = async function() {
 window.wlSwitchList = function(idx) {
   _wlActiveList = idx;
   document.querySelectorAll('.wl-tab-btn').forEach((b,i)=>b.classList.toggle('on',i===idx));
-  // Swap BB.watchlist if switching to list 0
+  // Show add-ticker bar for lists 1-4
+  const addBar = document.getElementById('wl-list-add');
+  if(addBar) {
+    addBar.style.display = idx > 0 ? 'flex' : 'none';
+    // Populate the select with BB.secs
+    const sel = document.getElementById('wl-list-sel');
+    if(sel && idx > 0) {
+      const existing = new Set((_wlLists[idx]||[]).map(w=>w.ticker));
+      sel.innerHTML = '<option value="">SELECT TICKER</option>' +
+        (BB.secs||[]).map(s=>`<option value="${s.ticker}"${existing.has(s.ticker)?' disabled':''} >${s.ticker}</option>`).join('');
+    }
+  }
   if(idx===0) { wlExtRender(); }
   else {
     const list = _wlLists[idx] || [];
     wlExtRenderList(list);
   }
+};
+window.wlListAddTicker = function() {
+  const sel = document.getElementById('wl-list-sel');
+  const ticker = sel?.value; if(!ticker) return;
+  if(!_wlLists[_wlActiveList]) _wlLists[_wlActiveList] = [];
+  if(_wlLists[_wlActiveList].find(w=>w.ticker===ticker)) return;
+  _wlLists[_wlActiveList].push({ticker, price:null, chg_pct:null});
+  wlSwitchList(_wlActiveList); // re-render
 };
 
 function wlExtRender() {
@@ -366,7 +390,7 @@ async function wlExtLoadSpark(ticker) {
   el.appendChild(spark(pts, col, 70, 14));
 }
 
-async function wlExtLoadChart(ticker) {
+window.wlExtLoadChart = async function wlExtLoadChart(ticker) {
   const ctx = document.getElementById('wl-ext-c'); if(!ctx) return;
   if(_wlExtChart){_wlExtChart.destroy();_wlExtChart=null;}
   const r = await api(`/api/analytics/price_history/${encodeURIComponent(ticker)}?days=30`);

@@ -52,17 +52,18 @@ const WIDGETS = {
   market_breadth: {
     label:'MARKET BREADTH', desc:'Adv/Dec + breadth bar',
     render: async function(body) {
-      const r = await api('/api/market/breadth');
+      const r = await api('/api/market_breadth');
       if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
-      const d = r.d;
-      const adv = d.advancing||0, dec = d.declining||0, flat = d.flat||0, tot = adv+dec+flat||1;
+      const d = r.d.summary||{};
+      const adv = d.advancing||0, dec = d.declining||0, flat = d.unchanged||0, tot = adv+dec+flat||1;
       const adr = dec>0?(adv/dec).toFixed(2):'∞';
+      const avgRet = d.avg_return;
       body.innerHTML = `
         <div class="dash-kpi"><span class="dash-kpi-l">ADV/DEC</span><span class="dash-kpi-v">${adr}</span></div>
         <div class="dash-kpi"><span class="dash-kpi-l">ADVANCING</span><span class="dash-kpi-v" style="color:var(--up)">${adv}</span></div>
         <div class="dash-kpi"><span class="dash-kpi-l">DECLINING</span><span class="dash-kpi-v" style="color:var(--dn)">${dec}</span></div>
-        <div class="dash-kpi"><span class="dash-kpi-l">FLAT</span><span class="dash-kpi-v" style="color:var(--txt3)">${flat}</span></div>
-        <div class="dash-kpi"><span class="dash-kpi-l">AVG CHG%</span><span class="dash-kpi-v" style="color:${gc(d.avg_chg_pct)}">${fp(d.avg_chg_pct)}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">UNCHANGED</span><span class="dash-kpi-v" style="color:var(--txt3)">${flat}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">AVG CHG%</span><span class="dash-kpi-v" style="color:${gc(avgRet)}">${fp(avgRet)}</span></div>
         <div style="padding:6px 8px">
           <div style="display:flex;justify-content:space-between;font-size:8px;color:var(--txt3);margin-bottom:3px"><span>ADV ${adv}</span><span>FLAT ${flat}</span><span>DEC ${dec}</span></div>
           <div style="height:5px;background:var(--bdr);display:flex;border-radius:1px;overflow:hidden">
@@ -76,7 +77,7 @@ const WIDGETS = {
   top_movers: {
     label:'TOP MOVERS', desc:'Biggest gainers & losers',
     render: async function(body) {
-      const r = await api('/api/market/breadth');
+      const r = await api('/api/market_breadth');
       if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
       const secs = (r.d.securities||[]).sort((a,b)=>(b.chg_pct||0)-(a.chg_pct||0));
       const top5 = secs.slice(0,5);
@@ -97,7 +98,7 @@ const WIDGETS = {
     render: async function(body) {
       const wl = BB.watchlist||[];
       if(!wl.length) { body.innerHTML='<div class="dash-empty">NO WATCHLIST<span style="font-size:8px">Add tickers in F7</span></div>'; return; }
-      const r = await api('/api/market/breadth');
+      const r = await api('/api/market_breadth');
       const secMap = {};
       (r.ok ? r.d.securities||[] : []).forEach(s=>{ secMap[s.ticker]=s; });
       let h='';
@@ -116,11 +117,12 @@ const WIDGETS = {
   recent_trades: {
     label:'RECENT TRADES', desc:'Latest execution feed',
     render: async function(body) {
-      const r = await api('/api/orders/recent?limit=20');
-      if(!r.ok||!r.d.length) { body.innerHTML='<div class="dash-empty">NO RECENT TRADES</div>'; return; }
+      const r = await api('/api/transactions?type=Trade&limit=20');
+      const txs = Array.isArray(r.d) ? r.d : [];
+      if(!r.ok||!txs.length) { body.innerHTML='<div class="dash-empty">NO RECENT TRADES</div>'; return; }
       let h='';
-      r.d.slice(0,15).forEach(tx=>{
-        const isBuy = tx.side==='buy'||tx.side==='BUY';
+      txs.slice(0,15).forEach(tx=>{
+        const isBuy = (tx.side||tx.transaction_type||'').toLowerCase().includes('buy');
         h+=`<div class="dash-kpi">
           <span class="dash-kpi-l" style="color:var(--org)">${tx.ticker}</span>
           <span style="font-size:9px;font-weight:700;color:${isBuy?'var(--up)':'var(--dn)'};width:30px;flex-shrink:0">${isBuy?'BUY':'SELL'}</span>
@@ -176,29 +178,31 @@ const WIDGETS = {
   market_summary: {
     label:'MARKET SUMMARY', desc:'Exchange KPIs snapshot',
     render: async function(body) {
-      const r = await api('/api/market/summary');
+      const r = await api('/api/market_breadth');
       if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
-      const d = r.d;
+      const d = r.d.summary||{};
+      const secs2 = r.d.securities||[];
       body.innerHTML = `
-        <div class="dash-kpi"><span class="dash-kpi-l">TOTAL VOL</span><span class="dash-kpi-v">${fk(d.total_volume)}</span></div>
-        <div class="dash-kpi"><span class="dash-kpi-l">TOTAL VALUE</span><span class="dash-kpi-v">$${fk(d.total_value)}</span></div>
-        <div class="dash-kpi"><span class="dash-kpi-l">TRADES</span><span class="dash-kpi-v">${(d.trade_count||0).toLocaleString()}</span></div>
-        <div class="dash-kpi"><span class="dash-kpi-l">TICKERS</span><span class="dash-kpi-v">${(d.ticker_count||0).toLocaleString()}</span></div>
-        <div class="dash-kpi"><span class="dash-kpi-l">AVG SPREAD</span><span class="dash-kpi-v">${d.avg_spread!=null?f(d.avg_spread,4):'—'}</span></div>`;
+        <div class="dash-kpi"><span class="dash-kpi-l">SECURITIES</span><span class="dash-kpi-v">${secs2.length}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">ADV/DEC</span><span class="dash-kpi-v">${d.adv_dec_ratio!=null?d.adv_dec_ratio.toFixed(2):'—'}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">AVG RETURN</span><span class="dash-kpi-v" style="color:${gc(d.avg_return)}">${fp(d.avg_return)}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">VOL INDEX</span><span class="dash-kpi-v">${d.vol_dispersion!=null?f(d.vol_dispersion,2):'—'}</span></div>
+        <div class="dash-kpi"><span class="dash-kpi-l">TOTAL DEPTH</span><span class="dash-kpi-v">${fk(d.total_depth)}</span></div>`;
     }
   },
-  news_feed: {
-    label:'LATEST NEWS', desc:'Recent market feed items',
+  recent_filings: {
+    label:'TSE FILINGS', desc:'Latest TSE corporate filings',
     render: async function(body) {
-      const r = await api('/api/feed?limit=10');
+      const r = await api('/api/tse/filings?limit=8');
       if(!r.ok) { body.innerHTML='<div class="dash-empty">⚠ ERROR</div>'; return; }
-      const items = r.d.items||r.d||[];
-      if(!items.length) { body.innerHTML='<div class="dash-empty">NO FEED ITEMS</div>'; return; }
+      const items = Array.isArray(r.d) ? r.d : [];
+      if(!items.length) { body.innerHTML='<div class="dash-empty">NO FILINGS</div>'; return; }
       let h='';
-      items.slice(0,8).forEach(item=>{
+      items.slice(0,8).forEach(f2=>{
         h+=`<div style="padding:5px 8px;border-bottom:1px solid rgba(46,46,46,.4);cursor:pointer" onclick="sw('nf')">
-          <div style="font-size:9px;font-weight:700;color:var(--wht)">${item.headline||item.title||'—'}</div>
-          <div style="font-size:8px;color:var(--txt3);margin-top:1px">${item.ticker||''} ${item.time||''}</div>
+          <div style="font-size:9px;font-weight:700;color:var(--cyn)">${f2.ticker||'—'}</div>
+          <div style="font-size:9px;color:var(--wht)">${(f2.title||f2.type||'Filing').slice(0,40)}</div>
+          <div style="font-size:8px;color:var(--txt3);margin-top:1px">${f2.date||f2.filed_at||''}</div>
         </div>`;
       });
       body.innerHTML=h;
@@ -223,7 +227,7 @@ function dashLoadState() {
   } catch(e){}
 }
 
-function dashSetLayout(cols, rows) {
+window.dashSetLayout = function dashSetLayout(cols, rows) {
   _layout = {cols, rows};
   const total = cols*rows;
   // Resize _slots array
@@ -285,7 +289,7 @@ function dashRender() {
   }
 }
 
-function dashShowPicker(slotIdx) {
+window.dashShowPicker = function dashShowPicker(slotIdx) {
   const existing = document.getElementById('dash-picker-overlay');
   if(existing) existing.remove();
 
@@ -319,7 +323,7 @@ window.dashSetWidget = function(idx, key) {
   dashRender();
 };
 
-window.dashRefreshAll = function() {
+window.dashRefreshAll = function dashRefreshAll() {
   const grid = document.getElementById('dash-grid');
   if(!grid) return;
   const {cols, rows} = _layout;

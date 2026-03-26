@@ -521,13 +521,9 @@ _hmIv = setInterval(()=>{ if(_hmLive && BB.activePanel==='hm') loadHM(); }, 3000
 .hm-drill-overlay .hm-d-close{position:absolute;top:5px;right:8px;cursor:pointer;color:var(--txt3);font-size:13px}
 </style>
 
-<!-- Label toggle & legend strip (Module 96, 97) -->
+<!-- Color mode strip -->
 <div style="display:flex;align-items:center;gap:8px;padding:3px 10px;background:var(--bg3);border-top:1px solid var(--bdr);flex-shrink:0">
-  <span style="font-size:9px;color:var(--txt3);letter-spacing:1px">LABELS:</span>
-  <button class="btn btn-xs on" id="hm-lbl-price" onclick="hmToggleLabel('price')">PRICE</button>
-  <button class="btn btn-xs on" id="hm-lbl-pct" onclick="hmToggleLabel('pct')">CHG%</button>
-  <button class="btn btn-xs" id="hm-lbl-vol" onclick="hmToggleLabel('vol')">VOL</button>
-  <span style="margin-left:8px;font-size:9px;color:var(--txt3)">COLOR:</span>
+  <span style="font-size:9px;color:var(--txt3);letter-spacing:1px">COLOR MODE:</span>
   <button class="btn btn-xs" id="hm-col-rsi" onclick="hmSetColorMode('rsi')">RSI</button>
   <button class="btn btn-xs" id="hm-col-spr" onclick="hmSetColorMode('spread')">SPREAD</button>
   <button class="btn btn-xs on" id="hm-col-chg" onclick="hmSetColorMode('chg')">CHG%</button>
