@@ -1,0 +1,148 @@
+<style>
+.re-pricer{display:flex;flex-direction:column;flex:1;overflow:hidden}
+/* Input bar */
+.rp-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.rp-bar input{flex:1;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none}
+.rp-bar input:focus{border-color:var(--org)}
+.rp-bar input::placeholder{color:var(--txt3)}
+.rp-mode{display:flex;gap:0}
+.rp-mode-btn{font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:1px;padding:4px 10px;border:1px solid var(--bdr2);background:transparent;color:var(--txt3);cursor:pointer}
+.rp-mode-btn:first-child{border-right:0}
+.rp-mode-btn:hover{color:var(--wht)}
+.rp-mode-btn.on{background:var(--org);color:#000;border-color:var(--org)}
+/* Result area */
+.rp-scroll{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+/* Placeholder */
+.rp-placeholder{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--txt3)}
+.rp-placeholder .rp-icon{font-size:32px;opacity:.3}
+.rp-placeholder p{font-size:10px;letter-spacing:1.5px}
+/* Property ID hero */
+.rp-hero{background:var(--bg3);border:1px solid var(--bdr);padding:10px 14px;display:flex;align-items:center;gap:14px}
+.rp-hero-id{font-size:20px;font-weight:700;color:var(--wht);letter-spacing:2px}
+.rp-hero-type{font-size:9px;font-weight:700;letter-spacing:2px;padding:2px 8px;border:1px solid var(--org);color:var(--org)}
+.rp-hero-area{font-size:10px;color:var(--txt2);margin-left:auto}
+.rp-map-link{font-size:9px;font-weight:700;letter-spacing:1px;color:var(--cyn);text-decoration:none;padding:3px 8px;border:1px solid var(--cyn)}
+.rp-map-link:hover{background:var(--cyn);color:#000}
+/* Estimate cards */
+.rp-est{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);flex-shrink:0}
+.rp-ec{padding:10px 14px;border-right:1px solid var(--bdr);background:var(--bg2)}
+.rp-ec:last-child{border-right:none}
+.rp-ec-l{font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:4px}
+.rp-ec-v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--wht)}
+.rp-ec-v.main{color:var(--org);font-size:22px}
+.rp-ec-v.conf-hi{color:var(--up)}
+.rp-ec-v.conf-mid{color:var(--yel)}
+.rp-ec-v.conf-lo{color:var(--dn)}
+/* Resolution box */
+.rp-res{background:var(--bg2);border:1px solid var(--bdr);padding:8px 12px;display:flex;align-items:flex-start;gap:10px}
+.rp-method-badge{font-size:8px;font-weight:700;letter-spacing:1.5px;padding:2px 7px;flex-shrink:0;margin-top:1px}
+.rp-method-badge.exact{background:var(--up2);color:var(--up);border:1px solid var(--up)}
+.rp-method-badge.gemini{background:rgba(0,229,255,.1);color:var(--cyn);border:1px solid var(--cyn)}
+.rp-res-text{font-size:9px;color:var(--txt2);line-height:1.5}
+/* Section wbar */
+.rp-section{border:1px solid var(--bdr);background:var(--bg2)}
+/* History rows */
+.rp-hist-grid{display:grid;grid-template-columns:repeat(4,1fr);border-top:0}
+.rp-hc{padding:6px 12px;border-right:1px solid var(--bdr);border-top:1px solid var(--bdr)}
+.rp-hc:last-child{border-right:none}
+.rp-hc-l{font-size:9px;color:var(--txt3);letter-spacing:1px;margin-bottom:3px}
+.rp-hc-v{font-size:14px;font-weight:700;color:var(--wht);font-variant-numeric:tabular-nums}
+/* Reasons list */
+.rp-reasons{padding:8px 12px;display:flex;flex-direction:column;gap:4px}
+.rp-reason{font-size:10px;color:var(--txt2);padding-left:10px;position:relative;line-height:1.4}
+.rp-reason::before{content:'›';position:absolute;left:0;color:var(--org)}
+/* Comps table */
+.rp-no-comps{padding:12px;font-size:10px;color:var(--txt3);text-align:center}
+/* KPI strip */
+.rp-kpi{display:flex;background:var(--bg3);border:1px solid var(--bdr);flex-shrink:0}
+.rp-kv{flex:1;padding:6px 10px;border-right:1px solid var(--bdr)}
+.rp-kv:last-child{border-right:none}
+.rp-kv-l{font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:2px}
+.rp-kv-v{font-size:11px;font-weight:700;color:var(--wht);font-variant-numeric:tabular-nums}
+</style>
+
+<div class="re-pricer">
+  <!-- Input bar -->
+  <div class="rp-bar">
+    <div class="rp-mode">
+      <button class="rp-mode-btn on" id="rp-mode-exact" onclick="RE_PRICER_setMode('exact')">EXACT</button>
+      <button class="rp-mode-btn"    id="rp-mode-smart" onclick="RE_PRICER_setMode('smart')">SMART</button>
+    </div>
+    <input id="rp-input" type="text" placeholder="Plot ID (e.g. RH011) or describe a parcel in SMART mode…" onkeydown="if(event.key==='Enter')RE_PRICER_price()">
+    <button class="btn" onclick="RE_PRICER_price()" style="flex-shrink:0">PRICE →</button>
+  </div>
+
+  <!-- Results scroll area -->
+  <div class="rp-scroll" id="rp-scroll">
+    <!-- Placeholder (shown before first search) -->
+    <div class="rp-placeholder" id="rp-placeholder">
+      <div class="rp-icon">◎</div>
+      <p>ENTER A PLOT ID OR DESCRIPTION ABOVE</p>
+      <p style="font-size:9px;opacity:.5">SMART mode uses AI to match freeform descriptions to live parcels</p>
+    </div>
+
+    <!-- Result (hidden until priced) -->
+    <div id="rp-result" style="display:none;display:flex;flex-direction:column;gap:10px">
+
+      <!-- Hero -->
+      <div class="rp-hero">
+        <div class="rp-hero-id" id="rp-hero-id">—</div>
+        <div class="rp-hero-type" id="rp-hero-type">—</div>
+        <div class="rp-hero-area" id="rp-hero-area">—</div>
+        <a class="rp-map-link" id="rp-map-link" href="#" target="_blank">BLUEMAP ↗</a>
+      </div>
+
+      <!-- KPI strip -->
+      <div class="rp-kpi">
+        <div class="rp-kv"><div class="rp-kv-l">LAND AREA</div><div class="rp-kv-v" id="rp-area">—</div></div>
+        <div class="rp-kv"><div class="rp-kv-l">DIST FROM SPAWN</div><div class="rp-kv-v" id="rp-dist">—</div></div>
+        <div class="rp-kv"><div class="rp-kv-l">COORDINATES</div><div class="rp-kv-v" id="rp-coords">—</div></div>
+        <div class="rp-kv"><div class="rp-kv-l">PLOTS INCLUDED</div><div class="rp-kv-v" id="rp-plotcount">—</div></div>
+      </div>
+
+      <!-- Estimate cards -->
+      <div class="rp-est">
+        <div class="rp-ec"><div class="rp-ec-l">ESTIMATE</div><div class="rp-ec-v main" id="rp-est-val">—</div></div>
+        <div class="rp-ec"><div class="rp-ec-l">BAND LOW</div><div class="rp-ec-v" id="rp-est-lo">—</div></div>
+        <div class="rp-ec"><div class="rp-ec-l">BAND HIGH</div><div class="rp-ec-v" id="rp-est-hi">—</div></div>
+        <div class="rp-ec"><div class="rp-ec-l">CONFIDENCE</div><div class="rp-ec-v" id="rp-est-conf">—</div></div>
+      </div>
+
+      <!-- Resolution info -->
+      <div class="rp-res" id="rp-res-box" style="display:none">
+        <span class="rp-method-badge" id="rp-method-badge">EXACT</span>
+        <div class="rp-res-text" id="rp-res-text">—</div>
+      </div>
+
+      <!-- History -->
+      <div class="rp-section">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">H</span><span class="wtitle">SALE HISTORY</span></div></div>
+        <div class="rp-hist-grid">
+          <div class="rp-hc"><div class="rp-hc-l">TOTAL RECORDS</div><div class="rp-hc-v" id="rp-hist-total">—</div></div>
+          <div class="rp-hc"><div class="rp-hc-l">LISTINGS</div><div class="rp-hc-v" id="rp-hist-list">—</div></div>
+          <div class="rp-hc"><div class="rp-hc-l">CONFIRMED</div><div class="rp-hc-v" id="rp-hist-conf">—</div></div>
+          <div class="rp-hc"><div class="rp-hc-l">CONFIDENTIAL</div><div class="rp-hc-v" id="rp-hist-priv">—</div></div>
+        </div>
+      </div>
+
+      <!-- Reasons -->
+      <div class="rp-section" id="rp-reasons-section">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">R</span><span class="wtitle">VALUATION NOTES</span></div></div>
+        <div class="rp-reasons" id="rp-reasons"></div>
+      </div>
+
+      <!-- Comps -->
+      <div class="rp-section" id="rp-comps-section">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">C</span><span class="wtitle">PUBLIC COMPARABLES</span></div></div>
+        <div id="rp-comps-body"></div>
+      </div>
+
+    </div><!-- /rp-result -->
+
+    <!-- Loading state -->
+    <div id="rp-loading" style="display:none;padding:40px;text-align:center;color:var(--txt3);font-size:10px;letter-spacing:2px">PRICING…</div>
+
+    <!-- Error state -->
+    <div id="rp-error" style="display:none;padding:16px;color:var(--dn);font-size:10px;text-align:center"></div>
+  </div>
+</div>

@@ -1,0 +1,70 @@
+<style>
+.re-tracker{display:flex;flex-direction:column;flex:1;overflow:hidden}
+/* Toolbar */
+.rt-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.rt-bar input{width:180px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none}
+.rt-bar input:focus{border-color:var(--org)}
+.rt-bar input::placeholder{color:var(--txt3)}
+/* Aggregate strip */
+.rt-agg{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.rt-ac{flex:1;padding:5px 10px;border-right:1px solid var(--bdr)}
+.rt-ac:last-child{border-right:none}
+.rt-ac-l{font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:2px}
+.rt-ac-v{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--wht)}
+/* Table area */
+.rt-table-wrap{flex:1;overflow-y:auto}
+.rt-empty{padding:40px;text-align:center;color:var(--txt3);font-size:10px;letter-spacing:1.5px}
+/* Age badge */
+.rt-age{font-size:9px;color:var(--txt3)}
+.rt-age.stale{color:var(--yel)}
+/* Remove btn */
+.rt-rm{font-size:10px;color:var(--txt3);cursor:pointer;padding:1px 5px;border:1px solid transparent}
+.rt-rm:hover{color:var(--dn);border-color:var(--dn)}
+/* Status dot */
+.rt-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.rt-dot.ok{background:var(--up)}
+.rt-dot.loading{background:var(--yel)}
+.rt-dot.err{background:var(--dn)}
+</style>
+
+<div class="re-tracker">
+  <!-- Toolbar -->
+  <div class="rt-bar">
+    <input id="rt-input" type="text" placeholder="Plot ID…" onkeydown="if(event.key==='Enter')RE_TRACKER_add()">
+    <button class="btn" onclick="RE_TRACKER_add()">+ ADD</button>
+    <button class="btn" onclick="RE_TRACKER_refreshAll()" id="rt-refresh-btn" style="margin-left:4px">↻ REFRESH ALL</button>
+    <span id="rt-status" style="font-size:9px;color:var(--txt3);margin-left:8px"></span>
+  </div>
+
+  <!-- Aggregate strip -->
+  <div class="rt-agg">
+    <div class="rt-ac"><div class="rt-ac-l">TRACKED</div><div class="rt-ac-v" id="rt-agg-count">0</div></div>
+    <div class="rt-ac"><div class="rt-ac-l">TOTAL VALUE</div><div class="rt-ac-v" id="rt-agg-total">—</div></div>
+    <div class="rt-ac"><div class="rt-ac-l">AVG ESTIMATE</div><div class="rt-ac-v" id="rt-agg-avg">—</div></div>
+    <div class="rt-ac"><div class="rt-ac-l">AVG CONFIDENCE</div><div class="rt-ac-v" id="rt-agg-conf">—</div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="rt-table-wrap">
+    <div id="rt-empty" class="rt-empty">No plots tracked yet — add a plot ID above</div>
+    <table class="dt" id="rt-table" style="display:none;width:100%">
+      <thead>
+        <tr>
+          <th></th>
+          <th>PLOT</th>
+          <th>TYPE</th>
+          <th>AREA</th>
+          <th class="r">SIZE</th>
+          <th class="r">ESTIMATE</th>
+          <th class="r">BAND LOW</th>
+          <th class="r">BAND HIGH</th>
+          <th class="r">CONF</th>
+          <th class="r">HISTORY</th>
+          <th>UPDATED</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="rt-tbody"></tbody>
+    </table>
+  </div>
+</div>
