@@ -3757,6 +3757,51 @@ def watchlist_notes():
     return jsonify({"ok": True}), 200
 
 
+# ── Real Estate Space ─────────────────────────────────────────────────────────
+
+@app.route("/realestate")
+def realestate():
+    return render_template("realestate/shell.html")
+
+@app.route("/realestate/page/<pg>")
+def realestate_page(pg):
+    allowed = ["pricer", "tracker", "compare", "portfolio"]
+    if pg not in allowed:
+        return "Not found", 404
+    return render_template(f"realestate/{pg}.html")
+
+@app.route("/api/realestate/price", methods=["GET", "POST"])
+def realestate_price():
+    aurum_key    = os.environ.get("AURUM_PRICER_KEY", "")
+    aurum_domain = os.environ.get("AURUM_DOMAIN", "https://markets-app-nine.vercel.app").rstrip("/")
+    if not aurum_key:
+        return jsonify({"error": "AURUM_PRICER_KEY not configured on this server"}), 503
+    if request.method == "GET":
+        prop_id = request.args.get("propertyId") or request.args.get("plotNumber") or request.args.get("plot")
+        message = request.args.get("message")
+    else:
+        body    = request.get_json(force=True) or {}
+        prop_id = body.get("propertyId") or body.get("plotNumber") or body.get("plot")
+        message = body.get("message")
+    if not prop_id and not message:
+        return jsonify({"error": "propertyId or message required"}), 400
+    payload = {"mode": "external-estimate"}
+    if prop_id:
+        payload["propertyId"] = prop_id
+    else:
+        payload["message"] = message
+    try:
+        resp = requests.post(
+            f"{aurum_domain}/api/pricer",
+            headers={"Content-Type": "application/json", "x-api-key": aurum_key},
+            json=payload,
+            timeout=25,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"\n  Bloomberg Terminal — NER Exchange")

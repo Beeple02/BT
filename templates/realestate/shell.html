@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BT · REAL ESTATE</title>
+<link rel="stylesheet" href="/static/bb.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/static/bb.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
+#shell{display:flex;flex-direction:column;height:100vh}
+/* Topbar */
+#topbar{display:flex;align-items:stretch;background:#0a0a0a;border-bottom:1px solid var(--bdr);flex-shrink:0;height:32px}
+.tb-brand{padding:0 14px;font-size:11px;font-weight:700;letter-spacing:2px;color:var(--org);display:flex;align-items:center;border-right:1px solid var(--bdr);flex-shrink:0}
+.tb-sub{padding:0 10px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);display:flex;align-items:center;border-right:1px solid var(--bdr);flex-shrink:0}
+#tb-clock{padding:0 12px;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--wht);display:flex;align-items:center;margin-left:auto;border-left:1px solid var(--bdr)}
+/* Space switcher */
+#spacebar{display:flex;align-items:stretch;background:var(--bg2);border-bottom:1px solid var(--bdr);flex-shrink:0;height:28px}
+.space-lbl{padding:0 10px;font-size:8px;font-weight:700;letter-spacing:2px;color:var(--txt3);display:flex;align-items:center;border-right:1px solid var(--bdr);flex-shrink:0}
+.space-btn{padding:0 16px;font-size:8px;font-weight:700;letter-spacing:1.5px;color:var(--txt3);cursor:pointer;height:100%;display:flex;align-items:center;transition:all .1s;border-right:1px solid var(--bdr)}
+.space-btn:hover{color:var(--wht);background:var(--bg4)}
+.space-btn.active{color:var(--org);background:var(--bg2);border-bottom:2px solid var(--org)}
+/* Space panels */
+#spaces{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.space-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
+.space-panel.active{display:flex}
+.re-root{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.loading{padding:20px;color:var(--txt3);font-size:11px;text-align:center}
+.err-banner{padding:16px;color:var(--dn);font-size:11px;text-align:center}
+/* Back to terminal link */
+.tb-back{padding:0 12px;font-size:8px;font-weight:700;letter-spacing:1.5px;color:var(--txt3);display:flex;align-items:center;border-right:1px solid var(--bdr);cursor:pointer;transition:all .1s;text-decoration:none}
+.tb-back:hover{color:var(--wht);background:var(--bg4)}
+</style>
+</head>
+<body>
+<div id="shell">
+  <!-- Topbar -->
+  <div id="topbar">
+    <a class="tb-back" href="/">← TERMINAL</a>
+    <div class="tb-brand">BT</div>
+    <div class="tb-sub">◼ REAL ESTATE</div>
+    <span id="tb-clock">--:--:--</span>
+  </div>
+
+  <!-- Space switcher -->
+  <div id="spacebar">
+    <div class="space-lbl">SPACE</div>
+    <span class="space-btn active" id="space-btn-pricer"   onclick="switchSpace('pricer')">◎ PRICER</span>
+    <span class="space-btn"        id="space-btn-tracker"  onclick="switchSpace('tracker')">≡ TRACKER</span>
+    <span class="space-btn"        id="space-btn-compare"  onclick="switchSpace('compare')">⊞ COMPARE</span>
+    <span class="space-btn"        id="space-btn-portfolio" onclick="switchSpace('portfolio')">$ PORTFOLIO</span>
+  </div>
+
+  <!-- Spaces -->
+  <div id="spaces">
+    <div class="space-panel active" id="space-pricer">
+      <div class="re-root" id="re-pricer-root"><div class="loading">LOADING…</div></div>
+    </div>
+    <div class="space-panel" id="space-tracker">
+      <div class="re-root" id="re-tracker-root"></div>
+    </div>
+    <div class="space-panel" id="space-compare">
+      <div class="re-root" id="re-compare-root"></div>
+    </div>
+    <div class="space-panel" id="space-portfolio">
+      <div class="re-root" id="re-portfolio-root"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/realestate.js"></script>
+<script>
+// ── Clock ──────────────────────────────────────────────────────────────────
+(function tick(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  document.getElementById('tb-clock').textContent=p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+  setTimeout(tick,1000);
+})();
+
+// ── Space switching ────────────────────────────────────────────────────────
+const SPACES = ['pricer','tracker','compare','portfolio'];
+const _loaded = {pricer:false,tracker:false,compare:false,portfolio:false};
+
+async function _injectPage(spaceName){
+  const root = document.getElementById('re-'+spaceName+'-root');
+  if(!root || root.dataset.loaded==='1') return root;
+  root.innerHTML='<div class="loading">LOADING…</div>';
+  try {
+    const r = await fetch('/realestate/page/'+spaceName);
+    if(!r.ok){ root.innerHTML='<div class="err-banner">Failed to load page (HTTP '+r.status+')</div>'; return null; }
+    const html = await r.text();
+    const doc  = new DOMParser().parseFromString(html,'text/html');
+    const styles = [...doc.querySelectorAll('style')];
+    styles.forEach(s=>{ s.remove(); const ns=document.createElement('style'); ns.textContent=s.textContent; document.head.appendChild(ns); });
+    root.innerHTML = doc.body.innerHTML;
+    root.dataset.loaded = '1';
+    return root;
+  } catch(e){
+    root.innerHTML='<div class="err-banner">Load error: '+e.message+'</div>';
+    return null;
+  }
+}
+
+async function switchSpace(space){
+  SPACES.forEach(s=>{
+    document.getElementById('space-'+s).classList.toggle('active', s===space);
+    const btn=document.getElementById('space-btn-'+s);
+    if(btn) btn.classList.toggle('active', s===space);
+  });
+  if(!_loaded[space]){
+    _loaded[space]=true;
+    const root = await _injectPage(space);
+    if(!root) return;
+    const fn = window['RE_'+space.toUpperCase()+'_init'];
+    if(typeof fn==='function') fn();
+  }
+}
+
+// ── Boot: load pricer immediately ─────────────────────────────────────────
+(async function boot(){
+  _loaded.pricer = true;
+  const root = await _injectPage('pricer');
+  if(root && typeof window.RE_PRICER_init==='function') window.RE_PRICER_init();
+})();
+</script>
+</body>
+</html>

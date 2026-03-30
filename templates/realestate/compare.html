@@ -1,0 +1,62 @@
+<style>
+.re-compare{display:flex;flex-direction:column;flex:1;overflow:hidden}
+/* Input bar */
+.rc-bar{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0;flex-wrap:wrap}
+.rc-bar label{font-size:9px;color:var(--txt3);letter-spacing:1.5px;flex-shrink:0}
+.rc-input{width:110px;background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:4px 6px;outline:none}
+.rc-input:focus{border-color:var(--org)}
+.rc-input::placeholder{color:var(--txt3)}
+/* Scroll area */
+.rc-scroll{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+.rc-placeholder{flex:1;display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:10px;letter-spacing:2px}
+/* Metrics grid */
+.rc-grid{overflow-x:auto}
+.rc-grid-table{border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums;min-width:100%}
+.rc-grid-table th{background:var(--bg3);padding:4px 12px;font-size:9px;color:var(--txt2);letter-spacing:1.5px;font-weight:700;border:1px solid var(--bdr);white-space:nowrap;text-align:center}
+.rc-grid-table th.row-lbl{text-align:left;color:var(--txt3)}
+.rc-grid-table td{padding:5px 12px;border:1px solid var(--bdr);text-align:center;color:var(--txt);white-space:nowrap}
+.rc-grid-table td.row-lbl{text-align:left;font-size:9px;color:var(--txt3);letter-spacing:1px;background:var(--bg3)}
+.rc-grid-table td.best{color:var(--up);font-weight:700}
+.rc-grid-table td.worst{color:var(--dn)}
+.rc-grid-table td.plot-id{font-weight:700;color:var(--wht);font-size:12px}
+/* Chart container */
+.rc-chart-wrap{height:180px;position:relative;background:var(--bg2);border:1px solid var(--bdr);padding:8px}
+</style>
+
+<div class="re-compare">
+  <!-- Input bar -->
+  <div class="rc-bar">
+    <label>PLOTS:</label>
+    <input class="rc-input" id="rc-p1" type="text" placeholder="Plot 1">
+    <input class="rc-input" id="rc-p2" type="text" placeholder="Plot 2">
+    <input class="rc-input" id="rc-p3" type="text" placeholder="Plot 3">
+    <input class="rc-input" id="rc-p4" type="text" placeholder="Plot 4">
+    <input class="rc-input" id="rc-p5" type="text" placeholder="Plot 5">
+    <input class="rc-input" id="rc-p6" type="text" placeholder="Plot 6">
+    <button class="btn" onclick="RE_COMPARE_run()" style="margin-left:4px">COMPARE →</button>
+    <span id="rc-status" style="font-size:9px;color:var(--txt3)"></span>
+  </div>
+
+  <div class="rc-scroll" id="rc-scroll">
+    <div class="rc-placeholder" id="rc-placeholder">ENTER 2–6 PLOT IDS ABOVE AND HIT COMPARE</div>
+
+    <div id="rc-result" style="display:none;display:flex;flex-direction:column;gap:12px">
+      <!-- Metrics comparison grid -->
+      <div class="rp-section">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">≡</span><span class="wtitle">SIDE-BY-SIDE COMPARISON</span></div></div>
+        <div class="rc-grid" style="padding:10px">
+          <table class="rc-grid-table" id="rc-grid-table">
+            <thead><tr id="rc-grid-head"></tr></thead>
+            <tbody id="rc-grid-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bar chart -->
+      <div class="rp-section">
+        <div class="wbar"><div class="wbar-l"><span class="wnum">$</span><span class="wtitle">ESTIMATE COMPARISON</span></div></div>
+        <div class="rc-chart-wrap"><canvas id="rc-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>

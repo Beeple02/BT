@@ -1,0 +1,82 @@
+<style>
+.re-portfolio{display:flex;flex-direction:column;flex:1;overflow:hidden}
+/* Add bar */
+.rpf-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0;flex-wrap:wrap}
+.rpf-bar input{background:var(--bg);border:1px solid var(--bdr2);color:var(--txt);font-family:var(--font);font-size:11px;padding:5px 8px;outline:none}
+.rpf-bar input:focus{border-color:var(--org)}
+.rpf-bar input::placeholder{color:var(--txt3)}
+.rpf-bar label{font-size:9px;color:var(--txt3);letter-spacing:1px;flex-shrink:0}
+/* KPI strip */
+.rpf-kpi{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr);flex-shrink:0}
+.rpf-kc{flex:1;padding:6px 10px;border-right:1px solid var(--bdr)}
+.rpf-kc:last-child{border-right:none}
+.rpf-kc-l{font-size:9px;color:var(--txt3);letter-spacing:1.5px;margin-bottom:2px}
+.rpf-kc-v{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--wht)}
+/* Main layout: table + chart side by side */
+.rpf-body{flex:1;overflow:hidden;display:flex;min-height:0}
+.rpf-table-wrap{flex:1;overflow-y:auto;min-width:0}
+.rpf-chart-side{width:220px;flex-shrink:0;border-left:1px solid var(--bdr);display:flex;flex-direction:column;overflow:hidden}
+.rpf-chart-wrap{flex:1;position:relative;padding:10px;min-height:0}
+/* Empty state */
+.rpf-empty{padding:40px;text-align:center;color:var(--txt3);font-size:10px;letter-spacing:1.5px}
+/* Remove btn */
+.rpf-rm{font-size:10px;color:var(--txt3);cursor:pointer;padding:1px 5px;border:1px solid transparent}
+.rpf-rm:hover{color:var(--dn);border-color:var(--dn)}
+</style>
+
+<div class="re-portfolio">
+  <!-- Add bar -->
+  <div class="rpf-bar">
+    <label>PLOT ID</label>
+    <input id="rpf-id" type="text" placeholder="e.g. RH011" style="width:130px">
+    <label>PURCHASE PRICE</label>
+    <input id="rpf-price" type="number" placeholder="0" style="width:110px">
+    <label>DATE</label>
+    <input id="rpf-date" type="date" style="width:130px">
+    <button class="btn buy" onclick="RE_PORTFOLIO_add()">+ ADD POSITION</button>
+    <button class="btn" onclick="RE_PORTFOLIO_refreshAll()" id="rpf-refresh-btn" style="margin-left:4px">↻ REFRESH ALL</button>
+    <span id="rpf-status" style="font-size:9px;color:var(--txt3)"></span>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="rpf-kpi">
+    <div class="rpf-kc"><div class="rpf-kc-l">TOTAL VALUE</div><div class="rpf-kc-v" id="rpf-total">—</div></div>
+    <div class="rpf-kc"><div class="rpf-kc-l">COST BASIS</div><div class="rpf-kc-v" id="rpf-cost">—</div></div>
+    <div class="rpf-kc"><div class="rpf-kc-l">UNREALIZED P&amp;L</div><div class="rpf-kc-v" id="rpf-pnl">—</div></div>
+    <div class="rpf-kc"><div class="rpf-kc-l">P&amp;L %</div><div class="rpf-kc-v" id="rpf-pnlpct">—</div></div>
+    <div class="rpf-kc"><div class="rpf-kc-l">POSITIONS</div><div class="rpf-kc-v" id="rpf-count">0</div></div>
+    <div class="rpf-kc"><div class="rpf-kc-l">AVG CONFIDENCE</div><div class="rpf-kc-v" id="rpf-avgconf">—</div></div>
+  </div>
+
+  <!-- Main body -->
+  <div class="rpf-body">
+    <!-- Table -->
+    <div class="rpf-table-wrap">
+      <div id="rpf-empty" class="rpf-empty">No positions yet — add a plot ID with purchase price above</div>
+      <table class="dt" id="rpf-table" style="display:none;width:100%">
+        <thead>
+          <tr>
+            <th>PLOT</th>
+            <th>TYPE</th>
+            <th>AREA</th>
+            <th class="r">CURRENT EST</th>
+            <th class="r">BAND</th>
+            <th class="r">CONF</th>
+            <th class="r">PURCHASE</th>
+            <th class="r">UNREAL P&amp;L</th>
+            <th class="r">P&amp;L %</th>
+            <th>ADDED</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rpf-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Allocation chart -->
+    <div class="rpf-chart-side">
+      <div class="wbar"><div class="wbar-l"><span class="wnum">π</span><span class="wtitle">BY AREA</span></div></div>
+      <div class="rpf-chart-wrap"><canvas id="rpf-chart"></canvas></div>
+    </div>
+  </div>
+</div>
