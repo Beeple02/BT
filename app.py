@@ -23,6 +23,13 @@ print(f"[NER Terminal] Static   : {_STAT_DIR}  exists={os.path.isdir(_STAT_DIR)}
 
 app = Flask(__name__, template_folder=_TMPL_DIR, static_folder=_STAT_DIR)
 
+@app.before_request
+def check_suspended():
+    if os.environ.get("SUSPENDED") == "1":
+        title = os.environ.get("S_TITLE", "SUSPENDED")
+        text  = os.environ.get("S_TEXT",  "")
+        return render_template("suspended.html", title=title, text=text)
+
 NER_BASE   = "http://150.230.117.88:8082"
 TSE_BASE   = "https://market.installe.us"
 ATLAS_BASE = os.environ.get("ATLAS_URL", "https://atlas-production-1438.up.railway.app").rstrip("/")
